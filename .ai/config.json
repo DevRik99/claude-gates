@@ -14,9 +14,6 @@
     },
     "blockPathsOutsideRootWhitelist": {
       "enabled": false
-    },
-    "blockDestructiveShellCommands": {
-      "enabled": false
     }
   }
 }
