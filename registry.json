@@ -631,6 +631,24 @@
       ]
     },
     {
+      "id": "autonomy",
+      "name": "Autonomy",
+      "description": "Autonomous mode: block the question popup so an unattended run decides instead of asking.",
+      "gates": [
+        {
+          "id": "autonomous-mode",
+          "configKey": "autonomousMode",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "question"
+          ],
+          "description": "When autonomous mode is on, denies AskUserQuestion so the assistant decides instead of asking.",
+          "script": "gates/autonomous-mode/index.mjs"
+        }
+      ]
+    },
+    {
       "id": "session",
       "name": "Session start",
       "description": "SessionStart hooks: environment validation and project sync.",
