@@ -3,9 +3,20 @@
   "adopted": "partial",
   "gateVersion": "3.0.0",
   "gates": {
-    "requireReuseCheckBeforeBuilding": { "enabled": false },
-    "requireAuditBeforeBuilding": { "enabled": false },
-    "blockWritesToProtectedPaths": { "enabled": false },
-    "blockPathsOutsideRootWhitelist": { "enabled": false }
+    "requireReuseCheckBeforeBuilding": {
+      "enabled": false
+    },
+    "requireAuditBeforeBuilding": {
+      "enabled": false
+    },
+    "blockWritesToProtectedPaths": {
+      "enabled": false
+    },
+    "blockPathsOutsideRootWhitelist": {
+      "enabled": false
+    },
+    "blockDestructiveShellCommands": {
+      "enabled": false
+    }
   }
 }

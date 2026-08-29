@@ -125,6 +125,34 @@ function compile(source) {
   return new RegExp(source, 'i');
 }
 
+// git's GLOBAL options sit between `git` and the subcommand: `git -C <path> reset --hard`,
+// `git -c k=v push`, `git --git-dir=… clean -f`. A pattern that matches `git reset --hard`
+// contiguously is evaded by any of them. Stripping these options first — turning
+// `git -C /repo reset --hard` back into `git reset --hard` — closes that bypass for every
+// git rule at once, instead of teaching each pattern about every global option.
+//
+// A single global option, matched one at a time and stripped repeatedly (below), so the
+// pattern stays simple: an option taking a value (`-C /path`, `--git-dir=…`) or a flag
+// (`--no-pager`). The leading `git ` is kept; only the option after it is removed.
+const GIT_OPTION_WITH_VALUE = String.raw`(?:-[Cc]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:\s+|=)\S+`;
+const GIT_FLAG_OPTION = String.raw`--(?:paginate|no-pager|bare|no-optional-locks)|-p`;
+const GIT_GLOBAL_OPTION_PATTERN = new RegExp(
+  String.raw`\bgit\s+(?:${GIT_OPTION_WITH_VALUE}|${GIT_FLAG_OPTION})\s+`,
+  'i',
+);
+
+function normalizeGitOptions(command) {
+  // Strip one leading global option at a time and re-run, so a stacked
+  // `git -c a=b -C /x reset` is fully reduced to `git reset` before the deny patterns run.
+  let previous;
+  let normalized = command;
+  do {
+    previous = normalized;
+    normalized = normalized.replace(GIT_GLOBAL_OPTION_PATTERN, 'git ');
+  } while (normalized !== previous);
+  return normalized;
+}
+
 function stripQuoted(text) {
   return text
     .replace(/```[\s\S]*?```/g, ' ')
@@ -171,6 +199,10 @@ function commandTextFrom(toolName, toolInput) {
 
 /** Static deny rules + the runtime rm -rf rule, both read from config params. */
 function checkDestructive(command, parameters) {
+  // Strip git's global options so `git -C /repo reset --hard` cannot slip past a pattern
+  // written for `git reset --hard`. Non-git commands are unaffected.
+  const normalized = normalizeGitOptions(command);
+
   // denyPatterns may be a flat list of sources or [source, reason] pairs; normalize.
   const denyPairs = (parameters.denyPatterns ?? []).map((entry) =>
     Array.isArray(entry)
@@ -178,7 +210,7 @@ function checkDestructive(command, parameters) {
       : [entry, 'Destructive command is not allowed.'],
   );
   for (const [source, reason] of denyPairs) {
-    if (compile(source).test(command)) deny(GATE_ID, reason);
+    if (compile(source).test(normalized)) deny(GATE_ID, reason);
   }
 
   // rm -rf over a protected area: areas read from config at runtime, so editing
@@ -200,10 +232,13 @@ function checkDestructive(command, parameters) {
 
 /** Remote-publish rules: a real command is checked literally; a delegation prompt by intent. */
 function checkRemotePublish(command, isShell) {
+  // For a real shell command, normalize git's global options first (same bypass as above).
+  // For a delegation prompt (free text), the intent check runs on the raw text.
+  const shellCommand = normalizeGitOptions(command);
   for (const [source, reason] of REMOTE_PUBLISH_RULES) {
     const pattern = compile(source);
     if (isShell) {
-      if (pattern.test(command)) deny(GATE_ID, reason);
+      if (pattern.test(shellCommand)) deny(GATE_ID, reason);
     } else if (hasRealPublishIntent(command, pattern)) {
       deny(GATE_ID, reason);
     }

@@ -51,6 +51,19 @@ test('allows an innocuous command', () => {
   assert.equal(runGate(bash('rm -rf ./build/cache')), null);
 });
 
+test("git's global options (-C, -c, --git-dir) cannot smuggle a destructive subcommand past", () => {
+  // Regression: `git -C /path reset --hard` used to slip past the `git reset --hard` pattern
+  // because the option sat between `git` and the subcommand. Normalization strips it first.
+  assert.ok(isDeny(runGate(bash('git -C /home/code/orca reset --hard HEAD'))));
+  assert.ok(isDeny(runGate(bash('git -c core.editor=vim reset --hard'))));
+  assert.ok(isDeny(runGate(bash('git --git-dir=/x reset --hard'))));
+  assert.ok(isDeny(runGate(bash('git -c a=b -C /x clean -fd'))));
+  assert.ok(isDeny(runGate(bash('git -C /repo push origin main'))));
+  // A global option on a harmless subcommand is still allowed.
+  assert.equal(runGate(bash('git -C /repo status')), null);
+  assert.equal(runGate(bash('git reset --soft HEAD')), null);
+});
+
 test('denies a plain git push (remote publish needs fresh authorization)', () => {
   assert.ok(isDeny(runGate(bash('git push origin main'))));
   assert.ok(isDeny(runGate(bash('gh pr merge 12'))));
