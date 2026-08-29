@@ -22,7 +22,7 @@ ejecutan y con qué configuración.
 ```bash
 # 1. Registrar el marketplace e instalar el plugin (engancha los hooks)
 claude plugin marketplace add https://github.com/DevRik99/claude-gates
-claude plugin install gates@devrik
+claude plugin install gates@claude-gates
 
 # 2. Elegir qué gates adoptar (menú interactivo) — o usar npx sin clonar
 npx @devrik99/claude-gates init

@@ -21,7 +21,7 @@ run and with what configuration.
 ```bash
 # 1. Register the marketplace and install the plugin (wires the hooks)
 claude plugin marketplace add https://github.com/DevRik99/claude-gates
-claude plugin install gates@devrik
+claude plugin install gates@claude-gates
 
 # 2. Choose which gates to adopt (interactive menu) — or use npx without cloning
 npx @devrik99/claude-gates init
