@@ -25,7 +25,7 @@ claude plugin marketplace add https://github.com/DevRik99/claude-gates
 claude plugin install gates@claude-gates
 
 # 2. Elegir qué gates adoptar (menú interactivo) — o usar npx sin clonar
-npx @devrik99/claude-gates init
+npx @devrik-tools/claude-gates init
 ```
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
@@ -159,7 +159,7 @@ ves y editas cada perilla:
 
 ```bash
 # Menú interactivo: elige plugins, familias o gates, por proyecto o global, e instala.
-npx @devrik99/claude-gates init
+npx @devrik-tools/claude-gates init
 
 # Sin menú (para CI o scripts):
 claude-gates init --project|--global  --defaults|--all|--none|--families a,b|--gates x,y  --yes  --dry-run
