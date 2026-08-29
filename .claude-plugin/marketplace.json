@@ -1,0 +1,17 @@
+{
+  "name": "devrik",
+  "owner": {
+    "name": "Devrik"
+  },
+  "metadata": {
+    "description": "Gates (hooks) for Claude Code, selectable per project or globally with `npx @devrik/claude-gates init`."
+  },
+  "plugins": [
+    {
+      "name": "gates",
+      "source": "./plugins/gates",
+      "description": "PreToolUse guard dispatcher and SessionStart doctor / ask-adoption / wiring-check. Which gates run is decided by .ai/config.json (project) or ~/.claude/claude-gates/config.json (global).",
+      "version": "0.1.0"
+    }
+  ]
+}

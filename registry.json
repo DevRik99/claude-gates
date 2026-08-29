@@ -1,0 +1,668 @@
+{
+  "gateVersion": "3.0.0",
+  "families": [
+    {
+      "id": "security",
+      "name": "Security",
+      "description": "Deterministic blocks on destructive commands, sensitive paths and file placement.",
+      "gates": [
+        {
+          "id": "bash-commands",
+          "configKey": "blockDestructiveShellCommands",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "shell",
+            "delegation"
+          ],
+          "script": "gates/bash-commands/index.mjs",
+          "description": "Denies git reset --hard, rm -rf, force push, taskkill by image, and unauthorized remote publish.",
+          "params": [
+            {
+              "name": "denyPatterns",
+              "type": "string[]",
+              "description": "Regex sources of destructive commands to deny. Replaces the built-in list."
+            },
+            {
+              "name": "rmRfProtectedAreas",
+              "type": "string[]",
+              "description": "Paths that rm -rf may not target (e.g. /, *, src, tests)."
+            },
+            {
+              "name": "embeddedInterpreterEnabled",
+              "type": "boolean",
+              "description": "Whether to block node/python -e that does raw file ops. Off by default."
+            }
+          ]
+        },
+        {
+          "id": "protected-paths",
+          "configKey": "blockWritesToProtectedPaths",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "shell"
+          ],
+          "description": "Denies writes to .env, lockfiles and the harness itself.",
+          "script": "gates/protected-paths/index.mjs",
+          "params": [
+            {
+              "name": "protectedPaths",
+              "type": "string[]",
+              "description": "Path fragments no write or mutating command may target."
+            },
+            {
+              "name": "mutatingCommands",
+              "type": "string[]",
+              "description": "Shell command names treated as mutating (touch, rm, cp, mv, sed -i, tee, chmod...)."
+            }
+          ]
+        },
+        {
+          "id": "root-whitelist",
+          "configKey": "blockPathsOutsideRootWhitelist",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Denies new root-level files/folders outside the project's whitelist.",
+          "script": "gates/root-whitelist/index.mjs",
+          "params": [
+            {
+              "name": "rootFilesWhitelist",
+              "type": "string[]",
+              "description": "Root-level file names allowed to be created."
+            },
+            {
+              "name": "rootFoldersWhitelist",
+              "type": "string[]",
+              "description": "Root-level folder names allowed to be created."
+            }
+          ]
+        },
+        {
+          "id": "no-blocking",
+          "configKey": "blockWaitingCommands",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "shell",
+            "delegation"
+          ],
+          "description": "Denies sleep, tail -f, polling loops and foreground servers.",
+          "script": "gates/no-blocking/index.mjs",
+          "params": [
+            {
+              "name": "blockingPatterns",
+              "type": "string[]",
+              "description": "Regex sources of blocking/waiting forms to deny."
+            },
+            {
+              "name": "waitJustifiedMarker",
+              "type": "string",
+              "description": "Comment marker that authorizes a justified wait as an escape hatch."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "delegation",
+      "name": "Delegation",
+      "description": "Requirements on the brief of a subagent delegation.",
+      "gates": [
+        {
+          "id": "brief-before-delegate",
+          "configKey": "requireBriefBeforeDelegating",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Requires goal, steps and done-when criteria in the prompt.",
+          "script": "gates/brief-before-delegate/index.mjs",
+          "params": [
+            {
+              "name": "minBriefLength",
+              "type": "number",
+              "description": "Minimum brief length before it is considered complete."
+            },
+            {
+              "name": "readOnlySubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the brief requirement (read-only work)."
+            }
+          ]
+        },
+        {
+          "id": "intent-flow",
+          "configKey": "requireScopeListBeforeDelegating",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Requires IN SCOPE / OUT OF SCOPE / EDGE CASES sections.",
+          "script": "gates/intent-flow/index.mjs",
+          "params": [
+            {
+              "name": "highImpactPatterns",
+              "type": "string[]",
+              "description": "Regex sources for high-impact work whose scope declaration is enforced."
+            },
+            {
+              "name": "readOnlySubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the scope-list requirement."
+            }
+          ]
+        },
+        {
+          "id": "risk-level",
+          "configKey": "requireDeclaredRiskLevel",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Requires LEVEL: QUESTION|MICRO|STANDARD|HIGH-RISK consistent with the request.",
+          "script": "gates/risk-level/index.mjs",
+          "params": [
+            {
+              "name": "highImpactPatterns",
+              "type": "string[]",
+              "description": "Regex sources for high-impact signals that demand a declared level."
+            },
+            {
+              "name": "readOnlySubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the risk-level requirement."
+            }
+          ]
+        },
+        {
+          "id": "circuit-breaker",
+          "configKey": "requireCircuitBreakerOnDelegation",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Cuts the same delegation retried without substantial changes.",
+          "script": "gates/circuit-breaker/index.mjs",
+          "params": [
+            {
+              "name": "retryThreshold",
+              "type": "number",
+              "description": "Identical consecutive retries before the delegation is cut."
+            },
+            {
+              "name": "similarityThreshold",
+              "type": "number",
+              "description": "Dice similarity (0-1) above which two prompts count as the same."
+            }
+          ]
+        },
+        {
+          "id": "no-memory-dependency",
+          "configKey": "warnMemoryDependencyInBrief",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Warns when the brief relies on the subagent remembering the conversation.",
+          "script": "gates/no-memory-dependency/index.mjs",
+          "params": [
+            {
+              "name": "memoryDependencyPatterns",
+              "type": "string[]",
+              "description": "Regex sources for phrases that lean on the subagent's memory."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sdd",
+      "name": "Spec-driven flow",
+      "description": "Only meaningful when the project adopted spec-driven development (feature list, specs).",
+      "gates": [
+        {
+          "id": "feature-catalog",
+          "configKey": "requireFeatureCatalog",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Single in_progress; done requires asserts and review.",
+          "script": "gates/feature-catalog/index.mjs",
+          "params": [
+            {
+              "name": "catalogFileName",
+              "type": "string",
+              "description": "Name of the feature catalog file (default feature_list.json)."
+            },
+            {
+              "name": "maxInProgress",
+              "type": "number",
+              "description": "Maximum features allowed in_progress at once."
+            }
+          ]
+        },
+        {
+          "id": "sdd-specs",
+          "configKey": "requireSpecBeforeImplementing",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "delegation"
+          ],
+          "description": "Non-empty requirements/design/tasks before in_progress.",
+          "script": "gates/sdd-specs/index.mjs",
+          "params": [
+            {
+              "name": "catalogLocations",
+              "type": "string[]",
+              "description": "Paths searched for the feature catalog."
+            },
+            {
+              "name": "exemptSubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the spec requirement."
+            }
+          ]
+        },
+        {
+          "id": "implementation-pipeline",
+          "configKey": "requireImplementationPipeline",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Definition, writing, validation, QA and closure declared before building.",
+          "script": "gates/implementation-pipeline/index.mjs",
+          "params": [
+            {
+              "name": "builderSubagents",
+              "type": "string[]",
+              "description": "Subagent types that count as builders (subject to the pipeline)."
+            },
+            {
+              "name": "exemptSubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the pipeline requirement."
+            }
+          ]
+        },
+        {
+          "id": "mandatory-flow",
+          "configKey": "requireLiveTaskWhenImplementing",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Requires an active task with a contract before implementing.",
+          "script": "gates/mandatory-flow/index.mjs",
+          "params": [
+            {
+              "name": "activePointerPath",
+              "type": "string",
+              "description": "Path to the active-pipeline pointer file."
+            },
+            {
+              "name": "exemptSubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the live-task requirement."
+            }
+          ]
+        },
+        {
+          "id": "test-matrix",
+          "configKey": "requireTestMatrixWhenImplementing",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Requires a test matrix (types the requirement makes mandatory) in the brief.",
+          "script": "gates/test-matrix/index.mjs",
+          "params": [
+            {
+              "name": "e2eSignals",
+              "type": "string[]",
+              "description": "Regex sources that make an E2E row mandatory (money, auth, data...)."
+            },
+            {
+              "name": "visualSignals",
+              "type": "string[]",
+              "description": "Regex sources that make a visual/QA row mandatory (UI signals)."
+            },
+            {
+              "name": "exemptSubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the test-matrix requirement."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "quality",
+      "name": "Quality and hygiene",
+      "description": "Dependencies, diagnosis before patching, assumptions and language.",
+      "gates": [
+        {
+          "id": "dependency-skills",
+          "configKey": "requireSkillForNewDependency",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "A new direct dependency requires a current skill.",
+          "script": "gates/dependency-skills/index.mjs",
+          "params": [
+            {
+              "name": "depsWithoutOwnApi",
+              "type": "string[]",
+              "description": "Dependencies exempt because they have no API of their own."
+            },
+            {
+              "name": "projectSkillsDir",
+              "type": "string",
+              "description": "Directory where the project's skills live."
+            }
+          ]
+        },
+        {
+          "id": "root-cause-first",
+          "configKey": "requireRootCauseBeforePatch",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "delegation"
+          ],
+          "description": "Requires an origin-to-symptom diagnosis before a patch.",
+          "script": "gates/root-cause-first/index.mjs",
+          "params": [
+            {
+              "name": "patchMarkerPatterns",
+              "type": "string[]",
+              "description": "Regex sources for temporary-patch markers that require a diagnosis."
+            }
+          ]
+        },
+        {
+          "id": "audit-before-build",
+          "configKey": "requireAuditBeforeBuilding",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "delegation"
+          ],
+          "description": "Before a new script/gate, state that no existing tool covers it.",
+          "script": "gates/audit-before-build/index.mjs",
+          "params": [
+            {
+              "name": "executableExtensions",
+              "type": "string[]",
+              "description": "File extensions treated as executable tools."
+            },
+            {
+              "name": "toolFolders",
+              "type": "string[]",
+              "description": "Folders where a new tool triggers the audit requirement."
+            }
+          ]
+        },
+        {
+          "id": "never-assume",
+          "configKey": "requireVerificationBeforeAssuming",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "delegation"
+          ],
+          "description": "Flags unverified assumptions in briefs and code.",
+          "script": "gates/never-assume/index.mjs",
+          "params": [
+            {
+              "name": "conjecturePatterns",
+              "type": "string[]",
+              "description": "Regex sources for conjecture phrases (I assume, probably, should be...)."
+            }
+          ]
+        },
+        {
+          "id": "rule-skill-autodiscovery",
+          "configKey": "autodiscoverRulesAndSkills",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "execution",
+            "delegation"
+          ],
+          "description": "Loads gates declared by the project's rules/*.mjs and skills/*/gate.mjs.",
+          "script": "gates/rule-skill-autodiscovery/index.mjs",
+          "params": [
+            {
+              "name": "rulesDir",
+              "type": "string",
+              "description": "Directory scanned for rule gate modules."
+            },
+            {
+              "name": "gateFileNames",
+              "type": "string[]",
+              "description": "File names recognized as a skill/rule gate."
+            }
+          ]
+        },
+        {
+          "id": "recurrence-lock",
+          "configKey": "blockRegisteredRecurrences",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "execution",
+            "delegation"
+          ],
+          "description": "A second occurrence of a defect class requires its deterministic block.",
+          "script": "gates/recurrence-lock/index.mjs",
+          "params": [
+            {
+              "name": "thresholdAppearances",
+              "type": "number",
+              "description": "Appearances of a defect class before its block is required."
+            }
+          ]
+        },
+        {
+          "id": "test-after-implementation",
+          "configKey": "warnTestWrittenAfterImplementation",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Warns when a test is created after its paired implementation.",
+          "script": "gates/test-after-implementation/index.mjs",
+          "params": [
+            {
+              "name": "implementationExtensions",
+              "type": "string[]",
+              "description": "Source extensions whose paired test is checked."
+            }
+          ]
+        },
+        {
+          "id": "no-reconfirm",
+          "configKey": "requireNoReconfirmOfApproved",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "question"
+          ],
+          "description": "Never re-ask what the user already answered.",
+          "script": "gates/no-reconfirm/index.mjs",
+          "params": [
+            {
+              "name": "overlapThreshold",
+              "type": "number",
+              "description": "Word-overlap ratio (0-1) above which a question counts as a re-ask."
+            }
+          ]
+        },
+        {
+          "id": "neutral-spanish",
+          "configKey": "warnNonNeutralSpanish",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Warns on voseo or regional lexicon in written text.",
+          "script": "gates/neutral-spanish/index.mjs",
+          "params": [
+            {
+              "name": "regionalMarkers",
+              "type": "string[]",
+              "description": "Regional words to warn about. Replaces the built-in list."
+            }
+          ]
+        },
+        {
+          "id": "diagnosis-before-patch",
+          "configKey": "warnTimeoutChangeWithoutDiagnosis",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Warns when timeouts/retries change without evidence.",
+          "script": "gates/diagnosis-before-patch/index.mjs",
+          "params": [
+            {
+              "name": "timeoutPatterns",
+              "type": "string[]",
+              "description": "Regex sources for timeout/deadline/retry keys to watch."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "discovery",
+      "name": "Tool discovery",
+      "description": "Do not reinvent the wheel: consult a per-project tool map before building.",
+      "gates": [
+        {
+          "id": "reuse-before-build",
+          "configKey": "requireReuseCheckBeforeBuilding",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "delegation"
+          ],
+          "description": "Consults the project tool map; blocks building a tool absent from it without an audit.",
+          "script": "gates/reuse-before-build/index.mjs",
+          "params": [
+            {
+              "name": "toolMapFile",
+              "type": "string",
+              "description": "Path to the per-project tool map (default .ai/tool-map.json)."
+            }
+          ]
+        },
+        {
+          "id": "tool-map",
+          "configKey": "maintainToolMap",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write"
+          ],
+          "description": "Records discovered tools into the per-project map so exploration is not repeated.",
+          "script": "gates/tool-map/index.mjs",
+          "params": [
+            {
+              "name": "toolMapFile",
+              "type": "string",
+              "description": "Path to the per-project tool map (default .ai/tool-map.json)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "forge",
+      "name": "Forge pipeline",
+      "description": "Enforce the forge pipeline: a project that adopted forge routes every change through it.",
+      "gates": [
+        {
+          "id": "forge-flow",
+          "configKey": "requireForgeRunToEdit",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "write",
+            "shell"
+          ],
+          "description": "In a forge-adopted project, denies edits/commands unless an active forge run exists for it.",
+          "script": "gates/forge-flow/index.mjs",
+          "params": [
+            {
+              "name": "forgeDbPath",
+              "type": "string",
+              "description": "Path to forge's global SQLite DB (default ~/.forge/forge-mcp.db)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "session",
+      "name": "Session start",
+      "description": "SessionStart hooks: environment validation and project sync.",
+      "gates": [
+        {
+          "id": "doctor",
+          "configKey": "validateEnvironmentOnStart",
+          "default": true,
+          "event": "SessionStart",
+          "tools": [],
+          "description": "Runs the environment validator and only speaks on failure.",
+          "script": "doctor.mjs"
+        },
+        {
+          "id": "ask-adoption",
+          "configKey": "askAdoptionInNewProject",
+          "default": true,
+          "event": "SessionStart",
+          "tools": [],
+          "description": "In a project that never answered, makes the assistant ask what to adopt.",
+          "script": "ask-adoption.mjs"
+        },
+        {
+          "id": "wiring-check",
+          "configKey": "checkWiringOnStart",
+          "default": true,
+          "event": "SessionStart",
+          "tools": [],
+          "description": "Warns when a registered hook is missing or a script is orphaned.",
+          "script": "wiring-check.mjs"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+node_modules/
+coverage/
+
+# Local dev DB / state (never commit mutable state)
+*.db
+*.db-shm
+*.db-wal
+forge-mcp.db*
+
+# Per-project task state written at runtime (not source)
+.ai/tasks/
+
+# Keep .ai/config.json (the repo's own gate config for developing the gates) tracked.
+# It disables the gates that false-positive when editing the gates themselves, so the
+# repo builds the same way on any machine. Everything else under .ai/ that is runtime
+# state is ignored above.
+
+# Worker residue, not source
+.ai/features/
+GATES.md

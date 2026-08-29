@@ -1,0 +1,73 @@
+{
+  "name": "@devrik99/claude-gates",
+  "version": "0.1.0",
+  "description": "Installable, deterministic gates (hooks) for Claude Code: block destructive commands, protected paths, and enforce delegation/spec/quality rules. Configurable per project.",
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "gates",
+    "guardrails",
+    "pretooluse",
+    "policy-enforcement",
+    "ai-agent"
+  ],
+  "type": "module",
+  "bin": {
+    "claude-gates": "./cli/index.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevRik99/claude-gates.git"
+  },
+  "homepage": "https://github.com/DevRik99/claude-gates#readme",
+  "bugs": {
+    "url": "https://github.com/DevRik99/claude-gates/issues"
+  },
+  "author": "Devrik",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "cli",
+    "registry.json",
+    "README.md",
+    "README.es.md",
+    "plugins",
+    ".claude-plugin"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "test:gate": "node --test",
+    "registry:check": "node cli/index.mjs registry --check",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"cli/**/*.mjs\" \"*.mjs\" \"*.json\" \".claude-plugin/*.json\" \"plugins/gates/.claude-plugin/*.json\" \"plugins/gates/hooks/hooks.json\"",
+    "format:check": "prettier --check \"cli/**/*.mjs\" \"*.mjs\""
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "1.7.0",
+    "commander": "^15.0.0",
+    "find-up": "^8.0.0",
+    "zod": "^4.5.2"
+  },
+  "devDependencies": {
+    "@cspell/eslint-plugin": "^10.1.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-boundaries": "^7.2.0",
+    "eslint-plugin-import-x": "^4.17.1",
+    "eslint-plugin-n": "^18.3.0",
+    "eslint-plugin-prettier": "^5.5.6",
+    "eslint-plugin-promise": "^7.3.0",
+    "eslint-plugin-sonarjs": "^4.2.0",
+    "eslint-plugin-unicorn": "^74.0.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6"
+  }
+}
