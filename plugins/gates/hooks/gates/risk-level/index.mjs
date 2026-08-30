@@ -16,13 +16,29 @@
 // anywhere). Stage 2: strip quoted/templated text, require near co-occurrence between
 // the verb and the signal, discard a verb whose object is a documentary deliverable.
 // Over-declaring HIGH-RISK is never penalized — this gate only catches under-declaring.
+//
+// ── Which declaration governs ────────────────────────────────────────────────────────
+// A prompt can mention the LEVEL token more than once (a decoy/reference to a previous
+// task, then the real declaration for THIS task). Taking the first match lets an early,
+// irrelevant mention govern instead of the operative one. This gate instead takes the
+// LAST declaration as operative (a delegator revising a decoy note downward writes the
+// real value last); when multiple declarations disagree, it denies and asks for a single
+// unambiguous LEVEL rather than guessing which one is real.
+//
+// ── readOnlySubagents is a declared label, not a verified capability ────────────────
+// This hook cannot check what tools a named subagent actually has — the whitelist
+// exemption is void whenever the prompt itself carries a mutation-risk signal (money/
+// auth/data/write/deploy): the signal in the text outranks the label on the call.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'risk-level';
 const CONFIG_KEY = 'requireDeclaredRiskLevel';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_READ_ONLY_SUBAGENTS = ['explore', 'claude-code-guide', 'plan'];
 const DEFAULT_HIGH_IMPACT_PATTERNS = [
@@ -44,6 +60,15 @@ function withUnicodeWordBoundary(alternatives) {
     'iu',
   );
 }
+
+// A prompt-level signal that a whitelisted read-only subagent name should NOT be
+// trusted to exempt this call: the name is a declared label, never a verified
+// capability this hook can check, and real mutation risk in the text must win over it.
+const MUTATION_RISK_SIGNAL_PATTERN = withUnicodeWordBoundary(
+  'money|dinero|pago|payment|cobro|auth|autenticaci[oó]n|authentication|credencial|' +
+    'credential|token|sesi[oó]n|session|data|datos|borrar|delete|drop|write|escrib|' +
+    'deploy|desplieg|producci[oó]n|production',
+);
 
 const IMPLEMENTATION_VERBS = withUnicodeWordBoundary(
   'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +
@@ -71,11 +96,19 @@ const DOCUMENTARY_EXTENSION_PATTERN = /\.(md|html?|adoc)\b/iu;
 const DECLARED_LEVEL_PATTERN =
   /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(QUESTION|MICRO|STANDARD|HIGH-RISK)\b/iu;
 
-function isReadOnlySubagent(toolInput, readOnlySubagents) {
+function isReadOnlySubagentName(toolInput, readOnlySubagents) {
   const type = String(
     toolInput.subagent_type ?? toolInput.subagentType ?? '',
   ).toLowerCase();
   return new Set(readOnlySubagents.map((name) => name.toLowerCase())).has(type);
+}
+
+/** A whitelisted subagent name exempts a call ONLY when the prompt carries no
+ * mutation-risk signal. The name is a declared label, never a verified capability this
+ * hook can check — a real risk signal in the text must win over it. */
+function isReadOnlySubagent(toolInput, prompt, readOnlySubagents) {
+  if (!isReadOnlySubagentName(toolInput, readOnlySubagents)) return false;
+  return !MUTATION_RISK_SIGNAL_PATTERN.test(prompt);
 }
 
 function isImplementationRequest(prompt) {
@@ -132,9 +165,26 @@ function realHighImpactSignal(prompt, highImpactPattern) {
   return null;
 }
 
-function declaredLevel(prompt) {
-  const match = DECLARED_LEVEL_PATTERN.exec(prompt);
-  return match ? match[2].toUpperCase() : null;
+/** Every LEVEL declaration in the prompt, in order of appearance. */
+function declaredLevels(prompt) {
+  const withGlobal = new RegExp(
+    DECLARED_LEVEL_PATTERN.source,
+    `${DECLARED_LEVEL_PATTERN.flags}g`,
+  );
+  return [...prompt.matchAll(withGlobal)].map((match) => match[2].toUpperCase());
+}
+
+/** The operative LEVEL: the LAST declaration in the prompt (a delegator who corrects an
+ * earlier decoy/reference mention writes the real value last). Returns `{ level }` when
+ * every declaration agrees or there is exactly one; returns `{ ambiguous: true }` when
+ * two or more DIFFERENT levels are declared — the gate cannot know which one governs,
+ * so it asks for a single unambiguous LEVEL rather than silently picking one. */
+function operativeLevel(prompt) {
+  const levels = declaredLevels(prompt);
+  if (levels.length === 0) return { level: null };
+  const distinct = new Set(levels);
+  if (distinct.size > 1) return { ambiguous: true, levels };
+  return { level: levels[levels.length - 1] };
 }
 
 function denyNoLevelDeclared(prompt) {
@@ -145,6 +195,15 @@ function denyNoLevelDeclared(prompt) {
     `This implementation delegation ("${excerpt}${ellipsis}") does not declare its risk LEVEL. Add a ` +
       'line such as "LEVEL: STANDARD" (or QUESTION/MICRO/HIGH-RISK, whichever fits) before relaunching ' +
       'this delegation.',
+  );
+}
+
+function denyAmbiguousLevel(levels) {
+  deny(
+    GATE_ID,
+    `This delegation declares multiple different risk levels (${[...new Set(levels)].join(', ')}) — ` +
+      'it is not clear which one governs this task. Declare a single, unambiguous LEVEL for this ' +
+      'delegation (remove any decoy/reference mention of a different level) before relaunching.',
   );
 }
 
@@ -175,13 +234,12 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.description ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
-    if (isReadOnlySubagent(toolInput, parameters.readOnlySubagents)) return;
+    if (isReadOnlySubagent(toolInput, prompt, parameters.readOnlySubagents))
+      return;
     if (isExemptQuery(prompt)) return;
     if (!isImplementationRequest(prompt)) return;
 
@@ -189,8 +247,12 @@ runGate(
       parameters.highImpactPatterns,
     );
 
-    const level = declaredLevel(prompt);
+    const { level, ambiguous, levels } = operativeLevel(prompt);
     const signal = realHighImpactSignal(prompt, highImpactPattern);
+
+    if (ambiguous) {
+      denyAmbiguousLevel(levels);
+    }
 
     if (!level) {
       denyNoLevelDeclared(prompt.trim());

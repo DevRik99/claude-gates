@@ -18,13 +18,21 @@
 // discard a verb whose immediate object is a documentary deliverable (a doc/report/
 // README/.md/.html describing the area is not mutating it). Only surviving (a)+(b)+(c)
 // counts as real intent.
+//
+// ── readOnlySubagents is a declared label, not a verified capability ────────────────
+// This hook cannot check what tools a named subagent actually has — the whitelist
+// exemption is void whenever the prompt itself carries a mutation-risk signal (money/
+// auth/data/write/deploy): the signal in the text outranks the label on the call.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'intent-flow';
 const CONFIG_KEY = 'requireScopeListBeforeDelegating';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_READ_ONLY_SUBAGENTS = ['explore', 'claude-code-guide', 'plan'];
 const DEFAULT_HIGH_IMPACT_PATTERNS = [
@@ -46,6 +54,16 @@ function withUnicodeWordBoundary(alternatives) {
     'iu',
   );
 }
+
+// A prompt-level signal that a whitelisted read-only subagent name should NOT be
+// trusted to exempt this call: the name is a declared label, never a verified
+// capability this hook can check, and real mutation risk in the text must win over it.
+// Deliberately broad — over-including only means this gate's check still runs.
+const MUTATION_RISK_SIGNAL_PATTERN = withUnicodeWordBoundary(
+  'money|dinero|pago|payment|cobro|auth|autenticaci[oó]n|authentication|credencial|' +
+    'credential|token|sesi[oó]n|session|data|datos|borrar|delete|drop|write|escrib|' +
+    'deploy|desplieg|producci[oó]n|production',
+);
 
 const IMPLEMENTATION_VERBS = withUnicodeWordBoundary(
   'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +
@@ -82,11 +100,19 @@ const DOCUMENTARY_DELIVERABLE_PATTERN = withUnicodeWordBoundary(
 );
 const DOCUMENTARY_EXTENSION_PATTERN = /\.(md|html?|adoc)\b/iu;
 
-function isReadOnlySubagent(toolInput, readOnlySubagents) {
+function isReadOnlySubagentName(toolInput, readOnlySubagents) {
   const type = String(
     toolInput.subagent_type ?? toolInput.subagentType ?? '',
   ).toLowerCase();
   return new Set(readOnlySubagents.map((name) => name.toLowerCase())).has(type);
+}
+
+/** A whitelisted subagent name exempts a call ONLY when the prompt carries no
+ * mutation-risk signal. The name is a declared label, never a verified capability this
+ * hook can check — a real risk signal in the text must win over it. */
+function isReadOnlySubagent(toolInput, prompt, readOnlySubagents) {
+  if (!isReadOnlySubagentName(toolInput, readOnlySubagents)) return false;
+  return !MUTATION_RISK_SIGNAL_PATTERN.test(prompt);
 }
 
 function isImplementationRequest(prompt) {
@@ -193,7 +219,7 @@ function buildHighImpactPattern(highImpactPatterns) {
  * implementation request, a read-only subagent, or an exempt query. */
 function isExempt(toolInput, prompt, readOnlySubagents) {
   if (!prompt.trim()) return true;
-  if (isReadOnlySubagent(toolInput, readOnlySubagents)) return true;
+  if (isReadOnlySubagent(toolInput, prompt, readOnlySubagents)) return true;
   if (isExemptQuery(prompt)) return true;
   return !isImplementationRequest(prompt);
 }
@@ -209,11 +235,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.description ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (isExempt(toolInput, prompt, parameters.readOnlySubagents)) return;
 
     const highImpactPattern = buildHighImpactPattern(

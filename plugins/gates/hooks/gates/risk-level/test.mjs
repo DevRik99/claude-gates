@@ -83,18 +83,35 @@ test('allows HIGH-RISK declared for a high-impact request', () => {
   );
 });
 
-test('allows a read-only subagent without a declared level', () => {
+// A whitelisted read-only subagent name is now void whenever the prompt itself carries
+// a mutation-risk signal (money/auth/data/write/deploy): the label is self-declared,
+// never a verified capability, and a real risk signal in the text must win over it
+// (bug fixed in this gate; see risk-level.edge.test.mjs).
+test('allows a read-only subagent without a declared level when the prompt carries no mutation-risk signal', () => {
   assert.equal(
     runGate(
-      delegate(
-        'Implementa el cobro del pago con la nueva pasarela de dinero.',
-        {
-          subagent_type: 'explore',
-        },
-      ),
+      delegate('Explica como funciona el flujo de checkout actual.', {
+        subagent_type: 'explore',
+      }),
       ENABLED,
     ),
     null,
+  );
+});
+
+test('a read-only subagent name no longer exempts a real money-mutation prompt from declaring a level', () => {
+  assert.ok(
+    isDeny(
+      runGate(
+        delegate(
+          'Implementa el cobro del pago con la nueva pasarela de dinero.',
+          {
+            subagent_type: 'explore',
+          },
+        ),
+        ENABLED,
+      ),
+    ),
   );
 });
 

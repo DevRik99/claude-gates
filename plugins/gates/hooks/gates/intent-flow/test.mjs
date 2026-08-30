@@ -90,18 +90,36 @@ test('allows a normal implementation request with no high-impact signal', () => 
   );
 });
 
-test('allows a read-only subagent', () => {
+// A whitelisted read-only subagent name is now void whenever the prompt itself carries
+// a mutation-risk signal (money/auth/data/write/deploy): the label is self-declared,
+// never a verified capability, and a real risk signal in the text must win over it
+// (bug fixed in this gate; see intent-flow.edge.test.mjs). So a prompt naming "plan" is
+// only exempt when it carries no such signal.
+test('allows a read-only subagent when the prompt carries no mutation-risk signal', () => {
   assert.equal(
     runGate(
-      delegate(
-        'Implementa el cobro del pago con la nueva pasarela de dinero.',
-        {
-          subagent_type: 'plan',
-        },
-      ),
+      delegate('Explica como funciona el flujo de checkout actual.', {
+        subagent_type: 'plan',
+      }),
       ENABLED,
     ),
     null,
+  );
+});
+
+test('a read-only subagent name no longer exempts a real money-mutation prompt', () => {
+  assert.ok(
+    isDeny(
+      runGate(
+        delegate(
+          'Implementa el cobro del pago con la nueva pasarela de dinero.',
+          {
+            subagent_type: 'plan',
+          },
+        ),
+        ENABLED,
+      ),
+    ),
   );
 });
 

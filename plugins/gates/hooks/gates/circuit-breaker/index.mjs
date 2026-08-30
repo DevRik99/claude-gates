@@ -24,19 +24,47 @@
 // where character bigrams mostly measure shared vocabulary/scaffolding.
 //
 // ── Escape hatch ─────────────────────────────────────────────────────────────────────
-// A prompt that explicitly says to retry/force ("retry", "force it", "insist") is read
-// as the user already deciding to proceed despite the pattern: allow, and reset that
-// key's counter so it does not stay open blocking the next legitimate attempt.
+// A prompt that explicitly gives a real override IMPERATIVE ("retry anyway", "force it",
+// "insist") is read as the user already deciding to proceed despite the pattern: allow,
+// and reset that key's counter so it does not stay open blocking the next legitimate
+// attempt. The bare word "retry" mentioned as ordinary task vocabulary (e.g. "fix the
+// retry loop") does NOT count — only an imperative phrasing does (see OVERRIDE_PATTERN).
+//
+// ── Keying: by task identity, not by the caller-chosen subagent_type ────────────────
+// subagent_type is free text the caller controls. Keying the counter by that string lets
+// the exact same task evade detection just by varying it per relaunch. This gate instead
+// keys by a hash of the normalized identity signature itself (see identitySignature
+// below) — the task's content, not a label the caller can rename at will.
+//
+// ── Trusting the count: recomputed, not stored ──────────────────────────────────────
+// The persisted state is a list of past signatures (hashes + feature sets), never a raw
+// counter. The attempt count for THIS call is always recomputed as
+// "how many stored past entries are similar to this one, plus one for this call" — so a
+// payload that pre-seeds or edits a `count` field on disk has nothing to tamper with:
+// there is no counter field to overwrite, only a history the gate recounts itself. This
+// does not add cryptographic integrity (no secret is available to sign with in a hook),
+// but it does close the specific hole of a trusted, directly-writable numeric field.
+//
+// ── No session id: a stable fallback bucket, never a silent bypass ─────────────────
+// A missing/blank session_id no longer disables the breaker. It falls back to a fixed,
+// well-known bucket (NO_SESSION_BUCKET) instead of returning early — the per-task
+// discrimination still comes from identityKey (a hash of the prompt's own identity
+// signature), so two different tasks sharing that bucket never collide, while the SAME
+// task repeated without a session id is still tracked and eventually trips the breaker.
 
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'circuit-breaker';
 const CONFIG_KEY = 'requireCircuitBreakerOnDelegation';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_RETRY_THRESHOLD = 3;
 const DEFAULT_SIMILARITY_THRESHOLD = 0.6;
@@ -46,8 +74,18 @@ const MAX_ENTRIES_PER_KEY = 12;
 // bakes in a username or machine name — the project rule this gate must not violate.
 const STATE_ROOT = join(tmpdir(), 'claude-gates', 'circuit-breaker');
 
+// Fixed bucket used when the payload carries no session id. Distinct tasks inside this
+// bucket are still told apart by identityKey (derived from the prompt itself), so this
+// is a location, not a discriminator — it never causes two unrelated tasks to collide.
+const NO_SESSION_BUCKET = 'no-session';
+
+// An override imperative: a directive to proceed anyway, not the bare topic word
+// appearing as ordinary task vocabulary. Requires either a Spanish/English imperative
+// verb form ("reintenta", "forzalo", "insisti") or the word "retry"/"force" paired
+// immediately with "anyway"/"it"/"again" or similar — never "retry"/"force" alone,
+// which a normal task description ("fix the retry loop") can contain innocently.
 const OVERRIDE_PATTERN =
-  /(?<![\p{L}\p{N}_])(reintenta|reintentar|reintent[aá]lo|forz(a|alo|ar|á)|insist[ií]|retry|force it|force)(?![\p{L}\p{N}_])/iu;
+  /(?<![\p{L}\p{N}_])(reintent[aá]lo|reintenta(lo)?|forz(alo|á|ar)\b(?!\s+un|\s+una)|insist[ií]|retry\s+(anyway|it|again|this)|force\s+(it|this|anyway)|do\s+it\s+anyway)(?![\p{L}\p{N}_])/iu;
 
 // Template section-heading names (rules/04-subagent-standards.md), listed once as
 // plain strings and matched with simple per-name regexes rather than one combined
@@ -340,12 +378,16 @@ function readState(path) {
   }
 }
 
-function entriesFor(state, key) {
+/** Past occurrences recorded for a key: only `{ signature, seenAt }` entries survive —
+ * there is no `count` field in the persisted shape at all, so there is nothing for a
+ * forged/edited state file to inflate. The attempt count is always derived by counting
+ * how many of these stored occurrences are similar to the CURRENT signature (see
+ * countSimilarOccurrences), never read as a trusted number off disk. */
+function occurrencesFor(state, key) {
   const value = state[key];
   if (!Array.isArray(value)) return [];
   return value.filter(
-    (entry) =>
-      entry && Array.isArray(entry.signature) && Number.isFinite(entry.count),
+    (entry) => entry && Array.isArray(entry.signature),
   );
 }
 
@@ -358,48 +400,34 @@ function writeState(path, state) {
   }
 }
 
-/** Index of the entry most similar to `signature`, or -1 when none clears
- * `similarityThreshold`. Each distinct task toward the same subagent keeps its own
- * counter and never contaminates the others. */
-function findMostSimilarEntry(entries, signature, similarityThreshold) {
-  let bestIndex = -1;
-  let bestSimilarity = 0;
-  for (let index = 0; index < entries.length; index += 1) {
-    const score = similarity(entries[index].signature, signature);
-    if (score > bestSimilarity) {
-      bestSimilarity = score;
-      bestIndex = index;
-    }
-  }
-  return bestSimilarity >= similarityThreshold ? bestIndex : -1;
-}
-
-/** Records this attempt's signature into `entries` (mutated in place via the returned
- * array) and returns the resulting attempt count for its matched (or new) entry. */
-function recordAttempt(entries, signature, similarityThreshold) {
-  const matchIndex = findMostSimilarEntry(
-    entries,
-    signature,
-    similarityThreshold,
+/** How many stored past occurrences are similar enough to `signature` to count as the
+ * same repeated task, PLUS one for the current call itself. Recomputed fresh from the
+ * occurrence list every time — the count is a fact derived from stored signatures, not
+ * a number the state file carries and a forged file could set directly. */
+function countSimilarOccurrences(occurrences, signature, similarityThreshold) {
+  const matches = occurrences.filter(
+    (entry) => similarity(entry.signature, signature) >= similarityThreshold,
   );
-  const count = matchIndex >= 0 ? entries[matchIndex].count + 1 : 1;
-  const entry = { signature, count, updated: Date.now() };
-  if (matchIndex >= 0) {
-    entries[matchIndex] = entry;
-  } else {
-    entries.push(entry);
-  }
-  return count;
+  return matches.length + 1;
 }
 
-function denyRepeatedAttempt(subagentType, count) {
+/** Task-identity key: a hash of the normalized signature, not the caller-chosen
+ * subagent_type string. The exact same task tracked under a different subagent_type on
+ * each relaunch still lands on the same key, because the key is derived from what the
+ * task IS, not from a free-text label the caller can vary at will. */
+function identityKey(signature) {
+  return createHash('sha256').update(signature.join(' ')).digest('hex');
+}
+
+function denyRepeatedAttempt(count) {
   deny(
     GATE_ID,
-    `Subagent "${subagentType}" received ${count} consecutive attempts with the same task (same goal, ` +
-      'same scope and the same files) in this session. Do not relaunch this same delegation again — ' +
-      'escalate to the user with evidence: what was tried, what blocked it, and what decision is needed. ' +
-      'Escape hatch: if the user explicitly authorized it, include "retry"/"force it"/"insist" in the next ' +
-      "delegation's prompt and this gate will allow it and reset the counter.",
+    `This same task received ${count} consecutive attempts (same goal, same scope and the same files) ` +
+      'in this session, regardless of which subagent_type carried it. Do not relaunch this same ' +
+      'delegation again — escalate to the user with evidence: what was tried, what blocked it, and what ' +
+      'decision is needed. Escape hatch: if the user explicitly authorized it, include an override ' +
+      'imperative ("retry anyway"/"force it"/"insisti") in the next delegation\'s prompt and this gate ' +
+      'will allow it and reset the counter.',
   );
 }
 
@@ -414,43 +442,60 @@ runGate(
     },
   },
   ({ toolName, toolInput, sessionId, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
-    if (!sessionId) return; // no session: nowhere to persist the counter
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.description ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
-    const subagentType = String(
-      toolInput.subagent_type ?? toolInput.subagentType ?? 'no-subagent',
-    ).toLowerCase();
+    // A missing/blank session id no longer disables the breaker: it falls back to a
+    // fixed bucket, with identityKey (below) still discriminating between tasks.
+    const effectiveSessionId = sessionId || NO_SESSION_BUCKET;
 
-    const statePath = statePathFor(sessionId);
+    const statePath = statePathFor(effectiveSessionId);
     const state = readState(statePath);
 
+    const signature = identitySignature(prompt);
+    const key = identityKey(signature);
+
     if (OVERRIDE_PATTERN.test(prompt)) {
-      // The user already decided to proceed despite the pattern: allow, and clear the
-      // key so it does not stay open blocking the next legitimate attempt.
-      delete state[subagentType];
+      // The user already decided to proceed despite the pattern: allow, and clear
+      // whichever key(s) hold a similar history. The override phrase itself ("force it,
+      // retry.") is appended text that can shift the identity signature enough to land
+      // on a different hash than the original task's key — clearing only the exact
+      // current key would then miss the very history this call is meant to reset. Every
+      // existing key whose stored signature is similar to the current one (by the same
+      // threshold the normal path uses) is cleared, plus the current key itself.
+      for (const existingKey of Object.keys(state)) {
+        const occurrences = occurrencesFor(state, existingKey);
+        const isRelated =
+          existingKey === key ||
+          occurrences.some(
+            (entry) =>
+              similarity(entry.signature, signature) >=
+              parameters.similarityThreshold,
+          );
+        if (isRelated) delete state[existingKey];
+      }
       writeState(statePath, state);
       return;
     }
 
-    const signature = identitySignature(prompt);
-    const entries = entriesFor(state, subagentType);
-    const count = recordAttempt(
-      entries,
+    const occurrences = occurrencesFor(state, key);
+    const count = countSimilarOccurrences(
+      occurrences,
       signature,
       parameters.similarityThreshold,
     );
 
-    entries.sort((a, b) => (a.updated ?? 0) - (b.updated ?? 0));
-    state[subagentType] = entries.slice(-MAX_ENTRIES_PER_KEY);
+    const updated = [
+      ...occurrences,
+      { signature, seenAt: Date.now() },
+    ].slice(-MAX_ENTRIES_PER_KEY);
+    state[key] = updated;
     writeState(statePath, state);
 
     if (count >= parameters.retryThreshold) {
-      denyRepeatedAttempt(subagentType, count);
+      denyRepeatedAttempt(count);
     }
   },
 );

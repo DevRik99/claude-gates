@@ -7,18 +7,24 @@
 // ── Two stages, same pattern as intent-flow ─────────────────────────────────────────
 // Stage 1 (cheap): does any memory-dependency phrase appear anywhere? If not, allow.
 // Stage 2 (confirmation, only on candidates): strip quoted text, then discard a phrase
-// that has a deterministic persistence instruction nearby (a file, flag, env var, gate)
-// — "remember to save this to notes.md" does not depend on model memory, it depends on
-// a real file. This is a soft signal (warn), not a hard block: whether the brief truly
-// needs the data or is just referencing prior agreement needs judgment this gate can't
-// supply on its own.
+// that has a REAL deterministic persistence INSTRUCTION nearby (not just a noun/verb
+// mentioned in passing) — "no te olvides de guardar la decision en .ai/decision.md"
+// genuinely depends on a file, not on model memory. A persistence noun/verb that merely
+// co-occurs in the window without forming an instruction TO persist THIS remembered
+// thing (e.g. an unrelated file named elsewhere in the same sentence) does not suppress
+// the warning. This stays a soft signal (warn), never a hard block: whether the brief
+// truly needs the data or is just referencing prior agreement needs judgment this gate
+// can't supply on its own.
 
-import { runGate, warn, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'no-memory-dependency';
 const CONFIG_KEY = 'warnMemoryDependencyInBrief';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_MEMORY_DEPENDENCY_PATTERNS = [
   'acordate de|acu[eé]rdate de',
@@ -28,15 +34,17 @@ const DEFAULT_MEMORY_DEPENDENCY_PATTERNS = [
   "remember to|don'?t forget|keep in mind",
 ];
 
-// Split into two simpler alternations (tested with plain OR at call time) instead of
-// one large regex: each half stays well under the complexity/backtracking budget a
-// single combined pattern would hit.
-const PERSISTENCE_NOUN_PATTERN =
-  /archivo|file|flag|variable de entorno|env var|gate determinista|deterministic gate|\.md|\.json/i;
+// A real persistence INSTRUCTION requires an imperative persistence VERB (an actual
+// directive to save/persist/write THIS remembered thing), not merely a persistence-
+// related NOUN mentioned somewhere nearby (a stray "incident.md" in the same sentence
+// names a file without instructing anything be saved to it). The noun pattern is kept
+// only to require the verb's own target look like a real destination (file/flag/env
+// var/gate), so a bare "guarda" with no destination in view still counts (it is already
+// imperative), but a bare destination noun with no verb never does.
 // Kept deliberately flat (no nested optional groups) to stay under the regex-complexity
 // budget: a handful of plain alternatives rather than one clever pattern with backtracking.
 const PERSISTENCE_VERB_PATTERN =
-  /guardal[oa]|guarda|guardá esto|persisti|persiste|persistir|persistido|escribil[oa] en|escribi en|save it in|save this in|save it to|save this to/i;
+  /guardal[oa]|guarda(l[oa])?|guardá esto|persisti|persiste|persistir|persistido|escribil[oa] en|escribi en|save it in|save this in|save it to|save this to/i;
 
 const PERSISTENCE_WINDOW = 80;
 
@@ -61,6 +69,10 @@ function allMatches(pattern, text) {
   return [...text.matchAll(new RegExp(pattern.source, flags))];
 }
 
+/** True only when the window around a memory phrase carries a real persistence
+ * INSTRUCTION — an imperative persistence verb — not merely a persistence-related noun
+ * mentioned in passing. A noun alone ("el reporte esta en incident.md") names a file
+ * without instructing anything be saved to it, so it must NOT suppress the warning. */
 function hasPersistenceInstructionNearby(text, match) {
   const from = Math.max(0, match.index - PERSISTENCE_WINDOW);
   const to = Math.min(
@@ -68,10 +80,7 @@ function hasPersistenceInstructionNearby(text, match) {
     match.index + match[0].length + PERSISTENCE_WINDOW,
   );
   const window = text.slice(from, to);
-  return (
-    PERSISTENCE_NOUN_PATTERN.test(window) ||
-    PERSISTENCE_VERB_PATTERN.test(window)
-  );
+  return PERSISTENCE_VERB_PATTERN.test(window);
 }
 
 function unresolvedMemoryPhrases(prompt, memoryPattern) {
@@ -95,11 +104,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.description ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
     const memoryPattern = withUnicodeWordBoundary(
