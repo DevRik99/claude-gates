@@ -12,6 +12,7 @@ import {
   writtenContentOf,
   writtenPathOf,
   delegationPromptOf,
+  shellWrittenPaths,
 } from '../hook-io.mjs';
 
 // deny/warn/allow/runGate call process.exit and cannot be invoked in-process without
@@ -207,4 +208,16 @@ test('warn writes additionalContext and exits 0', () => {
 test('allow exits 0 with no stdout', () => {
   const output = runInChildProcess('mod.allow()', { input: '' });
   assert.equal(output, '');
+});
+
+test('shellWrittenPaths extracts paths a shell command creates', () => {
+  assert.deepEqual(shellWrittenPaths('printf x > basura.txt'), ['basura.txt']);
+  assert.deepEqual(shellWrittenPaths('echo hi >> log.txt'), ['log.txt']);
+  assert.deepEqual(shellWrittenPaths('touch nuevo.js'), ['nuevo.js']);
+  assert.deepEqual(shellWrittenPaths('tee out.txt'), ['out.txt']);
+  // creates nothing -> empty
+  assert.deepEqual(shellWrittenPaths('git status'), []);
+  assert.deepEqual(shellWrittenPaths('cat archivo.txt'), []);
+  // a dynamically built path is NOT extracted (documented limitation)
+  assert.deepEqual(shellWrittenPaths('printf x > "$f"'), []);
 });

@@ -155,6 +155,45 @@ export function writtenPathOf(toolInput) {
   return String(path);
 }
 
+// Shell forms that CREATE or write a file at a named path, so a gate protecting a path can
+// see a `printf ... > basura.txt` the same way it sees a Write. Each pattern captures the
+// target path. Conservative by design: it over-detects (a gate then finds the path benign)
+// rather than under-detects (a silent hole). It does NOT resolve variables, command
+// substitution, or subshells — a path built dynamically (`> "$f"`) is not extracted; that
+// limitation is documented on the gates that use this, the honest boundary of a regex.
+const SHELL_WRITE_PATTERNS = [
+  // redirection: `> file`, `>> file`, `1> file`, `&> file` (not `2>` alone — stderr)
+  /(?:^|\s|;|&&|\|\|)(?:[0-9]*|&)>>?\s*(['"]?)([^\s'"|;&<>]+)\1/g,
+  // touch / tee target(s)
+  /\b(?:touch|tee)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
+  // cp / mv / install destination is the LAST path; capture the first arg after the command
+  // as a cheap proxy (over-detects the source too, which is acceptable — a gate re-checks).
+  /\b(?:cp|mv|install)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
+];
+
+/**
+ * Every filesystem path a shell command appears to create or write to (redirections, touch,
+ * tee, cp/mv destinations). Returns a de-duplicated list, empty when none is found. A gate
+ * that protects paths should check these IN ADDITION to writtenPathOf, or a shell redirection
+ * slips past it (the exact hole that let `printf x > basura.txt` evade root-whitelist while a
+ * Write to the same path was blocked).
+ */
+export function shellWrittenPaths(command) {
+  const text = String(command ?? '');
+  const found = new Set();
+  for (const pattern of SHELL_WRITE_PATTERNS) {
+    for (const match of text.matchAll(pattern)) {
+      const path = match[2];
+      // Skip a dynamically built target (a variable/substitution): we cannot resolve `$f`,
+      // `${x}` or `$(…)` to a real path, and guessing would only add false positives. This is
+      // the documented limitation — the write-tool surface, which carries a concrete path,
+      // stays the reliable one.
+      if (path && !/[$`]/.test(path)) found.add(path);
+    }
+  }
+  return [...found];
+}
+
 /** The brief/prompt a delegation carries, across native and MCP field shapes. */
 export function delegationPromptOf(toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return '';

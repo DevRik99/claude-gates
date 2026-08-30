@@ -95,3 +95,30 @@ test('FIXED: a root file matching the whitelist except for letter case is now al
 // `TargetFile`, or `target_file`) — writeTargetFrom does not recognize `path` alone
 // unless the tool is also in WRITE_TOOLS. Since MCP tools already fail the toolName
 // check, this compounds the same root bug; not a separate one worth a distinct test.
+
+// ── FIXED (the VPS bug): a shell REDIRECTION creating a root file evaded the gate, because
+// root-whitelist only watched write tools, not Bash. It now also inspects the paths a shell
+// command creates (redirection / touch / tee / cp / mv), matching protected-paths' behavior.
+function bash(command) {
+  return { tool_name: 'Bash', tool_input: { command } };
+}
+
+test('FIXED: a shell redirection creating an orphan root file is now denied', () => {
+  const p = project();
+  assert.ok(isDeny(p.run(bash('printf "x" > basura.txt'))), 'printf > basura.txt must be denied');
+});
+
+test('FIXED: touch of an orphan root file via Bash is now denied', () => {
+  const p = project();
+  assert.ok(isDeny(p.run(bash('touch orphan.js'))), 'touch orphan.js must be denied');
+});
+
+test('OK: a shell redirection into a whitelisted folder is allowed', () => {
+  const p = project();
+  assert.equal(p.run(bash('echo x > src/ok.js')), null, 'src/ is whitelisted');
+});
+
+test('OK: a shell command that creates nothing (git status) is allowed', () => {
+  const p = project();
+  assert.equal(p.run(bash('git status')), null);
+});
