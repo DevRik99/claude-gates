@@ -22,12 +22,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { runGate, deny, warn, toolInGroups } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'forge-flow';
 const CONFIG_KEY = 'requireForgeRunToEdit';
 
-const ACTING_TOOLS = new Set([...TOOL_GROUPS.write, ...TOOL_GROUPS.shell]);
+// Any code-mutating surface: native write/shell AND their MCP equivalents. `execution`
+// already unions write+shell+mcp__ide__executeCode, and toolInGroups adds the mcp__* signal
+// match — so an MCP filesystem-write or shell-exec tool no longer slips past the enforcer.
+const ACTING_GROUPS = ['execution'];
 const PROJECT_ROOT_MARKERS = ['.git', '.ai'];
 const DEFAULT_FORGE_DB = join('.forge', 'forge-mcp.db');
 const FORGE_MARKER_FILE = join('.ai', 'forge.json');
@@ -68,8 +71,16 @@ function projectAdoptedForge(root) {
  * throwing). Any failure — module missing, DB absent, locked, unreadable, schema drift —
  * returns true: the gate must fail OPEN, since a broken lookup must never block every edit.
  */
-async function hasActiveForgeRun(root, forgeDatabasePath) {
-  if (!existsSync(forgeDatabasePath)) return false; // no DB yet → no runs at all → deny
+// Returns one of three verdicts, so a broken lookup no longer masquerades as "run present":
+//   { state: 'active' }   → a run for this project exists; allow.
+//   { state: 'none' }     → DB readable, no active run for this project; deny.
+//   { state: 'unknown', reason } → DB absent/locked/corrupt/schema-drift, or node:sqlite
+//                                   missing; we cannot tell. Warn (visible) but allow, so a
+//                                   broken DB never blocks all work AND never disables the
+//                                   enforcer silently — the earlier code returned true here,
+//                                   which looked identical to "run present".
+async function forgeRunState(root, forgeDatabasePath) {
+  if (!existsSync(forgeDatabasePath)) return { state: 'none' }; // no DB yet → no runs → deny
   try {
     const { DatabaseSync } = await import('node:sqlite');
     const database = new DatabaseSync(forgeDatabasePath, { readOnly: true });
@@ -77,9 +88,11 @@ async function hasActiveForgeRun(root, forgeDatabasePath) {
       .prepare("SELECT cwd FROM runs WHERE status = 'active'")
       .all();
     database.close();
-    return rows.some((row) => String(row.cwd) === root);
-  } catch {
-    return true; // node:sqlite missing, or DB locked/unreadable → fail open
+    return rows.some((row) => String(row.cwd) === root)
+      ? { state: 'active' }
+      : { state: 'none' };
+  } catch (error) {
+    return { state: 'unknown', reason: error?.message ?? String(error) };
   }
 }
 
@@ -97,7 +110,7 @@ runGate(
     defaultParams: { forgeDatabasePath: join(homedir(), DEFAULT_FORGE_DB) },
   },
   async ({ toolName, parameters }) => {
-    if (!ACTING_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ACTING_GROUPS)) return;
 
     const root = projectRootOf(process.cwd());
     if (!root) return; // no project
@@ -105,8 +118,17 @@ runGate(
 
     const forgeDatabasePath =
       parameters.forgeDatabasePath ?? join(homedir(), DEFAULT_FORGE_DB);
-    if (await hasActiveForgeRun(root, forgeDatabasePath)) return;
+    const result = await forgeRunState(root, forgeDatabasePath);
 
-    deny(GATE_ID, DENY_MESSAGE);
+    if (result.state === 'active') return; // pipeline is running → allow
+    if (result.state === 'none') deny(GATE_ID, DENY_MESSAGE); // no run → block
+    // state 'unknown': the DB could not be read. Allow so a broken lookup never freezes work,
+    // but surface it loudly — a silent allow here would disable the enforcer without a trace.
+    warn(
+      GATE_ID,
+      `forge enforcement is degraded: the forge DB could not be read (${result.reason}). ` +
+        'Allowing this action, but the pipeline is NOT being enforced. Check that forge is ' +
+        `installed and ${forgeDatabasePath} is readable, or turn this gate off if intended.`,
+    );
   },
 );

@@ -17,12 +17,15 @@
 // prose (no hook sees chat text) — the injected reminder pushes against that, but the only
 // deterministic lever is the question tool, and this gate pulls it.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'autonomous-mode';
 const CONFIG_KEY = 'autonomousMode';
 
-const QUESTION_TOOLS = new Set(TOOL_GROUPS.question);
+// The tool groups whose members are "asking the user something". `toolInGroups` matches the
+// native AskUserQuestion AND any MCP ask/confirm/elicit surface (mcp__*__ask_user_*), so an
+// autonomous run can't be interrupted by a question routed through an MCP server either.
+const QUESTION_GROUPS = ['question'];
 
 const DENY_MESSAGE =
   'Autonomous mode is ON for this project: do not ask the user. Take the best decision ' +
@@ -39,7 +42,7 @@ runGate(
     enabledByDefault: false,
   },
   ({ toolName }) => {
-    if (!QUESTION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, QUESTION_GROUPS)) return;
     deny(GATE_ID, DENY_MESSAGE);
   },
 );
