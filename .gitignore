@@ -18,3 +18,7 @@ forge-mcp.db*
 # Worker residue, not source
 .ai/features/
 GATES.md
+
+# Mutation testing reports (generated)
+reports/mutation/
+.stryker-tmp/

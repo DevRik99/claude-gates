@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "_comment": "Gates run as child processes (each test execFileSync's the gate's index.mjs), so the code under test lives in a separate process from the test. Standard in-process coverage instrumentation would read 0% — the command runner is the only correct fit: Stryker mutates the index.mjs ON DISK, then runs `node --test`, whose spawned gate picks up the mutated file. mutate targets only the gate logic, never tests or the shared lib scaffolding (its own suite covers it).",
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "node --test"
+  },
+  "coverageAnalysis": "off",
+  "mutate": [
+    "plugins/gates/hooks/gates/**/index.mjs"
+  ],
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".stryker-tmp"
+  ],
+  "reporters": ["clear-text", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "timeoutMS": 20000,
+  "concurrency": 4
+}
