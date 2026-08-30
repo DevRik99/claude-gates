@@ -87,6 +87,31 @@ test('allows a write outside tool folders or non-executable extension', () => {
   assert.equal(runGate(write('/repo/scripts/data.json', '{}'), ENABLE), null);
 });
 
+test('denies delegation to create a new tool without audit evidence, in Spanish', () => {
+  assert.ok(
+    isDeny(runGate(delegate('crea un nuevo script que verifique X'), ENABLE)),
+  );
+});
+
+test('bilingual control: ES and EN equivalent new-tool delegations both deny without audit evidence', () => {
+  const es = delegate('crea un nuevo script que verifique X');
+  const en = delegate('create a new script that checks X');
+  assert.ok(isDeny(runGate(es, ENABLE)));
+  assert.ok(isDeny(runGate(en, ENABLE)));
+});
+
+test('allows a Spanish delegation with audit evidence stated', () => {
+  assert.equal(
+    runGate(
+      delegate(
+        'crea un nuevo script que verifique X. audite y no existe una herramienta que cubra esto.',
+      ),
+      ENABLE,
+    ),
+    null,
+  );
+});
+
 test('disabled by default (registry default is false)', () => {
   assert.equal(runGate(delegate('create a new script that checks X')), null);
 });

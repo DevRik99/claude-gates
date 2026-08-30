@@ -47,6 +47,17 @@ test('denies implementing a payment change with real intent and no scope list', 
   assert.ok(isDeny(result));
 });
 
+test('bilingual control: an EN payment brief with no scope list denies exactly like its ES equivalent', () => {
+  const es = delegate(
+    'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.',
+  );
+  const en = delegate(
+    'Implement the payment charge with the new money gateway for checkout.',
+  );
+  assert.ok(isDeny(runGate(es, ENABLED)));
+  assert.ok(isDeny(runGate(en, ENABLED)));
+});
+
 test('allows the same request once IN SCOPE / OUT OF SCOPE / EDGE CASES are declared', () => {
   const prompt = [
     'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.',

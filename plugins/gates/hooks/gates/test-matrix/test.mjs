@@ -79,6 +79,33 @@ test('exempt subagent type (qa) is never held to the matrix requirement', () => 
   );
 });
 
+test('denies missing E2E for a Spanish money brief (cobro/saldo/cuota), not just its English equivalent', () => {
+  const prompt =
+    'Nivel: STANDARD\nImplementá el cobro de la cuota. Verificación: vitest cubre el cálculo.';
+  const result = runGate(delegate(prompt), { config: enabledConfig() });
+  assert.ok(isDeny(result));
+  assert.ok(result.hookSpecificOutput.permissionDecisionReason.includes('E2E'));
+});
+
+test('bilingual control: an EN money brief with only unit coverage denies for the same reason as its ES equivalent', () => {
+  const es = 'Nivel: STANDARD\nImplementá el cobro de la cuota. Verificación: vitest cubre el cálculo.';
+  const en = 'Level: STANDARD\nImplement the fee charge. Verification: vitest covers the calculation.';
+  const resultEs = runGate(delegate(es), { config: enabledConfig() });
+  const resultEn = runGate(delegate(en), { config: enabledConfig() });
+  assert.ok(isDeny(resultEs));
+  assert.ok(isDeny(resultEn));
+  assert.ok(resultEs.hookSpecificOutput.permissionDecisionReason.includes('E2E'));
+  assert.ok(resultEn.hookSpecificOutput.permissionDecisionReason.includes('E2E'));
+});
+
+test('allows a Spanish brief that declares unit, E2E and negative cases with Spanish wording', () => {
+  const prompt =
+    'Nivel: STANDARD\nImplementá el cobro de la cuota. ' +
+    'Verificación: pruebas unitarias cubren el calculo. E2E: flujo completo de cobro. ' +
+    'Casos negativos: monto cero, sin saldo, entrada invalida.';
+  assert.equal(runGate(delegate(prompt), { config: enabledConfig() }), null);
+});
+
 test('e2eSignals param override makes a domain word mandatory that the default list omits', () => {
   const prompt =
     'Nivel: STANDARD\nImplementá el módulo de inventario. Verificación: vitest cubre el cálculo.';

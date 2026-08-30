@@ -35,6 +35,7 @@ import {
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { MUTATION_RISK_SIGNAL } from '../../lib/signals.mjs';
 
 const GATE_ID = 'brief-before-delegate';
 const CONFIG_KEY = 'requireBriefBeforeDelegating';
@@ -84,11 +85,8 @@ const READ_ONLY_VERBS = withUnicodeWordBoundary(
 // trusted to exempt this call: real mutation risk in the text outranks a self-declared
 // label. Deliberately broad (over-includes) — a false positive here only means the
 // brief check still runs, which is cheap; a false negative would let a mutator hide.
-const MUTATION_RISK_SIGNAL_PATTERN = withUnicodeWordBoundary(
-  'money|dinero|pago|payment|cobro|auth|autenticaci[oó]n|authentication|credencial|' +
-    'credential|token|sesi[oó]n|session|data|datos|borrar|delete|drop|write|escrib|' +
-    'deploy|desplieg|producci[oó]n|production',
-);
+// Centralized in lib/signals.mjs (ES+EN) — see its header for the class this covers.
+const MUTATION_RISK_SIGNAL_PATTERN = MUTATION_RISK_SIGNAL;
 
 /** Evidence of a stated GOAL, captured so its trailing content can be measured. */
 const GOAL_PATTERN = withUnicodeWordBoundary(

@@ -30,6 +30,7 @@ import {
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { MUTATION_RISK_SIGNAL } from '../../lib/signals.mjs';
 
 const GATE_ID = 'intent-flow';
 const CONFIG_KEY = 'requireScopeListBeforeDelegating';
@@ -59,11 +60,8 @@ function withUnicodeWordBoundary(alternatives) {
 // trusted to exempt this call: the name is a declared label, never a verified
 // capability this hook can check, and real mutation risk in the text must win over it.
 // Deliberately broad — over-including only means this gate's check still runs.
-const MUTATION_RISK_SIGNAL_PATTERN = withUnicodeWordBoundary(
-  'money|dinero|pago|payment|cobro|auth|autenticaci[oó]n|authentication|credencial|' +
-    'credential|token|sesi[oó]n|session|data|datos|borrar|delete|drop|write|escrib|' +
-    'deploy|desplieg|producci[oó]n|production',
-);
+// Centralized in lib/signals.mjs (ES+EN) — see its header for the class this covers.
+const MUTATION_RISK_SIGNAL_PATTERN = MUTATION_RISK_SIGNAL;
 
 const IMPLEMENTATION_VERBS = withUnicodeWordBoundary(
   'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +

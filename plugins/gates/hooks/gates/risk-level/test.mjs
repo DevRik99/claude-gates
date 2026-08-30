@@ -83,6 +83,17 @@ test('allows HIGH-RISK declared for a high-impact request', () => {
   );
 });
 
+test('bilingual control: an EN money-mutation brief contradicts a low level exactly like its ES equivalent', () => {
+  const es = delegate(
+    'NIVEL: MICRO\n\nImplementa el cobro del pago con la nueva pasarela de dinero.',
+  );
+  const en = delegate(
+    'LEVEL: MICRO\n\nImplement the payment charge with the new money gateway.',
+  );
+  assert.ok(isDeny(runGate(es, ENABLED)));
+  assert.ok(isDeny(runGate(en, ENABLED)));
+});
+
 // A whitelisted read-only subagent name is now void whenever the prompt itself carries
 // a mutation-risk signal (money/auth/data/write/deploy): the label is self-declared,
 // never a verified capability, and a real risk signal in the text must win over it

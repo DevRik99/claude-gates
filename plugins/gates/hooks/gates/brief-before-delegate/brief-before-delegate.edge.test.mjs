@@ -107,6 +107,23 @@ test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-o
   );
 });
 
+test('bilingual control: an EN mutation-risk prompt voids the exemption exactly like its ES equivalent', () => {
+  const es =
+    'Implementa el guardado de datos de pago del usuario en la base y escribe el token de auth en el archivo de sesion.';
+  const en =
+    'Implement saving the user payment data to the database and write the auth token to the session file.';
+  const resultEs = runGate(
+    { tool_name: 'Agent', tool_input: { prompt: es, subagent_type: 'explore' } },
+    ENABLED,
+  );
+  const resultEn = runGate(
+    { tool_name: 'Agent', tool_input: { prompt: en, subagent_type: 'explore' } },
+    ENABLED,
+  );
+  assert.ok(isDeny(resultEs));
+  assert.ok(isDeny(resultEn));
+});
+
 test('OK: a whitelisted read-only subagent name with no mutation-risk signal is still exempt', () => {
   assert.equal(
     runGate(

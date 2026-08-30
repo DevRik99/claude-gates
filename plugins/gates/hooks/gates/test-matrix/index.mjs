@@ -22,6 +22,7 @@ import {
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { RISK_SIGNAL_SOURCES } from '../../lib/signals.mjs';
 
 const GATE_ID = 'test-matrix';
 const CONFIG_KEY = 'requireTestMatrixWhenImplementing';
@@ -38,16 +39,19 @@ const DEFAULT_EXEMPT_SUBAGENTS = [
   'ux',
 ];
 
+// Money/auth signals shared with RISK_SIGNAL (lib/signals.mjs, ES+EN), plus this gate's
+// own persistence-domain terms (also bilingual) — a project override still replaces the
+// whole list wholesale, same as before.
 const DEFAULT_E2E_SIGNALS = [
-  'money|amount|payment|charge|invoice|balance',
-  'auth|authentication|login|session|token|permission|role',
-  'persist|database|migration|transaction',
+  ...RISK_SIGNAL_SOURCES.slice(0, 2), // money terms, auth terms
+  'login|session|token|permission|role|sesi[oó]n|permiso|rol',
+  'persist|database|migration|transaction|persistencia|base de datos|migraci[oó]n|transacci[oó]n',
 ];
 
 const DEFAULT_VISUAL_SIGNALS = [
-  'ui|interface|component|screen|view',
-  'form|button|modal|layout|style',
-  'responsive|mobile|visual|\\.vue|\\.tsx?|\\.jsx?',
+  'ui|interface|interfaz|component|componente|screen|pantalla|view|vista',
+  'form|formulario|button|bot[oó]n|modal|layout|style|estilo',
+  'responsive|mobile|m[oó]vil|visual|\\.vue|\\.tsx?|\\.jsx?',
 ];
 
 function withWordBoundary(alternation) {
@@ -79,9 +83,10 @@ const HARNESS_PATTERN =
 const DETECTS_E2E = /\b(e2e|end[- ]to[- ]end|playwright)\b/i;
 const DETECTS_VISUAL = /\b(visual|qa\b|screenshot|snapshot)\b/i;
 const DETECTS_UNIT_OR_MUTATION =
-  /\b(unit\b|units\b|vitest|jest|mutation|mutant|stryker)\b/i;
+  /\b(unit\b|units\b|unitari[ao]s?|vitest|jest|mutation|mutaci[oó]n|mutant|stryker)\b/i;
 const DETECTS_NEGATIVE_CASES = withWordBoundary(
-  'negative|edge|empty|error|no data|zero|count 0|failure|invalid|limit',
+  'negative|edge|empty|error|no data|zero|count 0|failure|invalid|limit|' +
+    'negativ[ao]s?|borde|vac[ií]o|sin datos|cero|falla|inv[aá]lid[ao]|l[ií]mite',
 );
 
 function joinSignals(signals) {

@@ -5,18 +5,15 @@ import {
   writtenContentOf,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { CONJECTURE_SOURCES } from '../../lib/signals.mjs';
 
 const GATE_ID = 'never-assume';
 const CONFIG_KEY = 'requireVerificationBeforeAssuming';
 
-const DEFAULT_CONJECTURE_PATTERNS = [
-  'i assume',
-  'assuming that',
-  'probably',
-  'i guess',
-  'should be',
-  "i'll default to",
-];
+// Bilingual (ES+EN) conjecture phrasing, centralized in lib/signals.mjs so every gate
+// that needs to recognize unverified-assumption prose shares the same coverage. See
+// signals.mjs header for the ES/EN-only limitation.
+const DEFAULT_CONJECTURE_PATTERNS = CONJECTURE_SOURCES;
 
 function extractContent(toolName, toolInput) {
   if (toolInGroups(toolName, ['delegation'])) return delegationPromptOf(toolInput);

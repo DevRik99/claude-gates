@@ -16,7 +16,7 @@ const DEFAULT_EXECUTABLE_EXTENSIONS = [
 const DEFAULT_TOOL_FOLDERS = ['scripts/', 'hooks/', 'tools/'];
 
 const NEW_TOOL_INTENT_PATTERN =
-  /\b(create|write|build|add)\b[^.]{0,60}\b(script|verifier|checker|gate|hook|linter|tool)\b/i;
+  /\b(create|write|build|add|cre(?:a|á)|crear|escrib(?:e|í)|escribir|constru(?:ye|í)|construir|agreg(?:a|á)|agregar)\b[^.]{0,60}\b(script|verifier|checker|gate|hook|linter|tool|verificador|chequeador|gate|hook|linter|herramienta)\b/iu;
 
 const AUDIT_EVIDENCE_PATTERN =
   /already exists|no existing tool|no plugin|audited and|justification:|no existe una herramienta|no existe la herramienta|no hay plugin|ya existe|busque? si ya existe|verifiqu[eé] que no (hay|existe)|audit[eé] herramientas|justificacion:|justificaci[oó]n:/i;

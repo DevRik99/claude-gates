@@ -108,6 +108,24 @@ test('the retry/force escape hatch allows and resets the counter', () => {
   }
 });
 
+test('bilingual control: the Spanish override imperative resets the counter exactly like its English equivalent', () => {
+  const sessionId = freshSession();
+  try {
+    const prompt =
+      'Objetivo: fix the flaky test in the payment suite.\n\nQUE SI: stabilize test/payment.spec.js.';
+
+    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(
+      runGate(delegate(`${prompt}\n\nreintentalo, forzalo.`, sessionId), ENABLED),
+      null,
+    );
+    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+  } finally {
+    cleanupSession(sessionId);
+  }
+});
+
 test('disabled by config: the gate does not run', () => {
   const sessionId = freshSession();
   try {

@@ -22,6 +22,7 @@ import {
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { PERSISTENCE_VERB } from '../../lib/signals.mjs';
 
 const GATE_ID = 'no-memory-dependency';
 const CONFIG_KEY = 'warnMemoryDependencyInBrief';
@@ -37,14 +38,9 @@ const DEFAULT_MEMORY_DEPENDENCY_PATTERNS = [
 // A real persistence INSTRUCTION requires an imperative persistence VERB (an actual
 // directive to save/persist/write THIS remembered thing), not merely a persistence-
 // related NOUN mentioned somewhere nearby (a stray "incident.md" in the same sentence
-// names a file without instructing anything be saved to it). The noun pattern is kept
-// only to require the verb's own target look like a real destination (file/flag/env
-// var/gate), so a bare "guarda" with no destination in view still counts (it is already
-// imperative), but a bare destination noun with no verb never does.
-// Kept deliberately flat (no nested optional groups) to stay under the regex-complexity
-// budget: a handful of plain alternatives rather than one clever pattern with backtracking.
-const PERSISTENCE_VERB_PATTERN =
-  /guardal[oa]|guarda(l[oa])?|guardá esto|persisti|persiste|persistir|persistido|escribil[oa] en|escribi en|save it in|save this in|save it to|save this to/i;
+// names a file without instructing anything be saved to it). Centralized in
+// lib/signals.mjs (ES+EN) so this class of signal is not duplicated per gate.
+const PERSISTENCE_VERB_PATTERN = PERSISTENCE_VERB;
 
 const PERSISTENCE_WINDOW = 80;
 
