@@ -36,10 +36,17 @@ const PROJECT_ROOT_MARKERS = ['.git', PROJECT_STATE_DIRECTORY];
 function readJsonOrNull(path) {
   if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf8'));
+    // Strip a UTF-8 BOM (﻿) before parsing. `readFileSync(path,'utf8')` does NOT remove
+    // it, and JSON.parse throws on a leading BOM — so a config saved by a Windows editor or by
+    // PowerShell 5.1's `Set-Content -Encoding utf8` (which prepends a BOM) would be read as
+    // unparseable, treated as absent, and SILENTLY DROP every gate disable in it. That is the
+    // opposite of safe: it re-enables protections the project turned off, and (worse for the
+    // symmetric case) means a project can't be trusted to have been read at all. Removing the
+    // BOM makes the common Windows round-trip parse correctly.
+    return JSON.parse(readFileSync(path, 'utf8').replace(/^﻿/, ''));
   } catch {
-    // A corrupt project config must not silently disable protection: treat it as absent,
-    // which falls through to the global config and then to the registry defaults.
+    // A genuinely corrupt project config must not silently disable protection: treat it as
+    // absent, which falls through to the global config and then to the registry defaults.
     return null;
   }
 }

@@ -55,9 +55,119 @@ export function toolNamesFor(groups) {
   return [...names];
 }
 
-/** The `matcher` string for a hooks.json entry: `Bash|Edit|Write`, or '' when empty. */
+/**
+ * MCP tools are named `mcp__<server>__<tool>`, and any connected server can expose a write,
+ * shell, delegation or ask surface under a name this repo has never seen. Enumerating exact
+ * names (the old approach) left every such tool invisible: the gate never fired. Instead,
+ * each group carries a substring rule matched against the MCP tool's action segment, so a
+ * NEW server's `mcp__fs__write_file` or `mcp__shell__exec` is classified by what it does, not
+ * by a name we had to know in advance. The rule intentionally over-includes (a false match
+ * makes a gate inspect a payload it then finds benign — cheap) rather than under-includes (a
+ * miss is a silent hole). `question` stays deny-heavy so autonomous mode cannot be dodged by
+ * an MCP ask tool. Native (non-mcp) names are still matched exactly via TOOL_GROUPS.
+ */
+const MCP_GROUP_SIGNALS = Object.freeze({
+  write: /(?:write|edit|create|append|patch|replace|insert|modify|save|update)/i,
+  shell: /(?:shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
+  delegation: /(?:agent|task|delegat|subagent|spawn|dispatch|orchestrat|worker)/i,
+  question: /(?:ask|question|confirm|prompt|approv|choice|elicit|clarif)/i,
+  execution: /(?:write|edit|create|append|patch|replace|insert|modify|save|update|shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
+});
+
+const MCP_TOOL_PREFIX = 'mcp__';
+
+/** The action segment of an MCP tool name (`mcp__server__do_thing` -> `do_thing`), or ''. */
+function mcpActionSegment(toolName) {
+  if (!toolName.startsWith(MCP_TOOL_PREFIX)) return '';
+  const parts = toolName.split('__');
+  return parts.length >= 3 ? parts.slice(2).join('__') : '';
+}
+
+/**
+ * Whether a tool name belongs to any of the given groups. A native tool matches by exact
+ * membership; an MCP tool (`mcp__*`) matches when its action segment hits the group's signal
+ * regex. This is what every gate should use instead of a private `Set.has(toolName)` — the
+ * private sets were the second half of the MCP blind spot (even a payload that reached the
+ * gate was rejected by an exact-name check).
+ */
+export function toolInGroups(toolName, groups) {
+  if (!toolName) return false;
+  const native = toolNamesFor(groups);
+  // Native tool names from Claude Code are canonical (`AskUserQuestion`), but match
+  // case-insensitively so a differently-cased spelling from any surface can't dodge a gate.
+  const lowered = toolName.toLowerCase();
+  if (native.some((name) => name.toLowerCase() === lowered)) return true;
+  const action = mcpActionSegment(toolName);
+  if (!action) return false;
+  return groups.some((group) => MCP_GROUP_SIGNALS[group]?.test(action));
+}
+
+/**
+ * The `matcher` string for a hooks.json entry. Native names are listed explicitly; a trailing
+ * `mcp__.*` alternative makes Claude Code also route EVERY MCP tool call to the hook, so the
+ * gate can classify it at runtime with `toolInGroups`. Without the `mcp__.*` clause the hook
+ * is never even invoked for an MCP tool — the deepest layer of the blind spot, since no
+ * runtime check can compensate for a hook that never runs.
+ */
 export function matcherFor(groups) {
-  return toolNamesFor(groups).join('|');
+  return [...toolNamesFor(groups), String.raw`mcp__.*`].join('|');
+}
+
+/**
+ * The content a write-style tool is about to put on disk, across every native and MCP field
+ * shape seen in the wild: Write/create (`content`), Edit (`new_string`), NotebookEdit
+ * (`new_source`), MultiEdit (`edits[].new_string`), replace_file_content (`new_content`,
+ * `ReplacementContent`), and MCP variants (`text`, `data`, `CodeContent`). Returns '' when
+ * none is present. A gate that inspects written text MUST read through this, so a differently
+ * shaped payload can no longer degrade silently to '' and slip past.
+ */
+export function writtenContentOf(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  if (Array.isArray(toolInput.edits)) {
+    return toolInput.edits
+      .map((edit) => String(edit?.new_string ?? edit?.new_source ?? edit?.content ?? ''))
+      .join('\n');
+  }
+  const direct =
+    toolInput.content ??
+    toolInput.new_string ??
+    toolInput.new_source ??
+    toolInput.new_content ??
+    toolInput.ReplacementContent ??
+    toolInput.CodeContent ??
+    toolInput.text ??
+    toolInput.data ??
+    '';
+  return String(direct);
+}
+
+/** The file path a write-style tool targets, across native and MCP field shapes. */
+export function writtenPathOf(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  const path =
+    toolInput.file_path ??
+    toolInput.path ??
+    toolInput.target_file ??
+    toolInput.notebook_path ??
+    toolInput.filename ??
+    toolInput.uri ??
+    '';
+  return String(path);
+}
+
+/** The brief/prompt a delegation carries, across native and MCP field shapes. */
+export function delegationPromptOf(toolInput) {
+  if (!toolInput || typeof toolInput !== 'object') return '';
+  const prompt =
+    toolInput.prompt ??
+    toolInput.Prompt ??
+    toolInput.description ??
+    toolInput.task ??
+    toolInput.instructions ??
+    toolInput.message ??
+    toolInput.input ??
+    '';
+  return String(prompt);
 }
 
 /** Reads the raw hook payload from stdin. Returns null when stdin cannot be read. */

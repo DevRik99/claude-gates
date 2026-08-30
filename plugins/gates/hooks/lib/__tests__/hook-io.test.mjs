@@ -8,6 +8,10 @@ import {
   toolNameOf,
   sessionIdOf,
   toolInputOf,
+  toolInGroups,
+  writtenContentOf,
+  writtenPathOf,
+  delegationPromptOf,
 } from '../hook-io.mjs';
 
 // deny/warn/allow/runGate call process.exit and cannot be invoked in-process without
@@ -35,13 +39,65 @@ test('toolNamesFor ignores an unknown group name', () => {
   assert.deepEqual(toolNamesFor(['not-a-real-group']), []);
 });
 
-test('matcherFor joins tool names with a pipe', () => {
-  assert.equal(matcherFor(['question']), 'AskUserQuestion');
-  assert.equal(matcherFor(['shell']), 'Bash|run_command');
+test('matcherFor joins native tool names with a pipe and always appends the mcp__.* clause', () => {
+  // The trailing `mcp__.*` makes Claude Code route EVERY MCP tool call to the hook, so the
+  // gate can classify it at runtime with toolInGroups. Without it, the hook is never even
+  // invoked for an MCP tool — the deepest layer of the MCP blind spot.
+  assert.equal(matcherFor(['question']), 'AskUserQuestion|mcp__.*');
+  assert.equal(matcherFor(['shell']), 'Bash|run_command|mcp__.*');
 });
 
-test('matcherFor returns an empty string for an empty group set', () => {
-  assert.equal(matcherFor([]), '');
+test('matcherFor still matches MCP tools even for an empty native group set', () => {
+  // An empty group means "no native names", but MCP tools must still reach the hook.
+  assert.equal(matcherFor([]), 'mcp__.*');
+});
+
+test('toolInGroups matches native names exactly and case-insensitively', () => {
+  assert.equal(toolInGroups('Write', ['write']), true);
+  assert.equal(toolInGroups('write', ['write']), true); // case-insensitive
+  assert.equal(toolInGroups('AskUserQuestion', ['question']), true);
+  assert.equal(toolInGroups('Bash', ['write']), false); // wrong group
+  assert.equal(toolInGroups('', ['write']), false); // empty tool name
+});
+
+test('toolInGroups classifies MCP tools by their action segment', () => {
+  assert.equal(toolInGroups('mcp__filesystem__write_file', ['write']), true);
+  assert.equal(toolInGroups('mcp__fs__edit_file', ['write']), true);
+  assert.equal(toolInGroups('mcp__shell__exec', ['shell']), true);
+  assert.equal(toolInGroups('mcp__x__ask_user_confirmation', ['question']), true);
+  assert.equal(toolInGroups('mcp__orchestrator__spawn_agent', ['delegation']), true);
+  // A read-only MCP tool must NOT match a write/shell group.
+  assert.equal(toolInGroups('mcp__fs__read_file', ['write', 'shell']), false);
+  // Malformed mcp name (no action segment) does not match.
+  assert.equal(toolInGroups('mcp__server', ['write']), false);
+});
+
+test('writtenContentOf reads content across native and MCP field shapes', () => {
+  assert.equal(writtenContentOf({ content: 'a' }), 'a'); // Write
+  assert.equal(writtenContentOf({ new_string: 'b' }), 'b'); // Edit
+  assert.equal(writtenContentOf({ new_source: 'c' }), 'c'); // NotebookEdit
+  assert.equal(writtenContentOf({ new_content: 'd' }), 'd'); // replace_file_content
+  assert.equal(writtenContentOf({ text: 'e' }), 'e'); // an MCP shape
+  assert.equal(
+    writtenContentOf({ edits: [{ new_string: 'x' }, { new_string: 'y' }] }),
+    'x\ny',
+  ); // MultiEdit
+  assert.equal(writtenContentOf({}), '');
+  assert.equal(writtenContentOf(null), '');
+});
+
+test('writtenPathOf reads the target path across field shapes', () => {
+  assert.equal(writtenPathOf({ file_path: 'a.js' }), 'a.js');
+  assert.equal(writtenPathOf({ path: 'b.js' }), 'b.js');
+  assert.equal(writtenPathOf({ notebook_path: 'n.ipynb' }), 'n.ipynb');
+  assert.equal(writtenPathOf({}), '');
+});
+
+test('delegationPromptOf reads the brief across field shapes', () => {
+  assert.equal(delegationPromptOf({ prompt: 'a' }), 'a');
+  assert.equal(delegationPromptOf({ description: 'b' }), 'b'); // Task
+  assert.equal(delegationPromptOf({ instructions: 'c' }), 'c'); // an MCP shape
+  assert.equal(delegationPromptOf({}), '');
 });
 
 test('toolNameOf reads tool_name, falls back to name, defaults to empty string', () => {

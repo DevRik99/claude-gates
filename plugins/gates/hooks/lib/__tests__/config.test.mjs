@@ -152,3 +152,22 @@ test('gateParameters returns {} when no config exists anywhere', () => {
   const home = temporaryDirectory();
   assert.deepEqual(gateParameters(GATE_KEY, project, { home }), {});
 });
+
+test('a project config saved WITH a UTF-8 BOM is still read (not silently dropped)', () => {
+  // A BOM is what a Windows editor or PowerShell 5.1 `Set-Content -Encoding utf8` prepends.
+  // Before the fix, JSON.parse threw on the leading BOM, the project config was treated as
+  // absent, and its gate disables were silently ignored (falling through to global/registry).
+  // Here the project disables the gate; the BOM must not resurrect it.
+  const project = projectDirectory();
+  const home = temporaryDirectory();
+  mkdirSync(join(project, '.ai'), { recursive: true });
+  writeFileSync(
+    join(project, '.ai', 'config.json'),
+    '﻿' + JSON.stringify({ gates: { [GATE_KEY]: { enabled: false } } }),
+  );
+  assert.equal(
+    isGateEnabled(GATE_KEY, true, project, { home }),
+    false,
+    'the BOM-prefixed project disable must take effect',
+  );
+});
