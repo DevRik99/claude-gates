@@ -18,13 +18,15 @@
 // The defaults live here, in the source, so a project reads them and knows exactly what
 // its override replaces.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'no-blocking';
 const CONFIG_KEY = 'blockWaitingCommands';
-
-const SHELL_TOOLS = new Set(TOOL_GROUPS.shell);
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_WAIT_JUSTIFIED_MARKER = 'WAIT-JUSTIFIED:';
 
@@ -77,9 +79,13 @@ const DEFAULT_BLOCKING_PATTERNS = [
   ],
 ];
 
-/** Marks that a command will not take the turn: backgrounded, detached, or bounded. */
+// Marks that a command will not take the turn: backgrounded, detached, or bounded. The bare
+// `-d` token was removed: it matched any -d flag (e.g. `curl -d payload`), letting an
+// unrelated flag whitelist a genuine foreground `sleep`. Detached forms are now matched
+// explicitly (--detach, docker/compose -d at a word boundary before end/pipe), and PowerShell's
+// Start-Job / Start-Process -NoNewWindow backgrounding is recognized.
 const NOT_TAKING_THE_TURN =
-  /(&\s*$|\bnohup\b|\bstart\s+\/b\b|--detach\b|-d\b|\brun_in_background\b)/i;
+  /(&\s*$|\bnohup\b|\bstart\s+\/b\b|--detach\b|\b-d(?=\s*($|[|;&]))|\bStart-Job\b|\bStart-Process\b[^|;\n]*-NoNewWindow\b|\brun_in_background\b)/i;
 
 function compile(source) {
   return new RegExp(source, 'i');
@@ -87,10 +93,10 @@ function compile(source) {
 
 /** The text to inspect: a real command's command line, or the delegation prompt. */
 function commandTextFrom(toolName, toolInput) {
-  if (SHELL_TOOLS.has(toolName)) {
+  if (toolInGroups(toolName, ['shell'])) {
     return String(toolInput.CommandLine ?? toolInput.command ?? '');
   }
-  return String(toolInput.prompt ?? toolInput.description ?? '');
+  return delegationPromptOf(toolInput);
 }
 
 runGate(
@@ -104,8 +110,8 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isShell = SHELL_TOOLS.has(toolName);
-    const isDelegation = DELEGATION_TOOLS.has(toolName);
+    const isShell = toolInGroups(toolName, ['shell']);
+    const isDelegation = toolInGroups(toolName, ['delegation']);
     if (!isShell && !isDelegation) return;
 
     const command = commandTextFrom(toolName, toolInput);

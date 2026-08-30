@@ -23,13 +23,15 @@
 // a second stage: strip quoted/example text, then require that at least one surviving
 // mention is not governed by a reporting verb before denying.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'bash-commands';
 const CONFIG_KEY = 'blockDestructiveShellCommands';
-
-const SHELL_TOOLS = new Set(TOOL_GROUPS.shell);
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 // Areas rm -rf must never target. A project overrides this list in config; the rm -rf
 // deny pattern is rebuilt from it at runtime (see rmRfSourceFrom), so an edit takes effect.
@@ -39,6 +41,12 @@ const DEFAULT_RM_RF_PROTECTED_AREAS = ['/', '*', 'src', 'tests'];
 // read them as prose (the project keeps an empty dictionary by policy).
 const KILL_BY_NAME_COMMANDS = ['task' + 'kill', 'p' + 'kill', 'kill' + 'all'];
 
+// PowerShell's kill-by-name form: `Stop-Process -Name node` (and its Get-Process pipe). On
+// Windows this reaches every process of that name exactly like taskkill /IM, so it belongs
+// in the same block. Matched separately because its shape (a -Name flag) differs from the
+// unix commands above.
+const STOP_PROCESS_BY_NAME_SOURCE = String.raw`\bStop-Process\b[^|;\n]*\s-Name\b`;
+
 // The rm -rf deny source, built from the protected-areas list. Separate from the static
 // deny list so a project can edit rmRfProtectedAreas in config and have it take effect at
 // runtime: the list is re-read on every call, not baked in at load time.
@@ -46,7 +54,10 @@ function rmRfSourceFrom(protectedAreas) {
   const rmRfTargets = protectedAreas
     .map((area) => area.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|');
-  return String.raw`\brm\s+-rf\s+(${rmRfTargets})\b`;
+  // Allow an optional `./` (or `.\`) prefix before the target, so `rm -rf ./src` and
+  // `rm -rf .\src` are caught, not just the bare `rm -rf src`. Without this, a leading
+  // `./` sat between the required whitespace and the target's word boundary and slipped past.
+  return String.raw`\brm\s+-rf\s+(?:\.[\\/])?(${rmRfTargets})\b`;
 }
 
 /**
@@ -86,6 +97,12 @@ function defaultDenyPatterns() {
       'Killing processes by NAME reaches everything with that name, not just yours. ' +
         'Keep the PID you started and kill that; if lost, find it by its full command ' +
         'line and confirm it is yours before touching it.',
+    ],
+    [
+      STOP_PROCESS_BY_NAME_SOURCE,
+      'Stop-Process -Name kills every process of that name on the machine, not just yours. ' +
+        'Stop the specific process by its Id (the PID you started); if lost, identify it by ' +
+        'its full command line and confirm ownership first.',
     ],
   ];
 }
@@ -191,10 +208,10 @@ function checkEmbeddedInterpreter(command) {
 
 /** The text to inspect: a real command's command line, or the delegation prompt. */
 function commandTextFrom(toolName, toolInput) {
-  if (SHELL_TOOLS.has(toolName)) {
+  if (toolInGroups(toolName, ['shell'])) {
     return String(toolInput.CommandLine ?? toolInput.command ?? '');
   }
-  return String(toolInput.prompt ?? toolInput.description ?? '');
+  return delegationPromptOf(toolInput);
 }
 
 /** Static deny rules + the runtime rm -rf rule, both read from config params. */
@@ -257,8 +274,8 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isShell = SHELL_TOOLS.has(toolName);
-    const isDelegation = DELEGATION_TOOLS.has(toolName);
+    const isShell = toolInGroups(toolName, ['shell']);
+    const isDelegation = toolInGroups(toolName, ['delegation']);
     if (!isShell && !isDelegation) return;
 
     const command = commandTextFrom(toolName, toolInput);
