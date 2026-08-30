@@ -64,6 +64,29 @@ test('installPlugin: one plugin failing does not stop the rest from being attemp
   assert.match(result.reason, /gates/);
 });
 
+test('installPlugin uses the marketplace name Claude Code actually registered, not the manifest name', () => {
+  // The repo's manifest name is `claude-gates`, but if the user added this same directory
+  // earlier under a different name, Claude Code keeps that name. installPlugin must install as
+  // plugin@<registered-name>, or `claude` answers "not found in marketplace claude-gates".
+  const installCalls = [];
+  const runClaude = (args) => {
+    if (args[1] === 'marketplace' && args[2] === 'list') {
+      // A listing where THIS repo is registered under the name `devrik`.
+      return `Configured marketplaces:\n\n  ❯ devrik\n    Source: Directory (${REPOSITORY_ROOT})\n`;
+    }
+    if (args[1] === 'install') installCalls.push(args[2]);
+    return '';
+  };
+
+  const result = installPlugin(SCOPES.GLOBAL, { cwd: REPOSITORY_ROOT, runClaude });
+
+  assert.equal(result.installed, true);
+  assert.ok(
+    installCalls.every((target) => target.endsWith('@devrik')),
+    `every install must target @devrik, got: ${installCalls.join(', ')}`,
+  );
+});
+
 test('installPlugin degrades gracefully when the claude binary is entirely unreachable', () => {
   const runClaude = () => {
     const error = new Error('spawn claude ENOENT');

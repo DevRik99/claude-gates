@@ -18,14 +18,47 @@ const PLUGIN_SCOPE = Object.freeze({
 });
 
 function marketplaceManifest() {
-  return JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8'));
+  return JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8').replace(/^﻿/, ''));
 }
 
-/** Every plugin the marketplace declares: { marketplace, plugin } pairs, in manifest order. */
-function marketplaceAndPlugins() {
+/**
+ * The name Claude Code actually registered THIS directory's marketplace under. It is usually
+ * the manifest's `name`, but not always: if the user added the same directory earlier under a
+ * different name (e.g. `devrik`), Claude Code keeps that original registration name, and
+ * `plugin marketplace add` is a no-op that does not rename it. Installing as `plugin@<name>`
+ * then fails with "not found in marketplace <name>". So we ask Claude Code which registered
+ * marketplace points at our REPOSITORY_ROOT and use that name; we fall back to the manifest
+ * name when the listing is unavailable (e.g. no `claude` binary, or a parsing change).
+ */
+function registeredMarketplaceName(runClaude, fallbackName) {
+  try {
+    const listing = runClaude(['plugin', 'marketplace', 'list']);
+    // Each marketplace block prints a name line then a `Source: … (<path>)` line. Find the
+    // block whose source path is our repo root and return its name.
+    const root = REPOSITORY_ROOT.replace(/[\\/]+$/, '');
+    const lines = listing.split(/\r?\n/);
+    let currentName = null;
+    for (const line of lines) {
+      const nameMatch = line.match(/^\s*(?:❯\s*)?([A-Za-z0-9_-]+)\s*$/);
+      if (nameMatch) currentName = nameMatch[1];
+      const sourceMatch = line.match(/Source:.*\(([^)]+)\)/);
+      if (sourceMatch && currentName) {
+        const sourcePath = sourceMatch[1].replace(/[\\/]+$/, '');
+        if (sourcePath.toLowerCase() === root.toLowerCase()) return currentName;
+      }
+    }
+  } catch {
+    // Listing unavailable — fall back to the manifest name below.
+  }
+  return fallbackName;
+}
+
+/** Every plugin the manifest declares, paired with the marketplace's registered name. */
+function marketplaceAndPlugins(runClaude = realClaude) {
   const manifest = marketplaceManifest();
+  const marketplace = registeredMarketplaceName(runClaude, manifest.name);
   return manifest.plugins.map((plugin) => ({
-    marketplace: manifest.name,
+    marketplace,
     plugin: plugin.name,
   }));
 }
@@ -74,7 +107,6 @@ export function installPlugin(
   configScope,
   { cwd = process.cwd(), runClaude = realClaude } = {},
 ) {
-  const targets = marketplaceAndPlugins();
   const scope = PLUGIN_SCOPE[configScope] ?? 'user';
 
   try {
@@ -82,6 +114,11 @@ export function installPlugin(
   } catch {
     // Already registered, or the marketplace add is a no-op — install can still proceed.
   }
+
+  // Resolve the registered marketplace name AFTER the add, so a fresh registration is seen and
+  // a pre-existing one (under any name) is matched by its source path. Doing it here, not at
+  // module top, means the name reflects the live registration this run just ensured.
+  const targets = marketplaceAndPlugins(runClaude);
 
   const results = targets.map(({ marketplace, plugin }) => {
     try {
