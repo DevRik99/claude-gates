@@ -17,6 +17,14 @@ const registry = loadRegistry();
 const preToolUseGates = allGates(registry).filter(
   (gate) => gate.event === 'PreToolUse',
 );
+// Gates that live one-per-folder under plugins/gates/hooks/gates/ — regardless of which
+// event they hook (most are PreToolUse, but e.g. stop-pending is Stop). Session-scoped
+// hooks (doctor.mjs, ask-adoption.mjs, ...) are top-level scripts outside this folder and
+// are intentionally excluded, matching the `gates/x.mjs` vs `x.mjs` convention documented
+// in registry.mjs's SCRIPT_PATTERN.
+const folderGates = allGates(registry).filter((gate) =>
+  gate.script.startsWith('gates/'),
+);
 
 test('every PreToolUse gate in the registry has its script on disk', () => {
   for (const gate of preToolUseGates) {
@@ -29,7 +37,7 @@ test('every PreToolUse gate in the registry has its script on disk', () => {
 });
 
 test('every gate folder on disk is declared in the registry', () => {
-  const declaredScripts = new Set(preToolUseGates.map((gate) => gate.script));
+  const declaredScripts = new Set(folderGates.map((gate) => gate.script));
   const folders = readdirSync(GATES_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);

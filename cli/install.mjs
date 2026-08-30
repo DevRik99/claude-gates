@@ -17,64 +17,97 @@ const PLUGIN_SCOPE = Object.freeze({
   [SCOPES.GLOBAL]: 'user',
 });
 
-function marketplaceAndPlugin() {
-  const manifest = JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8'));
-  const [plugin] = manifest.plugins;
-  return { marketplace: manifest.name, plugin: plugin.name };
+function marketplaceManifest() {
+  return JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8'));
 }
 
-/** The `claude plugin install …` line, read from the manifest, never hard-coded. */
+/** Every plugin the marketplace declares: { marketplace, plugin } pairs, in manifest order. */
+function marketplaceAndPlugins() {
+  const manifest = marketplaceManifest();
+  return manifest.plugins.map((plugin) => ({
+    marketplace: manifest.name,
+    plugin: plugin.name,
+  }));
+}
+
+/** The `claude plugin install …` lines, one per plugin the manifest declares. */
+export function pluginInstallCommands() {
+  return marketplaceAndPlugins().map(
+    ({ marketplace, plugin }) => `claude plugin install ${plugin}@${marketplace}`,
+  );
+}
+
+/** Back-compat single-line form: the first plugin's install command. */
 export function pluginInstallCommand() {
-  const { marketplace, plugin } = marketplaceAndPlugin();
-  return `claude plugin install ${plugin}@${marketplace}`;
+  return pluginInstallCommands()[0];
 }
 
-function claude(commandArguments) {
+function realClaude(commandArguments) {
   return execFileSync(CLAUDE_BIN, commandArguments, {
     encoding: 'utf8',
     stdio: 'pipe',
   });
 }
 
+function reasonFor(error) {
+  return error?.code === 'ENOENT'
+    ? 'the `claude` command was not found on PATH'
+    : (error?.stderr || error?.message || String(error)).trim().split('\n')[0];
+}
+
 /**
  * Registers the marketplace (idempotent: a second add just reports it already exists, which
- * is not fatal) and installs the plugin at the scope matching the config choice.
- * Returns { installed, scope } on success, or { installed:false, reason } to fall back to
- * the printed command.
+ * is not fatal) once, then installs EVERY plugin the manifest declares at the scope matching
+ * the config choice. A project that adopts claude-gates gets all of its plugins (gates,
+ * tasks, …), not just the first — a single failed install does not stop the rest from being
+ * attempted, so one broken plugin never silently blocks another that would have worked.
+ *
+ * Returns { installed, scope, results } where `installed` is true only if every plugin
+ * installed; `results` is a per-plugin { plugin, installed, reason? } list so a caller can
+ * report exactly which ones need the manual command.
+ *
+ * `runClaude` is an injectable seam (defaults to the real `claude` binary) so tests can
+ * exercise the multi-plugin partial-failure logic without actually invoking the CLI and
+ * installing plugins on the machine running the test.
  */
-export function installPlugin(configScope, { cwd = process.cwd() } = {}) {
-  const { marketplace, plugin } = marketplaceAndPlugin();
+export function installPlugin(
+  configScope,
+  { cwd = process.cwd(), runClaude = realClaude } = {},
+) {
+  const targets = marketplaceAndPlugins();
   const scope = PLUGIN_SCOPE[configScope] ?? 'user';
 
   try {
-    try {
-      claude([
-        'plugin',
-        'marketplace',
-        'add',
-        REPOSITORY_ROOT,
-        '--scope',
-        'user',
-      ]);
-    } catch {
-      // Already registered, or the marketplace add is a no-op — install can still proceed.
-    }
-    claude([
-      'plugin',
-      'install',
-      `${plugin}@${marketplace}`,
-      '--yes',
-      '--scope',
-      scope,
-    ]);
-    return { installed: true, scope };
-  } catch (error) {
-    const reason =
-      error?.code === 'ENOENT'
-        ? 'the `claude` command was not found on PATH'
-        : (error?.stderr || error?.message || String(error))
-            .trim()
-            .split('\n')[0];
-    return { installed: false, reason, cwd };
+    runClaude(['plugin', 'marketplace', 'add', REPOSITORY_ROOT, '--scope', 'user']);
+  } catch {
+    // Already registered, or the marketplace add is a no-op — install can still proceed.
   }
+
+  const results = targets.map(({ marketplace, plugin }) => {
+    try {
+      runClaude([
+        'plugin',
+        'install',
+        `${plugin}@${marketplace}`,
+        '--yes',
+        '--scope',
+        scope,
+      ]);
+      return { plugin, installed: true };
+    } catch (error) {
+      return { plugin, installed: false, reason: reasonFor(error) };
+    }
+  });
+
+  const installed = results.every((result) => result.installed);
+  if (installed) return { installed: true, scope, results };
+
+  const failed = results.filter((result) => !result.installed);
+  return {
+    installed: false,
+    scope,
+    results,
+    reason: failed.map((result) => `${result.plugin}: ${result.reason}`).join('; '),
+    cwd,
+  };
 }

@@ -65,12 +65,23 @@ export function configPathFor(
   throw new Error(`Unknown scope: ${scope}`);
 }
 
+// A leading UTF-8 BOM (EF BB BF, decoded as U+FEFF) is not stripped by readFileSync('utf8'),
+// and JSON.parse rejects a string that starts with it. Without stripping it, a config saved
+// by a BOM-adding editor or `PowerShell Set-Content -Encoding utf8` would read back as
+// `corrupt: true` — a valid, user-edited config (with its gate overrides) mistaken for
+// unreadable. init.mjs bails loudly on `corrupt`, but a caller relying on `data` alone (as
+// `mergeConfig` does) would otherwise merge onto `{}` and silently drop every existing gate
+// override the user made. This is the same failure mode fixed in the gates' own config.mjs.
+function stripBom(text) {
+  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+}
+
 export function readConfig(path) {
   if (!existsSync(path)) return { exists: false, data: {}, corrupt: false };
   try {
     return {
       exists: true,
-      data: JSON.parse(readFileSync(path, 'utf8')),
+      data: JSON.parse(stripBom(readFileSync(path, 'utf8'))),
       corrupt: false,
     };
   } catch {

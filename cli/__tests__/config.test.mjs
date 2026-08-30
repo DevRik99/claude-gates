@@ -74,6 +74,18 @@ test('readConfig distinguishes missing, valid and corrupt', () => {
   assert.equal(readConfig(path).corrupt, true);
 });
 
+test('readConfig strips a leading UTF-8 BOM instead of treating the file as corrupt', () => {
+  const directory = temporaryDirectory();
+  const path = join(directory, 'config.json');
+  const bom = '﻿';
+  writeFileSync(path, bom + '{"autoCommit":true}');
+  assert.deepEqual(readConfig(path), {
+    exists: true,
+    data: { autoCommit: true },
+    corrupt: false,
+  });
+});
+
 test('mergeConfig keeps unrelated keys and unknown gates, overrides known ones', () => {
   const existing = {
     autoCommit: true,

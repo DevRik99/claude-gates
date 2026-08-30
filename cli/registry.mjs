@@ -63,6 +63,9 @@ const familySchema = z.object({
   id: z.string().regex(ID_PATTERN, 'family id must be kebab-case'),
   name: z.string().min(1),
   description: z.string().min(1),
+  // Which plugin's hooks/ directory the family's gate scripts resolve against. Optional so
+  // existing families need no change: absent means the original 'gates' plugin.
+  plugin: z.string().regex(ID_PATTERN, 'plugin id must be kebab-case').optional(),
   gates: z.array(gateSchema).min(1),
 });
 
@@ -120,8 +123,14 @@ export function loadRegistry(path = REGISTRY_PATH) {
   return candidate;
 }
 
+const DEFAULT_PLUGIN = 'gates';
+
 export function allGates(registry) {
   return registry.families.flatMap((family) =>
-    family.gates.map((gate) => ({ ...gate, family: family.id })),
+    family.gates.map((gate) => ({
+      ...gate,
+      family: family.id,
+      plugin: family.plugin ?? DEFAULT_PLUGIN,
+    })),
   );
 }

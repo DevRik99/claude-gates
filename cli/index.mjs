@@ -13,6 +13,7 @@ import {
   REPOSITORY_ROOT,
 } from './constants.mjs';
 import { loadRegistry, validateRegistry } from './registry.mjs';
+import { registerTaskCommand } from './task.mjs';
 
 const packageManifest = JSON.parse(
   readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8'),
@@ -93,5 +94,7 @@ program
     if (options.list) return registryList();
     return fail('registry needs --check or --list');
   });
+
+registerTaskCommand(program);
 
 program.parseAsync(process.argv).catch((error) => fail(error.message));

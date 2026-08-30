@@ -222,6 +222,34 @@
               "description": "Regex sources for phrases that lean on the subagent's memory."
             }
           ]
+        },
+        {
+          "id": "force-parallel",
+          "configKey": "warnSequentialDelegations",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "delegation"
+          ],
+          "description": "Warns after N consecutive sequential delegations within a time window, suggesting they be launched together instead.",
+          "script": "gates/force-parallel/index.mjs",
+          "params": [
+            {
+              "name": "sequentialThreshold",
+              "type": "number",
+              "description": "Consecutive delegations within the window before warning."
+            },
+            {
+              "name": "sequentialWindowMs",
+              "type": "number",
+              "description": "Milliseconds within which two delegations count as sequential; a larger gap resets the count."
+            },
+            {
+              "name": "sequentialJustifiedMarker",
+              "type": "string",
+              "description": "Marker token in the delegation prompt that skips the warning (a declared dependency)."
+            }
+          ]
         }
       ]
     },
@@ -557,6 +585,29 @@
               "description": "Regex sources for timeout/deadline/retry keys to watch."
             }
           ]
+        },
+        {
+          "id": "lint-commit",
+          "configKey": "blockCommitWithFailingLint",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": [
+            "shell"
+          ],
+          "description": "Denies git commit while the project's lint script fails. Autodetects package.json's lint script; allows silently when none is declared.",
+          "script": "gates/lint-commit/index.mjs",
+          "params": [
+            {
+              "name": "lintCommand",
+              "type": "string",
+              "description": "Explicit lint command to run instead of autodetecting npm run lint. Default: autodetect."
+            },
+            {
+              "name": "lintTimeoutMs",
+              "type": "number",
+              "description": "Milliseconds allowed for the lint run before it counts as a failure."
+            }
+          ]
         }
       ]
     },
@@ -649,6 +700,29 @@
       ]
     },
     {
+      "id": "completion",
+      "name": "Completion",
+      "description": "Enforce that a turn does not end while the project has pending work.",
+      "gates": [
+        {
+          "id": "stop-pending",
+          "configKey": "blockStopWithPendingTasks",
+          "default": false,
+          "event": "Stop",
+          "tools": [],
+          "description": "Blocks the Stop event while the task store has active (open/in_forge) tasks for this project; lists them and how to close them. Respects stop_hook_active to avoid an infinite loop.",
+          "script": "gates/stop-pending/index.mjs",
+          "params": [
+            {
+              "name": "allowStopWithBlockedTasks",
+              "type": "boolean",
+              "description": "When true (default), a task with status 'blocked' does not prevent stop; only open/in_forge do."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "session",
       "name": "Session start",
       "description": "SessionStart hooks: environment validation and project sync.",
@@ -679,6 +753,39 @@
           "tools": [],
           "description": "Warns when a registered hook is missing or a script is orphaned.",
           "script": "wiring-check.mjs"
+        }
+      ]
+    },
+    {
+      "id": "tasks",
+      "name": "Task tracking",
+      "description": "Deterministic persistence of tasks the model registers via the CLI, with reminders and a session-start recap. The model classifies and registers; the store enforces evidence on close.",
+      "plugin": "tasks",
+      "gates": [
+        {
+          "id": "remind-open-tasks",
+          "configKey": "remindOpenTasks",
+          "default": true,
+          "event": "UserPromptSubmit",
+          "tools": [],
+          "description": "Asks the assistant to classify+register new tasks via the CLI, and recites active tasks every N messages.",
+          "script": "register-requests.mjs",
+          "params": [
+            {
+              "name": "remindEveryMessages",
+              "type": "number",
+              "description": "How many user messages between full recitations of active tasks."
+            }
+          ]
+        },
+        {
+          "id": "list-tasks-on-session-start",
+          "configKey": "listTasksOnSessionStart",
+          "default": true,
+          "event": "SessionStart",
+          "tools": [],
+          "description": "Lists this project's active tasks when a session opens. Silent when none are active.",
+          "script": "session-tasks.mjs"
         }
       ]
     }

@@ -10,7 +10,7 @@ import {
   writeConfig,
 } from './config.mjs';
 import { EXIT_CODE } from './constants.mjs';
-import { installPlugin, pluginInstallCommand } from './install.mjs';
+import { installPlugin, pluginInstallCommands } from './install.mjs';
 import { materializeGates } from './materialize.mjs';
 import { loadRegistry, allGates } from './registry.mjs';
 import {
@@ -215,7 +215,7 @@ export async function runInit(
 
   const merged = mergeConfig(existing.data, {
     adopted: adoptionOf(gates),
-    gates: materializeGates(registry, gates),
+    gates: materializeGates(registry, gates, existing.data.gates ?? {}, mode),
     gateVersion: registry.gateVersion,
   });
 
@@ -242,13 +242,16 @@ export async function runInit(
   const result = installPlugin(scope, { cwd });
   if (result.installed) {
     io.outro(
-      `Written ${path} and installed the plugin (${result.scope} scope). ` +
+      `Written ${path} and installed all plugins (${result.scope} scope). ` +
         'Restart the session (or run /plugin) for the gates to load.',
     );
   } else {
+    const manualCommands = pluginInstallCommands()
+      .filter((_command, index) => !result.results[index].installed)
+      .join('\n  ');
     io.log.warn(
-      `Config written, but the plugin was not installed automatically (${result.reason}). ` +
-        `Install it yourself with: ${pluginInstallCommand()}`,
+      `Config written, but not every plugin installed automatically (${result.reason}). ` +
+        `Install the rest yourself with:\n  ${manualCommands}`,
     );
     io.outro(`Written ${path}.`);
   }
