@@ -28,13 +28,17 @@
 
 import { existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenContentOf,
+  writtenPathOf,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'sdd-specs';
 const CONFIG_KEY = 'requireSpecBeforeImplementing';
-
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const CATALOG_FILE_NAME = 'feature_list.json';
 
@@ -97,10 +101,17 @@ function fileExistsNonEmpty(path) {
   }
 }
 
-function findCatalog(catalogLocations) {
-  for (const relative of catalogLocations) {
-    const path = join(process.cwd(), relative);
-    if (existsSync(path)) return path;
+function findCatalog(catalogLocations, writtenPath) {
+  const roots = [process.cwd()];
+  // A write can target a catalog that lives elsewhere than cwd (a monorepo subpackage's
+  // own .ai/feature_list.json): also resolve catalogLocations relative to the directory
+  // of the file actually being written, not only the process cwd.
+  if (writtenPath) roots.push(dirname(writtenPath));
+  for (const root of roots) {
+    for (const relative of catalogLocations) {
+      const path = join(root, relative);
+      if (existsSync(path)) return path;
+    }
   }
   return null;
 }
@@ -135,25 +146,6 @@ function parseJsonOrNull(text) {
   }
 }
 
-function writeTargetFrom(toolInput) {
-  return String(
-    toolInput.TargetFile ??
-      toolInput.target_file ??
-      toolInput.file_path ??
-      toolInput.path ??
-      '',
-  );
-}
-
-function writeContentFrom(toolInput) {
-  return String(
-    toolInput.CodeContent ??
-      toolInput.ReplacementContent ??
-      toolInput.content ??
-      '',
-  );
-}
-
 /** Denies the single first advanced-status feature in the new catalog content that has
  * no contract on disk, or does nothing when every advanced feature has one. */
 function denyIfAdvancedFeatureLacksContract(features, treeRoot) {
@@ -169,10 +161,22 @@ function denyIfAdvancedFeatureLacksContract(features, treeRoot) {
 }
 
 function checkCatalogWrite(toolInput, catalogPath, treeRoot) {
-  const target = writeTargetFrom(toolInput);
+  const target = writtenPathOf(toolInput);
   if (!catalogPath || !target.includes(CATALOG_FILE_NAME)) return;
 
-  const parsed = parseJsonOrNull(writeContentFrom(toolInput));
+  const rawContent = writtenContentOf(toolInput);
+  const parsed = parseJsonOrNull(rawContent);
+  if (parsed === null) {
+    // Fail-closed, not fail-open: a write whose content does not parse as JSON but
+    // still targets the catalog is suspicious on its own -- a spec_ready/done transition
+    // hidden behind a malformed payload must not be silently allowed through.
+    deny(
+      GATE_ID,
+      `The write to ${CATALOG_FILE_NAME} does not parse as JSON. A catalog write that ` +
+        'cannot be verified for the spec-contract invariant is not allowed; fix the JSON ' +
+        'or write valid content.',
+    );
+  }
   const features = Array.isArray(parsed?.features) ? parsed.features : [];
   denyIfAdvancedFeatureLacksContract(features, treeRoot);
 }
@@ -197,9 +201,7 @@ function featureNamesCitedIn(prompt) {
 }
 
 function checkDelegation(toolInput, treeRoot, exemptSubagents) {
-  const prompt = String(
-    toolInput.prompt ?? toolInput.Prompt ?? toolInput.task ?? '',
-  );
+  const prompt = delegationPromptOf(toolInput);
   if (!prompt.trim()) return;
   if (isExemptDelegation(toolInput, prompt, exemptSubagents)) return;
 
@@ -230,13 +232,16 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isWrite = WRITE_TOOLS.has(toolName);
-    const isDelegation = DELEGATION_TOOLS.has(toolName);
+    const isWrite = toolInGroups(toolName, ['write']);
+    const isDelegation = toolInGroups(toolName, ['delegation']);
     if (!isWrite && !isDelegation) return;
 
     const catalogLocations =
       parameters.catalogLocations ?? DEFAULT_CATALOG_LOCATIONS;
-    const catalogPath = findCatalog(catalogLocations);
+    const catalogPath = findCatalog(
+      catalogLocations,
+      isWrite ? writtenPathOf(toolInput) : null,
+    );
     if (!catalogPath) return; // no SDD harness adopted: stay silent
 
     const treeRoot = contractTreeRootFor(catalogPath);

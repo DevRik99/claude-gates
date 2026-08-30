@@ -19,12 +19,15 @@
 // harness itself. A prompt that only describes work, or that is read-only/exploratory,
 // never reaches the check.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'implementation-pipeline';
 const CONFIG_KEY = 'requireImplementationPipeline';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_BUILDER_SUBAGENTS = [
   'frontend',
@@ -151,11 +154,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.Prompt ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
     const builderSubagents =

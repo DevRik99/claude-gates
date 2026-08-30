@@ -20,39 +20,22 @@
 // a review/QA subagent or a validated automated process may close a feature, and this
 // gate has no way to tell who is writing, so it blocks the write itself.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenContentOf,
+  writtenPathOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'feature-catalog';
 const CONFIG_KEY = 'requireFeatureCatalog';
-
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
 
 const DEFAULT_CATALOG_FILE_NAME = 'feature_list.json';
 const DEFAULT_MAX_IN_PROGRESS = 1;
 
 const DONE_STATUS_PATTERN = /"status"\s*:\s*"done"|status\s*:\s*['"]done['"]/i;
 const IN_PROGRESS_STATUS_PATTERN = /"status"\s*:\s*"in_progress"/g;
-
-/** The path a write tool targets, across the field names different tools use. */
-function writeTargetFrom(toolInput) {
-  return String(
-    toolInput.TargetFile ??
-      toolInput.target_file ??
-      toolInput.file_path ??
-      toolInput.path ??
-      '',
-  );
-}
-
-/** The content a write tool is about to write, across the field names tools use. */
-function writeContentFrom(toolInput) {
-  return String(
-    toolInput.CodeContent ??
-      toolInput.ReplacementContent ??
-      toolInput.content ??
-      '',
-  );
-}
 
 runGate(
   {
@@ -65,15 +48,15 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!WRITE_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['write'])) return;
 
-    const target = writeTargetFrom(toolInput);
+    const target = writtenPathOf(toolInput);
     const catalogFileName = String(
       parameters.catalogFileName ?? DEFAULT_CATALOG_FILE_NAME,
     );
     if (!target.includes(catalogFileName)) return;
 
-    const content = writeContentFrom(toolInput);
+    const content = writtenContentOf(toolInput);
 
     // Base, non-negotiable: `done` is never written directly to the catalog.
     if (DONE_STATUS_PATTERN.test(content)) {

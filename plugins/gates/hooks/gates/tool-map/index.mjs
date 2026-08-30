@@ -15,12 +15,17 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
-import { runGate, warn, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  writtenContentOf,
+  writtenPathOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'tool-map';
 const CONFIG_KEY = 'maintainToolMap';
 
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
 const DEFAULT_TOOL_MAP_FILE = join('.ai', 'tool-map.json');
 const JSON_INDENT = 2;
 const MAX_AUDIT_LENGTH = 300;
@@ -114,16 +119,14 @@ runGate(
     defaultParams: { toolMapFile: DEFAULT_TOOL_MAP_FILE },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!WRITE_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['write'])) return;
 
-    const filePath = String(
-      toolInput.file_path ?? toolInput.target_file ?? toolInput.path ?? '',
-    );
+    const filePath = writtenPathOf(toolInput);
     if (!isExecutableToolPath(filePath)) return;
 
     // Only a build that declared its audit is worth recording: that line IS the reason
     // this tool exists and what it was checked against.
-    const content = String(toolInput.content ?? toolInput.CodeContent ?? '');
+    const content = writtenContentOf(toolInput);
     const auditLine = auditLineOf(content);
     if (!auditLine) return;
 

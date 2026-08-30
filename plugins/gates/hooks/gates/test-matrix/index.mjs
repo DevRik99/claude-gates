@@ -16,12 +16,15 @@
 // Only STANDARD/HIGH-RISK implementation delegations on builder subagents, not about
 // the harness itself, reach the check. A brief that only describes work never triggers.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'test-matrix';
 const CONFIG_KEY = 'requireTestMatrixWhenImplementing';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_EXEMPT_SUBAGENTS = [
   'scout',
@@ -148,11 +151,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.Prompt ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
     const exemptSubagents =

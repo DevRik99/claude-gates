@@ -18,13 +18,17 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenContentOf,
+  writtenPathOf,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'reuse-before-build';
 const CONFIG_KEY = 'requireReuseCheckBeforeBuilding';
-
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_TOOL_MAP_FILE = join('.ai', 'tool-map.json');
 const EXECUTABLE_EXTENSIONS = new Set([
@@ -82,9 +86,16 @@ function needRecordedInMap(startDirectory, toolMapFile, targetText) {
   return words.some((word) => map.includes(word));
 }
 
+/** Whether the path has a real path SEGMENT equal to one of the tool-folder names
+ * (e.g. `tools`), not merely a substring match -- `src/mytools/thing.mjs` contains the
+ * substring "tools/" but its actual segments are `src`, `mytools`, `thing.mjs`, none of
+ * which is `tools`. Splitting on the separator and comparing whole segments closes that
+ * false positive without allowing a matching false negative. */
 function isExecutableToolPath(filePath) {
-  const inToolFolder = TOOL_FOLDERS.some((folder) =>
-    filePath.replace(/\\/g, '/').includes(folder),
+  const segments = filePath.replace(/\\/g, '/').split('/');
+  const toolFolderNames = TOOL_FOLDERS.map((folder) => folder.replace(/\/$/, ''));
+  const inToolFolder = segments.some((segment) =>
+    toolFolderNames.includes(segment),
   );
   return (
     inToolFolder && EXECUTABLE_EXTENSIONS.has(extname(filePath).toLowerCase())
@@ -109,7 +120,7 @@ function buildIsCleared(text, cwd, toolMapFile) {
 
 /** Delegation: block a build-a-tool prompt that is not cleared. */
 function checkDelegation(toolInput, cwd, toolMapFile) {
-  const prompt = String(toolInput.prompt ?? toolInput.description ?? '');
+  const prompt = delegationPromptOf(toolInput);
   if (!BUILD_INTENT_PATTERN.test(prompt)) return;
   if (buildIsCleared(prompt, cwd, toolMapFile)) return;
   deny(GATE_ID, DENY_MESSAGE);
@@ -117,15 +128,13 @@ function checkDelegation(toolInput, cwd, toolMapFile) {
 
 /** Write: block a new executable tool that is not cleared by its content or the map. */
 function checkWrite(toolInput, cwd, toolMapFile) {
-  const rawPath = String(
-    toolInput.file_path ?? toolInput.target_file ?? toolInput.path ?? '',
-  );
+  const rawPath = writtenPathOf(toolInput);
   const filePath = rawPath.replace(/\\/g, '/');
   if (!isExecutableToolPath(filePath)) return;
   // Editing an EXISTING file is not building a new tool — only creation triggers the audit.
   // A file already on disk is an edit, so it is allowed (lets the gates maintain themselves).
   if (rawPath && existsSync(rawPath)) return;
-  const content = String(toolInput.content ?? toolInput.CodeContent ?? '');
+  const content = writtenContentOf(toolInput);
   if (AUDIT_DONE_PATTERN.test(content)) return;
   if (needRecordedInMap(cwd, toolMapFile, filePath)) return;
   deny(GATE_ID, DENY_MESSAGE);
@@ -141,9 +150,9 @@ runGate(
   ({ toolName, toolInput, parameters }) => {
     const toolMapFile = parameters.toolMapFile ?? DEFAULT_TOOL_MAP_FILE;
     const cwd = process.cwd();
-    if (DELEGATION_TOOLS.has(toolName)) {
+    if (toolInGroups(toolName, ['delegation'])) {
       checkDelegation(toolInput, cwd, toolMapFile);
-    } else if (WRITE_TOOLS.has(toolName)) {
+    } else if (toolInGroups(toolName, ['write'])) {
       checkWrite(toolInput, cwd, toolMapFile);
     }
   },

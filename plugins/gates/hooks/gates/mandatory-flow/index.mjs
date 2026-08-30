@@ -17,13 +17,16 @@
 // about the harness itself, reach the disk check.
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { join, normalize, sep } from 'node:path';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'mandatory-flow';
 const CONFIG_KEY = 'requireLiveTaskWhenImplementing';
-
-const DELEGATION_TOOLS = new Set(TOOL_GROUPS.delegation);
 
 const DEFAULT_ACTIVE_POINTER_PATH = join('.ai', 'pipeline', 'ACTIVA');
 
@@ -96,13 +99,26 @@ function hasTaskContract(taskDirectory) {
   });
 }
 
-/** The pointer file's trimmed content, or '' when it cannot be read. */
+/** The pointer file's trimmed content, or '' when it cannot be read or the slug
+ * attempts path traversal. A slug is a directory name, not a path: rejecting any
+ * segment separator or '..' closes off `join(cwd, '.ai', 'pipeline', slug)` escaping
+ * that directory to accept an unrelated file elsewhere on disk as the task contract. */
 function readSlug(pointerPath) {
+  let raw;
   try {
-    return readFileSync(pointerPath, 'utf8').trim();
+    raw = readFileSync(pointerPath, 'utf8').trim();
   } catch {
     return '';
   }
+  if (!raw) return '';
+  const normalized = normalize(raw);
+  const hasTraversal = normalized
+    .split(/[\\/]/)
+    .some((segment) => segment === '..' || segment === '.');
+  if (hasTraversal || normalized.includes(sep) || normalized.includes('/')) {
+    return '';
+  }
+  return normalized;
 }
 
 /** Denies for whichever of the three live-task facts is missing, or does nothing. */
@@ -147,11 +163,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!DELEGATION_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const prompt = String(
-      toolInput.prompt ?? toolInput.Prompt ?? toolInput.task ?? '',
-    );
+    const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
     const exemptSubagents =
