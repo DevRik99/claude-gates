@@ -1,15 +1,23 @@
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenContentOf,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'root-cause-first';
 const CONFIG_KEY = 'requireRootCauseBeforePatch';
 
 const DEFAULT_PATCH_MARKER_PATTERNS = ['//\\s*todo:?\\s*fix\\s+later\\s+patch'];
 
-function extractContent(toolName, toolInput) {
-  if (TOOL_GROUPS.delegation.includes(toolName)) {
-    return toolInput?.prompt;
-  }
-  return toolInput?.content ?? toolInput?.new_string;
+// The text to scan: a delegation's brief, or the content a write puts on disk. writtenContentOf
+// covers every native and MCP write shape (Write's content, Edit's new_string, NotebookEdit's
+// new_source, replace_file_content's new_content) — the old reader missed new_source, so a
+// deferral marker written via NotebookEdit was never caught by this DENY gate.
+function textToScan(toolName, toolInput) {
+  if (toolInGroups(toolName, ['delegation'])) return delegationPromptOf(toolInput);
+  return writtenContentOf(toolInput);
 }
 
 runGate(
@@ -22,12 +30,10 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isWrite = TOOL_GROUPS.write.includes(toolName);
-    const isDelegation = TOOL_GROUPS.delegation.includes(toolName);
-    if (!isWrite && !isDelegation) return;
+    if (!toolInGroups(toolName, ['write', 'delegation'])) return;
 
-    const content = extractContent(toolName, toolInput);
-    if (typeof content !== 'string') return;
+    const content = textToScan(toolName, toolInput);
+    if (!content) return;
 
     const patterns = parameters.patchMarkerPatterns.map(
       (source) => new RegExp(source, 'i'),

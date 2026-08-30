@@ -1,6 +1,12 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { runGate, warn, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  writtenPathOf,
+  writtenContentOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'dependency-skills';
 const CONFIG_KEY = 'requireSkillForNewDependency';
@@ -36,12 +42,14 @@ function listSkillDirectories(skillsDirectoryPath) {
   }
 }
 
+// A skill covers a dependency when its normalized name equals the dependency's, or contains
+// it as a whole `-`-segment (a `stripe-payments` skill covers `stripe`). The old check was
+// bidirectional substring, so a skill dir `rip` "matched" `stripe` (rip ⊂ st-rip-e) — a false
+// exemption that silenced the warning for an unreviewed dependency.
 function skillNameMatches(normalizedDependency, skillDirectoryName) {
   const normalizedSkill = normalize(skillDirectoryName);
-  return (
-    normalizedDependency.includes(normalizedSkill) ||
-    normalizedSkill.includes(normalizedDependency)
-  );
+  if (normalizedSkill === normalizedDependency) return true;
+  return normalizedSkill.split('-').includes(normalizedDependency);
 }
 
 function hasMatchingSkill(dependencyName, skillDirectories) {
@@ -83,13 +91,13 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!TOOL_GROUPS.write.includes(toolName)) return;
+    if (!toolInGroups(toolName, ['write'])) return;
 
-    const filePath = toolInput?.file_path ?? '';
+    const filePath = writtenPathOf(toolInput);
     if (!filePath.replace(/\\/g, '/').endsWith('package.json')) return;
 
-    const content = toolInput?.content ?? toolInput?.new_string;
-    if (typeof content !== 'string') return;
+    const content = writtenContentOf(toolInput);
+    if (!content) return;
 
     const dependencyNames = dependencyNamesIn(content);
     if (!dependencyNames || dependencyNames.length === 0) return;
