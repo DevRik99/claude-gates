@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, dirname, relative } from 'node:path';
-import { runGate, warn, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { runGate, warn, toolInGroups, writtenPathOf } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'test-after-implementation';
 const CONFIG_KEY = 'warnTestWrittenAfterImplementation';
@@ -48,9 +48,9 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!TOOL_GROUPS.write.includes(toolName)) return;
+    if (!toolInGroups(toolName, ['write'])) return;
 
-    const filePath = toolInput?.file_path ?? '';
+    const filePath = writtenPathOf(toolInput);
     if (!TEST_FILE_PATTERN.test(filePath)) return;
     if (existsSync(filePath)) return; // only new test file creation, not edits
 

@@ -1,4 +1,4 @@
-import { runGate, warn } from '../../lib/hook-io.mjs';
+import { runGate, warn, toolInGroups, writtenContentOf } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'neutral-spanish';
 const CONFIG_KEY = 'warnNonNeutralSpanish';
@@ -40,14 +40,8 @@ const DEFAULT_REGIONAL_MARKERS = [
 ];
 
 function extractText(toolName, toolInput) {
-  if (toolName === 'Write') return String(toolInput?.content ?? '');
-  if (toolName === 'Edit') return String(toolInput?.new_string ?? '');
-  if (toolName === 'MultiEdit' && Array.isArray(toolInput?.edits)) {
-    return toolInput.edits
-      .map((edit) => String(edit?.new_string ?? ''))
-      .join('\n');
-  }
-  return '';
+  if (!toolInGroups(toolName, ['write'])) return '';
+  return writtenContentOf(toolInput);
 }
 
 runGate(

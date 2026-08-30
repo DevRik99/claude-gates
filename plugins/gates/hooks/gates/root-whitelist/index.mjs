@@ -13,13 +13,11 @@
 // its override replaces. A dotfile/dotfolder (.gitignore, .claude) is always allowed —
 // dotfiles are a different, well-known convention this gate does not police.
 
-import { basename, normalize, sep } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { basename, isAbsolute, resolve, sep } from 'node:path';
+import { runGate, deny, toolInGroups, writtenPathOf } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'root-whitelist';
 const CONFIG_KEY = 'blockPathsOutsideRootWhitelist';
-
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
 
 const DEFAULT_ROOT_FILES_WHITELIST = [
   'AGENTS.md',
@@ -51,17 +49,6 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   'plugins',
 ];
 
-/** The path a write tool targets, across the field names different tools use. */
-function writeTargetFrom(toolInput) {
-  return String(
-    toolInput.TargetFile ??
-      toolInput.target_file ??
-      toolInput.file_path ??
-      toolInput.path ??
-      '',
-  );
-}
-
 runGate(
   {
     id: GATE_ID,
@@ -73,26 +60,41 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    if (!WRITE_TOOLS.has(toolName)) return;
+    if (!toolInGroups(toolName, ['write'])) return;
 
-    const target = writeTargetFrom(toolInput);
+    const target = writtenPathOf(toolInput);
     if (!target) return;
 
-    const normalized = normalize(target);
+    // Some tools send a path relative to cwd rather than absolute. resolve() leaves an
+    // already-absolute path merely normalized ('..' collapsed, separators fixed), and
+    // resolves a relative one against process.cwd() — so either shape lands on the same
+    // absolute path the root check below expects.
+    const normalized = isAbsolute(target)
+      ? resolve(target)
+      : resolve(process.cwd(), target);
     const projectRoot = process.cwd() + sep;
 
     // The whitelist describes the project's ROOT. A file outside the project (session
     // scratchpad, system temp, another repo) is not at its root, and this rule does not
-    // govern it: letting it through is correct, not an exception.
+    // govern it: letting it through is correct, not an exception. This check runs AFTER
+    // resolving relative paths, so a relative path is judged by where it actually lands.
     if (!normalized.startsWith(projectRoot)) return;
 
     const relativePath = normalized.slice(projectRoot.length);
-    const filesWhitelist = new Set(parameters.rootFilesWhitelist ?? []);
-    const foldersWhitelist = new Set(parameters.rootFoldersWhitelist ?? []);
+    // Windows filesystems are case-insensitive: 'Package.json' and 'package.json' are the
+    // same file. Comparing lowercase on both sides avoids denying a whitelisted name that
+    // merely differs in case (a false positive, not a real gap).
+    const filesWhitelist = new Set(
+      (parameters.rootFilesWhitelist ?? []).map((name) => name.toLowerCase()),
+    );
+    const foldersWhitelist = new Set(
+      (parameters.rootFoldersWhitelist ?? []).map((name) => name.toLowerCase()),
+    );
 
     if (!relativePath.includes(sep)) {
       const fileName = basename(relativePath);
-      if (fileName.startsWith('.') || filesWhitelist.has(fileName)) return;
+      if (fileName.startsWith('.') || filesWhitelist.has(fileName.toLowerCase()))
+        return;
       deny(
         GATE_ID,
         `'${fileName}' at the project root is not on the whitelist (${[...filesWhitelist].join(', ')}).`,
@@ -101,7 +103,10 @@ runGate(
     }
 
     const topDirectory = relativePath.split(sep)[0];
-    if (topDirectory.startsWith('.') || foldersWhitelist.has(topDirectory))
+    if (
+      topDirectory.startsWith('.') ||
+      foldersWhitelist.has(topDirectory.toLowerCase())
+    )
       return;
     deny(
       GATE_ID,

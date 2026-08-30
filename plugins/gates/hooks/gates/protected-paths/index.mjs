@@ -14,13 +14,10 @@
 // The defaults live here, in the source, so a project reads them and knows exactly what
 // its override replaces.
 
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { runGate, deny, toolInGroups, writtenPathOf } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'protected-paths';
 const CONFIG_KEY = 'blockWritesToProtectedPaths';
-
-const WRITE_TOOLS = new Set(TOOL_GROUPS.write);
-const SHELL_TOOLS = new Set(TOOL_GROUPS.shell);
 
 const DEFAULT_PROTECTED_PATHS = [
   '.env',
@@ -47,19 +44,16 @@ function escapeRegExp(fragment) {
   return fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** The path a write tool targets, across the field names different tools use. */
-function writeTargetFrom(toolInput) {
-  return String(
-    toolInput.TargetFile ??
-      toolInput.target_file ??
-      toolInput.file_path ??
-      toolInput.path ??
-      '',
-  );
+// Windows delivers absolute paths with backslashes ('C:\repo\hooks\gates\x.mjs'), but a
+// protected fragment like 'hooks/' is written with a forward slash. Normalizing the
+// separator before comparing means the fragment matches regardless of which OS produced
+// the path, without weakening the existing case-insensitive comparison.
+function toForwardSlashes(path) {
+  return path.replace(/\\/g, '/');
 }
 
 function isProtectedPath(path, protectedPaths) {
-  const normalized = path.toLowerCase();
+  const normalized = toForwardSlashes(path).toLowerCase();
   return protectedPaths.some((fragment) =>
     normalized.includes(fragment.toLowerCase()),
   );
@@ -85,7 +79,7 @@ function buildCommandPatterns(protectedPaths, mutatingCommands) {
 
 /** The write-tool branch: deny when the target path matches a protected fragment. */
 function checkWrite(toolInput, protectedPaths) {
-  const target = writeTargetFrom(toolInput);
+  const target = writtenPathOf(toolInput);
   if (target && isProtectedPath(target, protectedPaths)) {
     deny(
       GATE_ID,
@@ -96,8 +90,11 @@ function checkWrite(toolInput, protectedPaths) {
 
 /** The shell-tool branch: deny a mutating command whose target matches a protected path. */
 function checkShellCommand(toolInput, protectedPaths, mutatingCommands) {
-  const command = String(toolInput.CommandLine ?? toolInput.command ?? '');
-  if (!command.trim()) return;
+  const rawCommand = String(toolInput.CommandLine ?? toolInput.command ?? '');
+  if (!rawCommand.trim()) return;
+  // Same separator normalization as the write branch: a command embedding a Windows
+  // path ('rm C:\repo\hooks\gates\evil.mjs') must still match a 'hooks/' fragment.
+  const command = toForwardSlashes(rawCommand);
 
   const { mutatingCommand, protectedTarget, redirectToProtected } =
     buildCommandPatterns(protectedPaths, mutatingCommands);
@@ -126,8 +123,8 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isWrite = WRITE_TOOLS.has(toolName);
-    const isShell = SHELL_TOOLS.has(toolName);
+    const isWrite = toolInGroups(toolName, ['write']);
+    const isShell = toolInGroups(toolName, ['shell']);
     if (!isWrite && !isShell) return;
 
     const protectedPaths = parameters.protectedPaths ?? [];

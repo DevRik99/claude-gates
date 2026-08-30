@@ -1,4 +1,10 @@
-import { runGate, warn, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  writtenContentOf,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'never-assume';
 const CONFIG_KEY = 'requireVerificationBeforeAssuming';
@@ -13,8 +19,8 @@ const DEFAULT_CONJECTURE_PATTERNS = [
 ];
 
 function extractContent(toolName, toolInput) {
-  if (TOOL_GROUPS.delegation.includes(toolName)) return toolInput?.prompt;
-  return toolInput?.content ?? toolInput?.new_string;
+  if (toolInGroups(toolName, ['delegation'])) return delegationPromptOf(toolInput);
+  return writtenContentOf(toolInput);
 }
 
 runGate(
@@ -27,12 +33,12 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isWrite = TOOL_GROUPS.write.includes(toolName);
-    const isDelegation = TOOL_GROUPS.delegation.includes(toolName);
+    const isWrite = toolInGroups(toolName, ['write']);
+    const isDelegation = toolInGroups(toolName, ['delegation']);
     if (!isWrite && !isDelegation) return;
 
     const content = extractContent(toolName, toolInput);
-    if (typeof content !== 'string') return;
+    if (!content) return;
 
     const patterns = parameters.conjecturePatterns.map(
       (source) => new RegExp(source, 'i'),
