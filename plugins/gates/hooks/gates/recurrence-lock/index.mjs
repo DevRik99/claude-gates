@@ -1,9 +1,32 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { runGate, deny, TOOL_GROUPS } from '../../lib/hook-io.mjs';
+import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'recurrence-lock';
 const CONFIG_KEY = 'blockRegisteredRecurrences';
+
+/**
+ * De-duplicates occurrences before counting them against the threshold. An occurrence is
+ * identified by its `id`/`hash` field when present (the intended identity for a logged
+ * occurrence); a bare-scalar entry (number/string, as in the plain fixture shape used by
+ * tests) is deduplicated by its own value instead, since it carries no other identity.
+ * Without this, the same occurrence logged twice (a race or a bug in the writer) inflates
+ * the count and trips the lock as if two distinct occurrences had happened.
+ */
+function dedupOccurrences(occurrences) {
+  const seen = new Set();
+  const deduped = [];
+  for (const occurrence of occurrences) {
+    const identity =
+      occurrence && typeof occurrence === 'object'
+        ? String(occurrence.id ?? occurrence.hash ?? JSON.stringify(occurrence))
+        : String(occurrence);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    deduped.push(occurrence);
+  }
+  return deduped;
+}
 
 // The source guard (guard-reincidence-lock.mjs) reads pending recurrences
 // from a full tracking module (../scripts/memory/recurrences.mjs) with
@@ -26,10 +49,14 @@ function loadOpenRecurrences(projectRoot, thresholdAppearances) {
 
   const classes = Array.isArray(parsed?.classes) ? parsed.classes : [];
   return classes.filter((entry) => {
-    const occurrenceCount = Array.isArray(entry?.occurrences)
-      ? entry.occurrences.length
-      : 0;
-    const status = String(entry?.status ?? '').toLowerCase();
+    const occurrences = Array.isArray(entry?.occurrences)
+      ? dedupOccurrences(entry.occurrences)
+      : [];
+    const occurrenceCount = occurrences.length;
+    // Trim before lowercasing so a padded status ("Closed ", "cerrada\n") is recognized —
+    // a status compared without trimming left a validly-closed (but padded) recurrence
+    // stuck as still-open, blocking unrelated work indefinitely.
+    const status = String(entry?.status ?? '').trim().toLowerCase();
     const isClosed = status === 'closed' || status === 'cerrada';
     return occurrenceCount >= thresholdAppearances && !isClosed;
   });
@@ -45,9 +72,7 @@ runGate(
     },
   },
   ({ toolName, parameters }) => {
-    const isExecution = TOOL_GROUPS.execution.includes(toolName);
-    const isDelegation = TOOL_GROUPS.delegation.includes(toolName);
-    if (!isExecution && !isDelegation) return;
+    if (!toolInGroups(toolName, ['execution', 'delegation'])) return;
 
     const openRecurrences = loadOpenRecurrences(
       process.cwd(),
