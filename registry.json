@@ -565,6 +565,37 @@
           ]
         },
         {
+          "id": "staged-lint",
+          "configKey": "blockCommitWithStagedLintErrors",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["shell"],
+          "description": "Denies a git commit when the STAGED files fail lint — lints only what you staged, not the whole repo, so your change can't add new lint debt while pre-existing debt in untouched files never blocks you. Autodetects eslint; escape hatch [skip-lint].",
+          "script": "gates/staged-lint/index.mjs",
+          "params": [
+            {
+              "name": "lintCommand",
+              "type": "string",
+              "description": "Command to run; staged paths are appended. Default: autodetect npx eslint when an eslint config exists."
+            },
+            {
+              "name": "lintExtensions",
+              "type": "string[]",
+              "description": "Staged file extensions that get linted. Replaces the built-in list."
+            },
+            {
+              "name": "lintTimeoutMs",
+              "type": "number",
+              "description": "Milliseconds allowed for the lint run before it counts as a failure."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Substring in the commit command that skips the check once. Default [skip-lint]."
+            }
+          ]
+        },
+        {
           "id": "no-coauthor",
           "configKey": "blockCoauthorTrailers",
           "default": true,
@@ -624,13 +655,28 @@
           "default": false,
           "event": "PreToolUse",
           "tools": ["write", "delegation"],
-          "description": "Consults the project tool map; blocks building a tool absent from it without an audit.",
+          "description": "Before building a tool/helper (by folder, name pattern, or extension), requires evidence the wheel was checked: an audit phrase, the tool's name already in the map (structural match), or a matching installed dependency. Covers helpers beyond scripts/hooks/tools/gates and Spanish build-intent.",
           "script": "gates/reuse-before-build/index.mjs",
           "params": [
             {
               "name": "toolMapFile",
               "type": "string",
               "description": "Path to the per-project tool map (default .ai/tool-map.json)."
+            },
+            {
+              "name": "toolFolders",
+              "type": "string[]",
+              "description": "Folder names marking a file as a tool/helper. Replaces the built-in list (scripts, hooks, tools, gates, lib, utils, helpers, composables, components, services...)."
+            },
+            {
+              "name": "toolNamePatterns",
+              "type": "string[]",
+              "description": "Regex sources; a new file whose basename matches any is treated as a helper regardless of folder (useX, XHelper, XUtil, XService...)."
+            },
+            {
+              "name": "toolExtensions",
+              "type": "string[]",
+              "description": "File extensions considered code that can reinvent a wheel."
             }
           ]
         },

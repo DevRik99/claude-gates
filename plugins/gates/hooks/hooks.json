@@ -302,6 +302,16 @@
         ]
       },
       {
+        "matcher": "Bash|run_command|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/staged-lint/index.mjs\"",
+            "timeout": 65
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
