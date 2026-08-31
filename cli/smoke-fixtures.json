@@ -1,0 +1,390 @@
+{
+  "_comment": "One known-violation payload per gate, derived from each gate's own test.mjs, for the `smoke` command. The runner (cli/smoke.mjs) feeds each payload to the gate and confirms it reacts (deny/warn) as declared. `needsState: true` marks a gate whose violation cannot be reproduced with a single stdin payload alone (it reads a seeded file, a sqlite db, or accumulates state across calls) — the runner SKIPS those honestly instead of miscounting them as a defect. `type` is deny/warn/none. When enabledByDefault is false the runner enables the gate via config before running it. This file is test-fixture data (it embeds regional-Spanish and destructive-command strings on purpose): neutral-spanish:allow",
+  "fixtures": [
+    {
+      "id": "bash-commands",
+      "configKey": "blockDestructiveShellCommands",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git reset --hard HEAD~3" }
+      },
+      "needsState": false
+    },
+    {
+      "id": "block-remote-publish",
+      "configKey": "blockRemotePublish",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git push origin main" }
+      },
+      "needsState": false
+    },
+    {
+      "id": "protected-paths",
+      "configKey": "blockWritesToProtectedPaths",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "/repo/.env" }
+      },
+      "needsState": false
+    },
+    {
+      "id": "root-whitelist",
+      "configKey": "blockPathsOutsideRootWhitelist",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "random-orphan.txt" }
+      },
+      "needsState": true,
+      "note": "file_path must resolve against the scratch project root; a literal alone does not reproduce root detection."
+    },
+    {
+      "id": "no-blocking",
+      "configKey": "blockWaitingCommands",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "sleep 30" }
+      },
+      "needsState": false
+    },
+    {
+      "id": "brief-before-delegate",
+      "configKey": "requireBriefBeforeDelegating",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": { "prompt": "Fix the login bug please, thanks." }
+      },
+      "needsState": false
+    },
+    {
+      "id": "intent-flow",
+      "configKey": "requireScopeListBeforeDelegating",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Implementa el cobro del pago con la nueva pasarela de dinero para el checkout."
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "risk-level",
+      "configKey": "requireDeclaredRiskLevel",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Arregla el boton que no cambia de color en la pagina."
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "circuit-breaker",
+      "configKey": "requireCircuitBreakerOnDelegation",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": { "prompt": "fix the scoring threshold" }
+      },
+      "needsState": true,
+      "note": "stateful: denies only on the 3rd identical retry under the same session id."
+    },
+    {
+      "id": "no-memory-dependency",
+      "configKey": "warnMemoryDependencyInBrief",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Acordate de lo que hablamos antes y aplica el mismo criterio."
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "force-parallel",
+      "configKey": "warnSequentialDelegations",
+      "enabledByDefault": false,
+      "type": "warn",
+      "payload": { "tool_name": "Task", "tool_input": { "prompt": "do work" } },
+      "needsState": true,
+      "note": "stateful: warns only on the 3rd consecutive delegation under one session."
+    },
+    {
+      "id": "feature-catalog",
+      "configKey": "requireFeatureCatalog",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "feature_list.json",
+          "content": "{\"features\":[{\"name\":\"a\",\"status\":\"in_progress\"},{\"name\":\"b\",\"status\":\"in_progress\"}]}"
+        }
+      },
+      "needsState": true,
+      "note": "denies >maxInProgress; needs the catalog shape and threshold to line up."
+    },
+    {
+      "id": "sdd-specs",
+      "configKey": "requireSpecBeforeImplementing",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Nivel: STANDARD\nImplementa el flujo de pago."
+        }
+      },
+      "needsState": true,
+      "note": "auto-off unless a features tree exists; needs seeded .ai/feature_list.json + features dir."
+    },
+    {
+      "id": "implementation-pipeline",
+      "configKey": "requireImplementationPipeline",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": { "prompt": "Nivel: STANDARD\nImplementa el checkout." }
+      },
+      "needsState": false
+    },
+    {
+      "id": "mandatory-flow",
+      "configKey": "requireLiveTaskWhenImplementing",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": { "prompt": "Nivel: STANDARD\nImplementa el checkout." }
+      },
+      "needsState": false
+    },
+    {
+      "id": "test-matrix",
+      "configKey": "requireTestMatrixWhenImplementing",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Nivel: STANDARD\nImplementa el checkout.",
+          "subagent_type": "backend"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "dependency-skills",
+      "configKey": "requireSkillForNewDependency",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/package.json",
+          "content": "{\"dependencies\":{\"stripe\":\"1.0.0\"}}"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "root-cause-first",
+      "configKey": "requireRootCauseBeforePatch",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/src/x.js",
+          "content": "// TODO fix later patch"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "audit-before-build",
+      "configKey": "requireAuditBeforeBuilding",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": { "prompt": "create a new script that checks X" }
+      },
+      "needsState": false
+    },
+    {
+      "id": "never-assume",
+      "configKey": "requireVerificationBeforeAssuming",
+      "enabledByDefault": false,
+      "type": "warn",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/src/x.js",
+          "content": "// i assume the timezone is UTC"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "rule-skill-autodiscovery",
+      "configKey": "autodiscoverRulesAndSkills",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "echo hi" }
+      },
+      "needsState": true,
+      "note": "needs a project rules/ or .claude/skills gate script present that exits non-zero."
+    },
+    {
+      "id": "recurrence-lock",
+      "configKey": "blockRegisteredRecurrences",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "echo hi" }
+      },
+      "needsState": true,
+      "note": "needs .ai/reincidencias.json with an open class at/above threshold."
+    },
+    {
+      "id": "test-after-implementation",
+      "configKey": "warnTestWrittenAfterImplementation",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "thing.test.js",
+          "content": "test content"
+        }
+      },
+      "needsState": true,
+      "note": "needs a git repo with an uncommitted paired implementation file."
+    },
+    {
+      "id": "no-reconfirm",
+      "configKey": "requireNoReconfirmOfApproved",
+      "enabledByDefault": true,
+      "type": "warn",
+      "payload": {
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+          "questions": [{ "question": "Should I migrate the auth schema?" }]
+        }
+      },
+      "needsState": true,
+      "note": "needs a transcript file with a prior approval of the same topic."
+    },
+    {
+      "id": "neutral-spanish",
+      "configKey": "warnNonNeutralSpanish",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/notes.md",
+          "content": "che, mira el laburo que hicimos"
+        }
+      },
+      "needsState": false,
+      "note": "neutral-spanish:allow (fixture data uses regional markers on purpose)"
+    },
+    {
+      "id": "diagnosis-before-patch",
+      "configKey": "warnTimeoutChangeWithoutDiagnosis",
+      "enabledByDefault": true,
+      "type": "warn",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/src/config.js",
+          "content": "const REQUEST_TIMEOUT_MS = 30000;"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "lint-commit",
+      "configKey": "blockCommitWithFailingLint",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git commit -m x" }
+      },
+      "needsState": true,
+      "note": "needs a project package.json whose lint script exits non-zero."
+    },
+    {
+      "id": "reuse-before-build",
+      "configKey": "requireReuseCheckBeforeBuilding",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "scripts/csv-parser.mjs",
+          "content": "export function parse() {}"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "tool-map",
+      "configKey": "maintainToolMap",
+      "enabledByDefault": false,
+      "type": "none",
+      "payload": null,
+      "needsState": true,
+      "note": "side-effect only: records to .ai/tool-map.json, never denies/warns."
+    },
+    {
+      "id": "forge-flow",
+      "configKey": "requireForgeRunToEdit",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": { "file_path": "src/x.js", "content": "x" }
+      },
+      "needsState": true,
+      "note": "needs a forge adoption marker + sqlite db with no active run."
+    },
+    {
+      "id": "autonomous-mode",
+      "configKey": "autonomousMode",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "AskUserQuestion",
+        "tool_input": { "questions": [{ "question": "A or B?" }] }
+      },
+      "needsState": false
+    }
+  ]
+}

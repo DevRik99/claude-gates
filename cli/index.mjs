@@ -13,6 +13,7 @@ import {
   REPOSITORY_ROOT,
 } from './constants.mjs';
 import { loadRegistry, validateRegistry } from './registry.mjs';
+import { runSmoke, OUTCOMES } from './smoke.mjs';
 import { registerTaskCommand } from './task.mjs';
 
 const packageManifest = JSON.parse(
@@ -51,6 +52,47 @@ function registryList() {
     }
   }
   process.stdout.write('\n* = recommended default\n');
+}
+
+const SMOKE_FIXTURES_PATH = join(REPOSITORY_ROOT, 'cli', 'smoke-fixtures.json');
+// Width the gate id is padded to so the expected/got columns line up in the report.
+const GATE_ID_COLUMN_WIDTH = 28;
+const OUTCOME_MARK = {
+  [OUTCOMES.REACTED]: 'ok  ',
+  [OUTCOMES.NO_REACTION]: 'FAIL',
+  [OUTCOMES.SKIPPED]: 'skip',
+  [OUTCOMES.ERROR]: 'ERR ',
+};
+
+// Runs each gate against a known violation and reports whether it actually reacts. Unlike
+// `registry --check` (structure) and the doctor hook (files exist), this confirms behavior:
+// it is the check that catches a gate silently allowing its own known violation. Exits
+// non-zero if any gate did not react (a real defect) — so CI or a post-install step can gate
+// on it. Gates whose violation needs seeded state are reported `skip`, never counted as pass.
+function smokeGates() {
+  const manifest = JSON.parse(
+    readFileSync(SMOKE_FIXTURES_PATH, 'utf8'),
+  ).fixtures;
+  const { results, tally } = runSmoke(manifest);
+
+  for (const result of results) {
+    const detail = result.reason ? `  (${result.reason})` : '';
+    process.stdout.write(
+      `${OUTCOME_MARK[result.outcome]}  ${result.id.padEnd(GATE_ID_COLUMN_WIDTH)} ` +
+        `expected=${result.expected} got=${result.got ?? '-'}${detail}\n`,
+    );
+  }
+  process.stdout.write(
+    `\nreacted ${tally.reacted}  ·  no-reaction ${tally['no-reaction']}  ·  ` +
+      `skipped ${tally.skipped}  ·  error ${tally.error}\n`,
+  );
+  if (tally['no-reaction'] > 0 || tally.error > 0) {
+    process.stdout.write(
+      '\nSome gates did not react to their own known violation. This is a defect: ' +
+        'the gate is wired but does not block/warn as declared.\n',
+    );
+    process.exit(EXIT_CODE.FAILURE);
+  }
 }
 
 const program = new Command()
@@ -98,6 +140,14 @@ program
     if (options.list) return registryList();
     return fail('registry needs --check or --list');
   });
+
+program
+  .command('smoke')
+  .description(
+    'Feed each gate a known violation and confirm it actually reacts (deny/warn). ' +
+      'Catches a gate that is wired but silently allows. Exits non-zero on any no-reaction.',
+  )
+  .action(() => smokeGates());
 
 registerTaskCommand(program);
 

@@ -5,7 +5,7 @@ Claude executes a tool and **block or warn** when something breaks a rule: a des
 command, a write to a protected file, a delegation with no brief, and more. Everything is
 **configurable per project** and can be **turned on/off** whenever you want.
 
-The core idea: instead of trusting the model to *remember* the rules, a **deterministic**
+The core idea: instead of trusting the model to _remember_ the rules, a **deterministic**
 hook enforces them. A `git reset --hard` does not run because the model chose to behave —
 it is blocked because a gate intercepts it.
 
@@ -65,58 +65,65 @@ works even if you install one on its own.
 `[on]` = enabled by default; `[off]` = enable it if you want it.
 
 ### 🔒 Security — hard blocks on destructive actions
-| Gate | | What it does |
-|---|---|---|
-| `bash-commands` | on | Blocks `git reset --hard`, `rm -rf` over protected areas, force push, and killing processes by name. |
-| `block-remote-publish` | on | Blocks `git push`, `gh pr merge`, `gh release create` without authorization. Set `blockRemotePublish: false` to let the agent publish on its own. |
-| `protected-paths` | on | Blocks writes to `.env`, lockfiles and the harness itself. |
-| `root-whitelist` | on | Blocks new root-level files/folders outside a whitelist. |
-| `no-blocking` | off | Blocks `sleep`, `tail -f`, polling loops and foreground servers. |
+
+| Gate                   |     | What it does                                                                                                                                      |
+| ---------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bash-commands`        | on  | Blocks `git reset --hard`, `rm -rf` over protected areas, force push, and killing processes by name.                                              |
+| `block-remote-publish` | on  | Blocks `git push`, `gh pr merge`, `gh release create` without authorization. Set `blockRemotePublish: false` to let the agent publish on its own. |
+| `protected-paths`      | on  | Blocks writes to `.env`, lockfiles and the harness itself.                                                                                        |
+| `root-whitelist`       | on  | Blocks new root-level files/folders outside a whitelist.                                                                                          |
+| `no-blocking`          | off | Blocks `sleep`, `tail -f`, polling loops and foreground servers.                                                                                  |
 
 ### 🤝 Delegation — requirements on the brief when delegating to a subagent
-| Gate | | What it does |
-|---|---|---|
-| `brief-before-delegate` | off | Requires goal, steps and done-when criteria in the prompt. |
-| `intent-flow` | off | Requires IN SCOPE / OUT OF SCOPE / EDGE CASES sections. |
-| `risk-level` | off | Requires a declared level (QUESTION/MICRO/STANDARD/HIGH-RISK). |
-| `circuit-breaker` | off | Cuts the same delegation retried without real changes. |
-| `no-memory-dependency` | off | Blocks a brief that relies on the subagent "remembering" the chat (add `memory-not-needed` to allow a false positive). |
+
+| Gate                    |     | What it does                                                                                                           |
+| ----------------------- | --- | ---------------------------------------------------------------------------------------------------------------------- |
+| `brief-before-delegate` | off | Requires goal, steps and done-when criteria in the prompt.                                                             |
+| `intent-flow`           | off | Requires IN SCOPE / OUT OF SCOPE / EDGE CASES sections.                                                                |
+| `risk-level`            | off | Requires a declared level (QUESTION/MICRO/STANDARD/HIGH-RISK).                                                         |
+| `circuit-breaker`       | off | Cuts the same delegation retried without real changes.                                                                 |
+| `no-memory-dependency`  | off | Blocks a brief that relies on the subagent "remembering" the chat (add `memory-not-needed` to allow a false positive). |
 
 ### 📋 Spec-driven flow — only relevant if the project adopted spec-driven development
-| Gate | | What it does |
-|---|---|---|
-| `feature-catalog` | on | A single feature in progress; closing requires asserts and review. |
-| `sdd-specs` | off | Requires non-empty requirements/design/tasks before implementing. |
+
+| Gate                      |     | What it does                                                         |
+| ------------------------- | --- | -------------------------------------------------------------------- |
+| `feature-catalog`         | on  | A single feature in progress; closing requires asserts and review.   |
+| `sdd-specs`               | off | Requires non-empty requirements/design/tasks before implementing.    |
 | `implementation-pipeline` | off | Requires declaring definition → writing → validation → QA → closure. |
-| `mandatory-flow` | off | Requires an active task with a contract before implementing. |
-| `test-matrix` | off | Requires a test matrix (the types the requirement makes mandatory). |
+| `mandatory-flow`          | off | Requires an active task with a contract before implementing.         |
+| `test-matrix`             | off | Requires a test matrix (the types the requirement makes mandatory).  |
 
 ### ✨ Quality — code hygiene, diagnosis and language
-| Gate | | What it does |
-|---|---|---|
-| `dependency-skills` | on | Blocks a new direct dependency with no matching skill (declare it in `depsWithoutOwnApi` if it needs none). |
-| `root-cause-first` | off | Requires an origin→symptom diagnosis before a patch. |
-| `audit-before-build` | off | Before a new script/gate, requires stating that nothing existing covers it. |
-| `never-assume` | off | Flags unverified assumptions in briefs and code. |
-| `rule-skill-autodiscovery` | off | Loads gates the project declares in its `rules/` and `skills/`. |
-| `recurrence-lock` | on | A second occurrence of a defect class requires its deterministic block. |
-| `test-after-implementation` | off | Blocks a test written after its paired implementation (add `test-after-impl:allow` for a regression test). |
-| `no-reconfirm` | on | Never re-ask what you already answered. |
-| `neutral-spanish` | on | Blocks voseo or regional lexicon in written text (add `neutral-spanish:allow` for a deliberate quote/fixture). |
-| `diagnosis-before-patch` | on | Warns when timeouts/retries change without evidence. |
+
+| Gate                        |     | What it does                                                                                                   |
+| --------------------------- | --- | -------------------------------------------------------------------------------------------------------------- |
+| `dependency-skills`         | on  | Blocks a new direct dependency with no matching skill (declare it in `depsWithoutOwnApi` if it needs none).    |
+| `root-cause-first`          | off | Requires an origin→symptom diagnosis before a patch.                                                           |
+| `audit-before-build`        | off | Before a new script/gate, requires stating that nothing existing covers it.                                    |
+| `never-assume`              | off | Flags unverified assumptions in briefs and code.                                                               |
+| `rule-skill-autodiscovery`  | off | Loads gates the project declares in its `rules/` and `skills/`.                                                |
+| `recurrence-lock`           | on  | A second occurrence of a defect class requires its deterministic block.                                        |
+| `test-after-implementation` | off | Blocks a test written after its paired implementation (add `test-after-impl:allow` for a regression test).     |
+| `no-reconfirm`              | on  | Never re-ask what you already answered.                                                                        |
+| `neutral-spanish`           | on  | Blocks voseo or regional lexicon in written text (add `neutral-spanish:allow` for a deliberate quote/fixture). |
+| `diagnosis-before-patch`    | on  | Warns when timeouts/retries change without evidence.                                                           |
 
 ### 🔎 Tool discovery — don't reinvent the wheel
-| Gate | | What it does |
-|---|---|---|
+
+| Gate                 |     | What it does                                                                                                 |
+| -------------------- | --- | ------------------------------------------------------------------------------------------------------------ |
 | `reuse-before-build` | off | Before building a tool, consults the project tool map; blocks if you did not audit (local → Context7 → web). |
-| `tool-map` | off | Records discovered tools in `.ai/tool-map.json` so exploration is not repeated. |
+| `tool-map`           | off | Records discovered tools in `.ai/tool-map.json` so exploration is not repeated.                              |
 
 ### 🏭 Forge pipeline — enforces the forge workflow
-| Gate | | What it does |
-|---|---|---|
+
+| Gate         |     | What it does                                                                                                                                                                                            |
+| ------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forge-flow` | off | In a project that adopted [forge](https://github.com/DevRik99/forge-mcp), blocks editing/running unless an active forge run exists. Closes the hole the MCP cannot: it forces you through the pipeline. |
 
-### 🩺 Session start — startup checks *(work in progress)*
+### 🩺 Session start — startup checks _(work in progress)_
+
 `doctor`, `ask-adoption`, `wiring-check` — declared in the catalog; their scripts are being
 migrated next.
 
@@ -180,7 +187,16 @@ claude-gates init --no-install        # write the config but do not install the 
 # Inspect the catalog:
 claude-gates registry --list          # list families and gates
 claude-gates registry --check         # validate registry.json
+
+# Verify the gates actually react (not just that they are wired):
+claude-gates smoke                    # feed each gate a known violation; exits non-zero if any does not block/warn
 ```
+
+`smoke` is the behavioral check `registry --check` (structure) and the doctor hook (files
+exist) do not do: it feeds every gate a known violation and confirms it really denies/warns.
+Gates whose violation needs seeded state (a db, a git repo, cross-call state) report `skip`,
+never a false pass. Run it after install, or in CI, to catch a gate that is wired but silently
+allows.
 
 ---
 
