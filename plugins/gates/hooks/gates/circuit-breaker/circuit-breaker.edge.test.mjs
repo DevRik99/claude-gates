@@ -49,7 +49,17 @@ function isDeny(result) {
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-const ENABLED = { config: { gates: { requireCircuitBreakerOnDelegation: true } } };
+// These edge tests were written around a three-attempt scenario (two pass, the third
+// denies). They pin retryThreshold: 3 explicitly so they keep probing that exact shape
+// regardless of the gate's DEFAULT threshold (now 2). The default-threshold behavior has
+// its own dedicated test below.
+const ENABLED = {
+  config: {
+    gates: {
+      requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
+    },
+  },
+};
 
 function freshSession() {
   return `edge-${randomUUID()}`;
@@ -79,15 +89,28 @@ test('FIXED: varying subagent_type per retry no longer resets the counter — th
   const sessionId = freshSession();
   try {
     assert.equal(
-      runGate(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' }), ENABLED),
+      runGate(
+        delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' }),
+        ENABLED,
+      ),
       null,
     );
     assert.equal(
-      runGate(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker-senior' }), ENABLED),
+      runGate(
+        delegate(SAME_TASK_PROMPT, sessionId, {
+          subagent_type: 'worker-senior',
+        }),
+        ENABLED,
+      ),
       null,
     );
     assert.ok(
-      isDeny(runGate(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker2' }), ENABLED)),
+      isDeny(
+        runGate(
+          delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker2' }),
+          ENABLED,
+        ),
+      ),
       'third identical attempt now denies even though it used yet another subagent_type: the key follows the task, not the label',
     );
   } finally {
@@ -104,7 +127,10 @@ test('FIXED: forging a count field on disk no longer has any effect — there is
   const statePath = join(STATE_ROOT, sessionId, 'state.json');
   try {
     runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED); // one real occurrence recorded
-    assert.ok(existsSync(statePath), 'sanity: state file exists after first real attempt');
+    assert.ok(
+      existsSync(statePath),
+      'sanity: state file exists after first real attempt',
+    );
 
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     const [key] = Object.keys(state);
@@ -122,7 +148,7 @@ test('FIXED: forging a count field on disk no longer has any effect — there is
     assert.equal(
       result,
       null,
-      'the forged count field is ignored: this is only the 2nd real occurrence, below the default threshold of 3',
+      'the forged count field is ignored: this is only the 2nd real occurrence, below the configured threshold of 3',
     );
   } finally {
     cleanupSession(sessionId);
@@ -136,7 +162,8 @@ test('FIXED: no session_id no longer disables the breaker — it falls back to a
   const payload = {
     tool_name: 'Agent',
     tool_input: {
-      prompt: 'Objetivo: fix a one-off no-session edge case.\n\nQUE SI: update src/edge/no-session.js.',
+      prompt:
+        'Objetivo: fix a one-off no-session edge case.\n\nQUE SI: update src/edge/no-session.js.',
       subagent_type: 'worker-senior',
     },
   };
@@ -164,8 +191,14 @@ test('FIXED: OVERRIDE_PATTERN no longer matches the plain word "retry" inside or
       '',
       'QUE SI: update src/workers/payment.js to cap retries.',
     ].join('\n');
-    assert.equal(runGate(delegate(retryWordingPrompt, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(retryWordingPrompt, sessionId), ENABLED), null);
+    assert.equal(
+      runGate(delegate(retryWordingPrompt, sessionId), ENABLED),
+      null,
+    );
+    assert.equal(
+      runGate(delegate(retryWordingPrompt, sessionId), ENABLED),
+      null,
+    );
     assert.ok(
       isDeny(runGate(delegate(retryWordingPrompt, sessionId), ENABLED)),
       'third identical relaunch now denies: "retry" as ordinary task vocabulary is no longer read as an override',
@@ -181,7 +214,10 @@ test('OK: a genuine override imperative ("retry anyway") still allows and resets
     assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
     assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
     assert.equal(
-      runGate(delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId), ENABLED),
+      runGate(
+        delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId),
+        ENABLED,
+      ),
       null,
       'genuine override imperative still allows and resets',
     );
@@ -195,12 +231,44 @@ test('OK: a genuine override imperative ("retry anyway") still allows and resets
   }
 });
 
-test('OK: identical prompt+subagent_type is tripped at the default retry threshold', () => {
+test('OK: identical prompt+subagent_type is tripped at a configured retry threshold of 3', () => {
   const sessionId = freshSession();
   try {
     assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
     assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
     assert.ok(isDeny(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED)));
+  } finally {
+    cleanupSession(sessionId);
+  }
+});
+
+test('DEFAULT threshold is 2: the first attempt passes, the second identical one denies and asks for help', () => {
+  // With no retryThreshold override, the gate's built-in default (2) governs: the second
+  // identical relaunch trips the breaker. This is the behavior the user asked for — two
+  // attempts, then stop and escalate.
+  const sessionId = freshSession();
+  const enabledDefault = {
+    config: { gates: { requireCircuitBreakerOnDelegation: true } },
+  };
+  try {
+    assert.equal(
+      runGate(delegate(SAME_TASK_PROMPT, sessionId), enabledDefault),
+      null,
+      'first attempt is normal and passes',
+    );
+    const second = runGate(
+      delegate(SAME_TASK_PROMPT, sessionId),
+      enabledDefault,
+    );
+    assert.ok(
+      isDeny(second),
+      'second identical attempt denies at the default threshold of 2',
+    );
+    assert.match(
+      second.hookSpecificOutput.permissionDecisionReason,
+      /ASK THE USER/,
+      'the deny message tells the assistant to ask the user for help',
+    );
   } finally {
     cleanupSession(sessionId);
   }

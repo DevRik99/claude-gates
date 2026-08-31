@@ -39,8 +39,15 @@ function isDeny(result) {
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
+// These tests were written around a three-attempt scenario (two pass, the third denies),
+// so they pin retryThreshold: 3 explicitly and stay valid regardless of the gate's DEFAULT
+// threshold (now 2, verified by its own test in circuit-breaker.edge.test.mjs).
 const ENABLED = {
-  config: { gates: { requireCircuitBreakerOnDelegation: true } },
+  config: {
+    gates: {
+      requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
+    },
+  },
 };
 
 function freshSession() {
@@ -117,7 +124,10 @@ test('bilingual control: the Spanish override imperative resets the counter exac
     assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
     assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
     assert.equal(
-      runGate(delegate(`${prompt}\n\nreintentalo, forzalo.`, sessionId), ENABLED),
+      runGate(
+        delegate(`${prompt}\n\nreintentalo, forzalo.`, sessionId),
+        ENABLED,
+      ),
       null,
     );
     assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
