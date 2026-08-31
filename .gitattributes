@@ -1,0 +1,21 @@
+# Normalize line endings so git, prettier and eslint agree. Without this, core.autocrlf=true
+# checks code out with CRLF on Windows, and prettier (via eslint-plugin-prettier) then flags
+# every line as `Delete ␍`. Force LF for all text/code so the working tree matches what
+# prettier expects (endOfLine: lf) on every platform.
+* text=auto eol=lf
+
+# Explicitly LF for the source and config the linter checks.
+*.mjs   text eol=lf
+*.js    text eol=lf
+*.cjs   text eol=lf
+*.ts    text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+# Binary / generated files git must never touch.
+*.db    binary
+*.png   binary
+*.jpg   binary
+*.ico   binary

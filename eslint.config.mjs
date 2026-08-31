@@ -86,6 +86,7 @@ export default [
           partialMatch: false,
         },
         { type: 'hook', pattern: 'plugins/*/hooks', partialMatch: false },
+        { type: 'script', pattern: 'scripts', partialMatch: false },
       ],
       'boundaries/ignore': ['**/node_modules/**', 'eslint.config.mjs'],
     },
@@ -120,7 +121,13 @@ export default [
             },
             {
               from: { element: { type: 'cli' } },
-              allow: [{ to: { element: { type: 'cli' } } }],
+              // hook-lib is Node-builtins-only and self-contained (the same reason a hook
+              // may depend on it); the CLI's `task` subcommand reuses task-store.mjs from
+              // there rather than duplicating its persistence logic.
+              allow: [
+                { to: { element: { type: 'cli' } } },
+                { to: { element: { type: 'hook-lib' } } },
+              ],
             },
             {
               from: { element: { type: 'cli-tests' } },
@@ -143,6 +150,17 @@ export default [
             {
               from: { element: { type: 'hook' } },
               allow: [{ to: { element: { type: 'hook-lib' } } }],
+            },
+            // A dev script (scripts/) is a standalone Node tool: it reads the gate sources and
+            // runs their tests. It may use Node built-ins; it must not pull npm packages, same
+            // discipline as a hook.
+            {
+              from: { element: { type: 'script' } },
+              allow: [{ to: { module: { origin: 'core' } } }],
+            },
+            {
+              from: { element: { type: 'script' } },
+              disallow: [{ to: { module: { origin: 'external' } } }],
             },
             // The CLI may use npm packages; hooks must be self-contained (Node built-ins only).
             {
@@ -303,6 +321,7 @@ export default [
     files: [
       'plugins/*/hooks/gates/forge-flow/index.mjs',
       'plugins/*/hooks/gates/forge-flow/test.mjs',
+      'plugins/*/hooks/gates/forge-flow/forge-flow.edge.test.mjs',
     ],
     rules: {
       'boundaries/dependencies': 'off',

@@ -385,6 +385,33 @@
         "tool_input": { "questions": [{ "question": "A or B?" }] }
       },
       "needsState": false
+    },
+    {
+      "id": "no-coauthor",
+      "configKey": "blockCoauthorTrailers",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m \"fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>\""
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "no-lint-suppression",
+      "configKey": "blockLintSuppression",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/a.js",
+          "content": "const x = 1; // eslint-disable-next-line no-unused-vars"
+        }
+      },
+      "needsState": false
     }
   ]
 }

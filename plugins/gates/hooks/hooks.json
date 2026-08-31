@@ -310,6 +310,37 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-coauthor/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-lint-suppression/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/capability-map/index.mjs\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [

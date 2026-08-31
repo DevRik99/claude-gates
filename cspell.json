@@ -1,6 +1,25 @@
 {
   "version": "0.2",
   "language": "en",
-  "words": ["devrik", "repoint"],
+  "words": [
+    "devrik",
+    "repoint",
+    "nosonar",
+    "noqa",
+    "reintent",
+    "reintenta",
+    "reintentalo",
+    "forz",
+    "forzalo",
+    "insist",
+    "dedup",
+    "autodiscover",
+    "credencial",
+    "datos",
+    "borrar",
+    "escrib",
+    "nuevo",
+    "nueva"
+  ],
   "ignorePaths": ["node_modules/**", "package-lock.json"]
 }

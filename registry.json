@@ -563,6 +563,53 @@
               "description": "Milliseconds allowed for the lint run before it counts as a failure."
             }
           ]
+        },
+        {
+          "id": "no-coauthor",
+          "configKey": "blockCoauthorTrailers",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["shell", "delegation"],
+          "description": "Denies a git commit whose message carries an AI/agent attribution trailer (Co-Authored-By, Generated with, session trailer). Escape hatch marker allows one legitimate co-author.",
+          "script": "gates/no-coauthor/index.mjs",
+          "params": [
+            {
+              "name": "attributionPatterns",
+              "type": "string[]",
+              "description": "Regex sources of attribution trailers/phrases to deny. Replaces the built-in list."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Substring in the command that allows one commit to keep a co-author. Default [allow-coauthor]."
+            }
+          ]
+        },
+        {
+          "id": "no-lint-suppression",
+          "configKey": "blockLintSuppression",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["write"],
+          "description": "Denies a write that silences the linter/type-checker (inline disable directive, or a config rule set off) instead of fixing the code. Escape hatch marker on the same line allows a documented false positive.",
+          "script": "gates/no-lint-suppression/index.mjs",
+          "params": [
+            {
+              "name": "suppressionPatterns",
+              "type": "string[]",
+              "description": "Regex sources marking an inline suppression directive. Replaces the built-in list."
+            },
+            {
+              "name": "watchedConfigFiles",
+              "type": "string[]",
+              "description": "Config file basenames whose edits are scanned for rule-weakening. Replaces the built-in list."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Substring on the same line as a suppression that allows it (a documented false positive). Default lint-ok:."
+            }
+          ]
         }
       ]
     },
@@ -698,6 +745,52 @@
           "tools": [],
           "description": "Warns when a registered hook is missing or a script is orphaned.",
           "script": "wiring-check.mjs"
+        },
+        {
+          "id": "capability-map",
+          "configKey": "injectCapabilityMap",
+          "default": false,
+          "event": "UserPromptSubmit",
+          "tools": [],
+          "description": "Injects the current catalog of the project's AI capabilities (skills, agents/subagents, commands) as compact context on every message, grouped by kind, read fresh from disk. Also persists it to .ai/capability-map.json like the tool map. Autosynced: it lists the directories, never a hardcoded copy. Never blocks.",
+          "script": "gates/capability-map/index.mjs",
+          "params": [
+            {
+              "name": "kinds",
+              "type": "string[]",
+              "description": "Which capability kinds to include: skills, agents, commands. Drop one to stop scanning it."
+            },
+            {
+              "name": "maxClauseChars",
+              "type": "number",
+              "description": "Hard cap on each entry's one-line blurb length. Default 90."
+            },
+            {
+              "name": "extraSkillsDirs",
+              "type": "string[]",
+              "description": "Extra skill roots (relative or absolute) scanned in addition to ~/.claude/skills and <project>/.claude/skills."
+            },
+            {
+              "name": "extraAgentsDirs",
+              "type": "string[]",
+              "description": "Extra agent roots scanned in addition to ~/.claude/agents and <project>/.claude/agents."
+            },
+            {
+              "name": "extraCommandsDirs",
+              "type": "string[]",
+              "description": "Extra command roots scanned in addition to ~/.claude/commands and <project>/.claude/commands."
+            },
+            {
+              "name": "persist",
+              "type": "boolean",
+              "description": "Whether to write the persisted map file. Default true."
+            },
+            {
+              "name": "mapFile",
+              "type": "string",
+              "description": "Path to the persisted capability map, relative to project root. Default .ai/capability-map.json."
+            }
+          ]
         }
       ]
     },

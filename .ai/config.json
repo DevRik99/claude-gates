@@ -1,18 +1,15 @@
 {
-  "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project → global, so this overrides the global config locally without touching it. These gates give false positives when editing the gates/hooks source of this very repo (they treat editing a gate as building a new tool, and protect the 'hooks/' path which is legitimate source here). Root fixes are in audit-before-build and reuse-before-build (existsSync = edit, not create); this config keeps development unblocked meanwhile and is the correct place for repo-specific gate tuning.",
+  "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project -> global, so this overrides the global config locally without touching it. Two reasons a gate is off here: (1) false positives when editing this very repo's own gate source; (2) TEMPORARY during parallel gate migration, a half-edited gate that runs against the main agent throws at load and blocks every tool call. Re-enable/delete these keys when the migration lands. blockDestructiveShellCommands is deliberately NOT here: it stays ON even in dev.",
   "adopted": "partial",
   "gateVersion": "3.0.0",
   "gates": {
-    "requireReuseCheckBeforeBuilding": {
-      "enabled": false
-    },
-    "requireAuditBeforeBuilding": {
-      "enabled": false
-    },
     "blockWritesToProtectedPaths": {
       "enabled": false
     },
     "blockPathsOutsideRootWhitelist": {
+      "enabled": false
+    },
+    "blockRemotePublish": {
       "enabled": false
     }
   }
