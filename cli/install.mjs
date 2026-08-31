@@ -21,36 +21,62 @@ function marketplaceManifest() {
   return JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8').replace(/^﻿/, ''));
 }
 
+// A marketplace block in `plugin marketplace list` prints a name line (optionally bulleted
+// with ❯) then a `Source: <Kind> (<path>)` line. These match one line each — anchored and
+// with bounded, non-overlapping character classes so there is no catastrophic backtracking.
+const MARKETPLACE_NAME_LINE = /^[^\S\n]*(?:❯[^\S\n]*)?([\w-]+)[^\S\n]*$/;
+const MARKETPLACE_DIRECTORY_SOURCE =
+  /^[^\S\n]*Source:[^\S\n]*Directory[^\S\n]*\(([^)]+)\)/i;
+const TRAILING_SLASHES = /[\\/]+$/;
+
 /**
- * The name Claude Code actually registered THIS directory's marketplace under. It is usually
- * the manifest's `name`, but not always: if the user added the same directory earlier under a
+ * Every registered marketplace as `{ name, source }`, parsed from `plugin marketplace list`.
+ * `source` is the directory path a Directory-source marketplace serves from (trailing slash
+ * stripped). Only Directory-source marketplaces are returned (GitHub sources have no local
+ * path to compare). Empty on any listing failure.
+ */
+function listRegisteredMarketplaces(runClaude) {
+  let listing;
+  try {
+    listing = runClaude(['plugin', 'marketplace', 'list']);
+  } catch {
+    return [];
+  }
+  const marketplaces = [];
+  let currentName = null;
+  for (const line of listing.split(/\r?\n/)) {
+    const nameMatch = MARKETPLACE_NAME_LINE.exec(line);
+    if (nameMatch) {
+      currentName = nameMatch[1];
+      continue;
+    }
+    const sourceMatch = MARKETPLACE_DIRECTORY_SOURCE.exec(line);
+    if (sourceMatch && currentName) {
+      marketplaces.push({
+        name: currentName,
+        source: sourceMatch[1].replace(TRAILING_SLASHES, ''),
+      });
+      currentName = null;
+    }
+  }
+  return marketplaces;
+}
+
+/**
+ * The name Claude Code actually registered THIS directory's marketplace under. Usually the
+ * manifest's `name`, but not always: if the user added the same directory earlier under a
  * different name (e.g. `devrik`), Claude Code keeps that original registration name, and
  * `plugin marketplace add` is a no-op that does not rename it. Installing as `plugin@<name>`
- * then fails with "not found in marketplace <name>". So we ask Claude Code which registered
- * marketplace points at our REPOSITORY_ROOT and use that name; we fall back to the manifest
- * name when the listing is unavailable (e.g. no `claude` binary, or a parsing change).
+ * then fails with "not found in marketplace <name>". So we find the registered marketplace
+ * whose source path is our REPOSITORY_ROOT and use that name; we fall back to the manifest
+ * name when the listing is unavailable (e.g. no `claude` binary).
  */
 function registeredMarketplaceName(runClaude, fallbackName) {
-  try {
-    const listing = runClaude(['plugin', 'marketplace', 'list']);
-    // Each marketplace block prints a name line then a `Source: … (<path>)` line. Find the
-    // block whose source path is our repo root and return its name.
-    const root = REPOSITORY_ROOT.replace(/[\\/]+$/, '');
-    const lines = listing.split(/\r?\n/);
-    let currentName = null;
-    for (const line of lines) {
-      const nameMatch = line.match(/^\s*(?:❯\s*)?([A-Za-z0-9_-]+)\s*$/);
-      if (nameMatch) currentName = nameMatch[1];
-      const sourceMatch = line.match(/Source:.*\(([^)]+)\)/);
-      if (sourceMatch && currentName) {
-        const sourcePath = sourceMatch[1].replace(/[\\/]+$/, '');
-        if (sourcePath.toLowerCase() === root.toLowerCase()) return currentName;
-      }
-    }
-  } catch {
-    // Listing unavailable — fall back to the manifest name below.
-  }
-  return fallbackName;
+  const root = REPOSITORY_ROOT.replace(TRAILING_SLASHES, '');
+  const here = listRegisteredMarketplaces(runClaude).find(
+    (entry) => entry.source.toLowerCase() === root.toLowerCase(),
+  );
+  return here ? here.name : fallbackName;
 }
 
 /** Every plugin the manifest declares, paired with the marketplace's registered name. */
@@ -63,10 +89,62 @@ function marketplaceAndPlugins(runClaude = realClaude) {
   }));
 }
 
+/**
+ * A marketplace registered from a DIRECTORY serves whatever version lives at that path. When
+ * the user updates the npm package, the new version lands in a NEW location (a fresh npx cache
+ * dir, a global install, a cloned repo), but the marketplace still points at the OLD path and
+ * `plugin marketplace add` on the new path is a no-op that does NOT re-point it — so Claude
+ * Code keeps serving the stale version, and `plugin update` finds nothing newer. This detects
+ * that mismatch and re-points the marketplace (remove + add) at THIS running package's root,
+ * so an update actually takes effect.
+ *
+ * It matches the existing registration by NAME (the manifest name, plus any name that already
+ * points at a claude-gates package path — resilient to the marketplace having been registered
+ * under a different name, the known `devrik` case). No-op when a registration already points
+ * here (the common case). Best-effort: any failure is swallowed and the normal add still runs.
+ */
+function repointMarketplaceIfStale(runClaude, manifestName) {
+  const here = REPOSITORY_ROOT.replace(TRAILING_SLASHES, '');
+  const registered = listRegisteredMarketplaces(runClaude);
+  if (registered.length === 0) return;
+
+  // Already pointing here under any name → nothing to do.
+  if (
+    registered.some(
+      (entry) => entry.source.toLowerCase() === here.toLowerCase(),
+    )
+  )
+    return;
+
+  // A stale registration to re-point: the one named like our manifest, or (fallback) one whose
+  // stale source path is itself a claude-gates package directory.
+  const stale =
+    registered.find((entry) => entry.name === manifestName) ??
+    registered.find((entry) =>
+      /[\\/]@devrik-tools[\\/]claude-gates$/i.test(entry.source),
+    );
+  if (!stale) return;
+
+  try {
+    runClaude(['plugin', 'marketplace', 'remove', stale.name]);
+    runClaude([
+      'plugin',
+      'marketplace',
+      'add',
+      REPOSITORY_ROOT,
+      '--scope',
+      'user',
+    ]);
+  } catch {
+    // Re-pointing failed — non-fatal; the caller's own add attempt still follows.
+  }
+}
+
 /** The `claude plugin install …` lines, one per plugin the manifest declares. */
 export function pluginInstallCommands() {
   return marketplaceAndPlugins().map(
-    ({ marketplace, plugin }) => `claude plugin install ${plugin}@${marketplace}`,
+    ({ marketplace, plugin }) =>
+      `claude plugin install ${plugin}@${marketplace}`,
   );
 }
 
@@ -132,8 +210,21 @@ export function installPlugin(
 ) {
   const scope = PLUGIN_SCOPE[configScope] ?? 'user';
 
+  // If a marketplace for our plugins is already registered but points at a STALE location (an
+  // older package version in a different npx-cache/global/clone path), re-point it here first
+  // — otherwise the add below is a no-op and Claude Code keeps serving the old version. Uses
+  // the manifest name to find the existing registration; best-effort, never fatal.
+  repointMarketplaceIfStale(runClaude, marketplaceManifest().name);
+
   try {
-    runClaude(['plugin', 'marketplace', 'add', REPOSITORY_ROOT, '--scope', 'user']);
+    runClaude([
+      'plugin',
+      'marketplace',
+      'add',
+      REPOSITORY_ROOT,
+      '--scope',
+      'user',
+    ]);
   } catch {
     // Already registered, or the marketplace add is a no-op — install can still proceed.
   }
@@ -169,7 +260,9 @@ export function installPlugin(
     installed: false,
     scope,
     results,
-    reason: failed.map((result) => `${result.plugin}: ${result.reason}`).join('; '),
+    reason: failed
+      .map((result) => `${result.plugin}: ${result.reason}`)
+      .join('; '),
     cwd,
   };
 }
