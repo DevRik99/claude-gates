@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 39 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 40 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -110,6 +110,7 @@ works even if you install one on its own.
 | `diagnosis-before-patch`    | on  | Warns when timeouts/retries change without evidence.                                                           |
 | `lint-commit`               | off | Blocks `git commit` while the project's lint script fails (autodetects `npm run lint`; silent if none).        |
 | `staged-lint`               | off | Blocks `git commit` when the **staged** files fail lint — lints only what you staged, so your change can't add new lint debt while pre-existing debt in untouched files never blocks you. Add `[skip-lint]` for a deliberate exception. |
+| `atomic-commit`             | off | Blocks a `git commit` that is not atomic — one mixing more than N natures of change (code/tests/deps/config…) or staging more reviewable files than a commit should carry. Docs/assets/generated aren't counted. Add `[wip]` for a deliberately broad commit. |
 | `no-coauthor`               | on  | Blocks a `git commit` carrying an AI/agent attribution trailer (`Co-Authored-By`, `Generated with`, a session trailer). Add `[allow-coauthor]` for one legitimate co-author. |
 | `no-lint-suppression`       | on  | Blocks a write that silences the linter/type-checker (`eslint-disable`, `@ts-ignore`, a rule set to `off`) instead of fixing the code. Add `lint-ok: <reason>` on the same line for a documented false positive. |
 
@@ -180,8 +181,8 @@ see and edit every knob:
   quote), `test-after-impl:allow` (a regression test), `memory-not-needed` (a
   non-memory phrase), `[allow-coauthor]` (one legitimate co-author on a commit),
   `lint-ok: <reason>` (a documented linter false positive), `[skip-lint]` (skip the
-  staged-lint check for one commit). `dependency-skills` opts out via its
-  `depsWithoutOwnApi` list.
+  staged-lint check for one commit), `[wip]` (allow one deliberately broad,
+  non-atomic commit). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
 - **Capability injection:** `capability-map` (off by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
   (`maxClauseChars`), add extra roots per kind, or turn off persistence (`"persist": false`)

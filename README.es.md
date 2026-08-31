@@ -30,7 +30,7 @@ npx @devrik-tools/claude-gates init
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
 
-> **¿Por qué dos cosas?** El plugin **siempre trae los 39 gates**; la configuración decide
+> **¿Por qué dos cosas?** El plugin **siempre trae los 40 gates**; la configuración decide
 > **cuáles se ejecutan**. Así puedes prender uno sin reinstalar: es una línea en un JSON.
 
 ---
@@ -107,6 +107,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `diagnosis-before-patch` | on | Avisa cuando se cambian timeouts/reintentos sin evidencia. |
 | `lint-commit` | off | Bloquea `git commit` mientras el script de lint del proyecto falla (autodetecta `npm run lint`; silencioso si no hay). |
 | `staged-lint` | off | Bloquea `git commit` cuando los archivos **en el stage** fallan lint — lintea solo lo que agregaste al stage, así tu cambio no puede meter deuda de lint nueva y la deuda preexistente en archivos que no tocaste nunca te bloquea. Marcador `[skip-lint]` para una excepción deliberada. |
+| `atomic-commit` | off | Bloquea un `git commit` que no es atómico — que mezcla más de N naturalezas de cambio (código/tests/deps/config…) o stagea más archivos revisables de los que un commit debería llevar. Docs/imágenes/generados no cuentan. Marcador `[wip]` para un commit deliberadamente amplio. |
 | `no-coauthor` | on | Bloquea un `git commit` que lleve un trailer de atribución de IA (`Co-Authored-By`, `Generated with`, un trailer de sesión). Marcador `[allow-coauthor]` para un co-autor legítimo. |
 | `no-lint-suppression` | on | Bloquea una escritura que silencia el linter/type-checker (`eslint-disable`, `@ts-ignore`, una regla en `off`) en vez de arreglar el código. Marcador `lint-ok: <razón>` en la misma línea para un falso positivo documentado. |
 
@@ -166,7 +167,8 @@ ves y editas cada perilla:
   regional deliberada), `test-after-impl:allow` (un test de regresión), `memory-not-needed`
   (una frase que no depende de memoria), `[allow-coauthor]` (un co-autor legítimo en un
   commit), `lint-ok: <razón>` (un falso positivo documentado del linter), `[skip-lint]`
-  (saltea el chequeo de staged-lint por un commit). `dependency-skills` se exime vía su lista
+  (saltea el chequeo de staged-lint por un commit), `[wip]` (permite un commit
+  deliberadamente amplio, no atómico). `dependency-skills` se exime vía su lista
   `depsWithoutOwnApi`.
 - **Inyección de capacidades:** `capability-map` (off por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
