@@ -130,7 +130,12 @@ function main() {
     if (payload?.stop_hook_active === true) return allow();
 
     const cwd = process.cwd();
-    if (!isGateEnabled(CONFIG_KEY, false, cwd)) return allow();
+    // registryDefault MUST match this gate's `default` in registry.json (true). The gate
+    // does not read the registry — this literal IS its default when a project config is
+    // silent about the key. It was false while the registry said false; both moved to true
+    // so the pending-task reminder actually fires on a fresh install, not only when the
+    // user's config names the key explicitly.
+    if (!isGateEnabled(CONFIG_KEY, true, cwd)) return allow();
 
     const root = projectRootOf(cwd);
     if (!root) return allow(); // no project: nothing to check
