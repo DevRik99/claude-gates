@@ -58,30 +58,15 @@ test("git's global options (-C, -c, --git-dir) cannot smuggle a destructive subc
   assert.ok(isDeny(runGate(bash('git -c core.editor=vim reset --hard'))));
   assert.ok(isDeny(runGate(bash('git --git-dir=/x reset --hard'))));
   assert.ok(isDeny(runGate(bash('git -c a=b -C /x clean -fd'))));
-  assert.ok(isDeny(runGate(bash('git -C /repo push origin main'))));
   // A global option on a harmless subcommand is still allowed.
   assert.equal(runGate(bash('git -C /repo status')), null);
   assert.equal(runGate(bash('git reset --soft HEAD')), null);
 });
 
-test('denies a plain git push (remote publish needs fresh authorization)', () => {
-  assert.ok(isDeny(runGate(bash('git push origin main'))));
-  assert.ok(isDeny(runGate(bash('gh pr merge 12'))));
-});
-
-test('in a delegation, denies a real order to publish but allows a description of one', () => {
-  assert.ok(
-    isDeny(runGate(delegate('Then run git push origin main to publish.'))),
-  );
-  assert.equal(
-    runGate(
-      delegate(
-        'I extended the guard so it denies "git push" without authorization.',
-      ),
-    ),
-    null,
-  );
-});
+// Note: remote-publish blocking (git push, gh pr merge, gh release create) moved to the
+// block-remote-publish gate so it carries its own enabled flag. Those cases are tested in
+// gates/block-remote-publish/__tests__. bash-commands still denies `git push --force`
+// because that is destructive, not merely publishing (see the force-push case above).
 
 test('disabled by config: the gate does not run', () => {
   assert.equal(

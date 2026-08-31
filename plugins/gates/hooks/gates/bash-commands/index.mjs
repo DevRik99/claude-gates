@@ -1,6 +1,11 @@
-// bash-commands — denies destructive shell commands, and blocks publishing to a remote
-// without fresh authorization. Runs on a real Bash/run_command call and on a delegation
-// prompt (a subagent can be told "run git reset --hard" in prose).
+// bash-commands — denies destructive shell commands (rm -rf over protected areas, git
+// reset --hard, force push, kill-by-name). Runs on a real Bash/run_command call and on a
+// delegation prompt (a subagent can be told "run git reset --hard" in prose).
+//
+// Remote-publish blocking (git push / gh pr merge / gh release create) used to live here as
+// a hardcoded, non-configurable block. It was split out into the block-remote-publish gate
+// so it carries its own enabled flag: a project can now allow the agent to push by disabling
+// that gate WITHOUT also disabling the destructive-command protections below.
 //
 // ── What a project can configure (params) ───────────────────────────────────────────
 //   denyPatterns          regex sources (matched case-insensitively) of destructive
@@ -10,18 +15,6 @@
 //                         by default: this harness legitimately uses inline interpreters.
 // The defaults live here, in the source, so a project reads them and knows exactly what
 // its override replaces.
-//
-// ── What is NOT configurable (base, non-negotiable) ─────────────────────────────────
-// Remote-publish detection (`git push`, `gh pr merge`, `gh release create`) is a hard
-// block with no config knob and no in-command escape hatch: authorization is something
-// the USER states in chat, never a token the agent could write into its own command.
-//
-// ── Two-stage intent check, only for delegation prompts ─────────────────────────────
-// A real command's `command` field IS what the shell runs — a single-stage regex is
-// right. A delegation prompt is natural language that may DESCRIBE a command ("I extended
-// the guard to deny git push") without asking anyone to run it. There, publish rules run
-// a second stage: strip quoted/example text, then require that at least one surviving
-// mention is not governed by a reporting verb before denying.
 
 import {
   runGate,
@@ -107,36 +100,12 @@ function defaultDenyPatterns() {
   ];
 }
 
-/** Remote-publish rules. Base, non-configurable — see the header. */
-const REMOTE_PUBLISH_RULES = [
-  [
-    String.raw`\bgit\s+(?:-C\s+\S+\s+)?push\b`,
-    "Publishing to a remote ('git push') needs fresh authorization from the user naming " +
-      'commits, local branch, remote and target. This gate cannot verify that from the ' +
-      'command itself — ask the user and let them run it.',
-  ],
-  [
-    String.raw`\bgh\s+(?:pr\s+merge|release\s+create)\b`,
-    'Publishing via GitHub CLI (merging a PR or creating a release) needs fresh ' +
-      'authorization from the user naming commits, local branch, remote and target. ' +
-      'Ask the user and let them run it.',
-  ],
-];
-
 // Interpreter name, then any intermediate flags (e.g. --input-type=module), then an
 // eval flag. Intermediate flags are matched loosely (`-\S+`) to keep the pattern simple.
 const INTERPRETER_EVAL_PATTERN =
   /\b(node|python3?|deno|bun)\b(?:\s+-\S+)*?\s+(?:-e|-c|--eval|--print|-p)\b/i;
 const RAW_FILE_OPS_PATTERN =
   /\b(writeFileSync|readFileSync|appendFileSync|fs\.writeFile|fs\.readFile|fs\.unlink|fs\.mkdir)\b/;
-
-// How far back from a mention to look for a governing verb, and the reporting-verb lexicon
-// that marks a mention as description rather than an order. Only the text before a mention
-// is inspected: what governs it is what precedes it (appending words after a real command
-// would otherwise be a trivial bypass).
-const DESCRIPTION_LOOK_BACK = 80;
-const REPORTING_VERB_PATTERN =
-  /(describe|explain|summar|mention|added|built|extended|denies?|deny|prohibit|protection|report|documentation|changelog)/i;
 
 function compile(source) {
   return new RegExp(source, 'i');
@@ -168,29 +137,6 @@ function normalizeGitOptions(command) {
     normalized = normalized.replace(GIT_GLOBAL_OPTION_PATTERN, 'git ');
   } while (normalized !== previous);
   return normalized;
-}
-
-function stripQuoted(text) {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/"[^"\n]{0,300}"/g, ' ')
-    .replace(/'[^'\n]{0,300}'/g, ' ');
-}
-
-/** True when a surviving, non-quoted mention is not governed by a reporting verb. */
-function hasRealPublishIntent(text, pattern) {
-  if (!pattern.test(text)) return false;
-  const cleaned = stripQuoted(text);
-  const global = new RegExp(
-    pattern.source,
-    `${pattern.flags.replace('g', '')}g`,
-  );
-  const matches = [...cleaned.matchAll(global)];
-  if (matches.length === 0) return false;
-  return matches.some((match) => {
-    const from = Math.max(0, match.index - DESCRIPTION_LOOK_BACK);
-    return !REPORTING_VERB_PATTERN.test(cleaned.slice(from, match.index));
-  });
 }
 
 function checkEmbeddedInterpreter(command) {
@@ -247,21 +193,6 @@ function checkDestructive(command, parameters) {
   }
 }
 
-/** Remote-publish rules: a real command is checked literally; a delegation prompt by intent. */
-function checkRemotePublish(command, isShell) {
-  // For a real shell command, normalize git's global options first (same bypass as above).
-  // For a delegation prompt (free text), the intent check runs on the raw text.
-  const shellCommand = normalizeGitOptions(command);
-  for (const [source, reason] of REMOTE_PUBLISH_RULES) {
-    const pattern = compile(source);
-    if (isShell) {
-      if (pattern.test(shellCommand)) deny(GATE_ID, reason);
-    } else if (hasRealPublishIntent(command, pattern)) {
-      deny(GATE_ID, reason);
-    }
-  }
-}
-
 runGate(
   {
     id: GATE_ID,
@@ -274,12 +205,11 @@ runGate(
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isShell = toolInGroups(toolName, ['shell']);
-    const isDelegation = toolInGroups(toolName, ['delegation']);
-    if (!isShell && !isDelegation) return;
+    // Destructive-command rules act on a real shell command AND on a delegation prompt (a
+    // subagent can be told "run rm -rf" in prose). commandTextFrom picks the right text.
+    if (!toolInGroups(toolName, ['shell', 'delegation'])) return;
 
     const command = commandTextFrom(toolName, toolInput);
     checkDestructive(command, parameters);
-    checkRemotePublish(command, isShell);
   },
 );

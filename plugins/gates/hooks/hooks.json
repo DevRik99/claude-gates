@@ -12,6 +12,16 @@
         ]
       },
       {
+        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/block-remote-publish/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__.*",
         "hooks": [
           {
@@ -308,6 +318,15 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/stop-pending/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/autonomous-mode/stop.mjs\"",
             "timeout": 30
           }
         ]

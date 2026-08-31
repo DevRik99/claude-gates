@@ -25,7 +25,9 @@ function runGate(payload, { config } = {}) {
 }
 
 function isWarn(result) {
-  return result?.hookSpecificOutput?.additionalContext !== undefined;
+  // The gate now DENIES rather than warns; keep the helper name but check the deny decision
+  // so these "is the regional text detected at all?" cases still assert detection.
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 // FIXED: extractText() now gates on toolInGroups(toolName, ['write']) and reads through

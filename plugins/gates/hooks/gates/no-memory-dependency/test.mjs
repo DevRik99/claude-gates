@@ -29,22 +29,31 @@ function runGate(payload, { config } = {}) {
 function delegate(prompt) {
   return { tool_name: 'Agent', tool_input: { prompt } };
 }
-function isWarn(result) {
-  return typeof result?.hookSpecificOutput?.additionalContext === 'string';
-}
 function isDeny(result) {
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 const ENABLED = { config: { gates: { warnMemoryDependencyInBrief: true } } };
 
-test('warns (never denies) when the brief leans on remembered context', () => {
+test('DENIES when the brief leans on remembered context (now a hard block)', () => {
   const result = runGate(
     delegate('Acordate de lo que hablamos antes y aplica el mismo criterio.'),
     ENABLED,
   );
-  assert.ok(isWarn(result));
-  assert.ok(!isDeny(result));
+  assert.ok(isDeny(result));
+});
+
+test('escape hatch: the marker lets a false-positive memory phrase through', () => {
+  // "no te olvides de cerrar el server" directs the subagent's own action, not recalled data.
+  assert.equal(
+    runGate(
+      delegate(
+        'No te olvides de cerrar el server al terminar. memory-not-needed',
+      ),
+      ENABLED,
+    ),
+    null,
+  );
 });
 
 test('allows a brief with no memory-dependency phrase', () => {
@@ -99,7 +108,7 @@ test('project memoryDependencyPatterns override replaces the built-in list', () 
     null,
   );
   assert.ok(
-    isWarn(
+    isDeny(
       runGate(delegate('Hacelo como quedamos la ultima vez.'), { config }),
     ),
   );

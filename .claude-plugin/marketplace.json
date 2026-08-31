@@ -11,13 +11,13 @@
       "name": "gates",
       "source": "./plugins/gates",
       "description": "PreToolUse gates: destructive-command blocks, protected paths, delegation/spec/quality rules, tool-discovery and forge-pipeline enforcement. Which gates run is decided by .ai/config.json (project) or ~/.claude/claude-gates/config.json (global).",
-      "version": "0.2.1"
+      "version": "0.3.0"
     },
     {
       "name": "tasks",
       "source": "./plugins/tasks",
       "description": "Deterministic task tracking: the model registers tasks via the CLI, a UserPromptSubmit hook reminds of open tasks every few messages, and a SessionStart hook lists active tasks when a session opens.",
-      "version": "0.2.1"
+      "version": "0.3.0"
     }
   ]
 }

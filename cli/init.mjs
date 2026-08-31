@@ -68,6 +68,7 @@ export function normalizeOptions(options = {}) {
     yes: Boolean(options.yes),
     dryRun: Boolean(options.dryRun),
     install: options.install,
+    removePrevious: options.removePrevious,
   };
 }
 
@@ -172,6 +173,15 @@ function renderSummary(registry, gatesMap) {
     .join('\n');
 }
 
+async function askRemovePrevious(io) {
+  return bail(
+    await io.confirm({
+      message: 'Remove the previous plugin version before installing the new one?',
+      initialValue: true,
+    }),
+  );
+}
+
 async function confirmWrite(io, fileExists) {
   const confirmed = bail(
     await io.confirm({
@@ -239,7 +249,14 @@ export async function runInit(
     return { path, config: merged, written: true, installed: false };
   }
 
-  const result = installPlugin(scope, { cwd });
+  // Default true: a previous plugin version is removed before installing the new one, unless
+  // --no-remove-previous turned it off. Only asked when interactive — --yes or no TTY uses the
+  // flag/default without a prompt, so scripted and non-interactive runs never block on input.
+  const removePrevious =
+    flags.removePrevious !== false &&
+    (!interactive || (await askRemovePrevious(io)));
+
+  const result = installPlugin(scope, { cwd, removePrevious });
   if (result.installed) {
     io.outro(
       `Written ${path} and installed all plugins (${result.scope} scope). ` +

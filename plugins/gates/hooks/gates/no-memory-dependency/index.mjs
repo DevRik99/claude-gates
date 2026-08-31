@@ -1,8 +1,9 @@
-// no-memory-dependency — warns (never denies) when a delegation prompt leans on the
-// subagent "remembering" something said earlier in conversation instead of carrying
-// the data itself. A fresh subagent has no access to the delegator's conversation
-// history: if the data matters, it must travel IN the prompt, in a file the subagent
-// reads, or in an already-persisted decision.
+// no-memory-dependency — denies when a delegation prompt leans on the subagent
+// "remembering" something said earlier in conversation instead of carrying the data itself.
+// A fresh subagent has no access to the delegator's conversation history: if the data
+// matters, it must travel IN the prompt, in a file the subagent reads, or in an
+// already-persisted decision. The dependency on unavailable memory is a complete, objective
+// fact once stage 2 has ruled out a real persistence instruction — so this blocks.
 //
 // ── Two stages, same pattern as intent-flow ─────────────────────────────────────────
 // Stage 1 (cheap): does any memory-dependency phrase appear anywhere? If not, allow.
@@ -12,13 +13,17 @@
 // genuinely depends on a file, not on model memory. A persistence noun/verb that merely
 // co-occurs in the window without forming an instruction TO persist THIS remembered
 // thing (e.g. an unrelated file named elsewhere in the same sentence) does not suppress
-// the warning. This stays a soft signal (warn), never a hard block: whether the brief
-// truly needs the data or is just referencing prior agreement needs judgment this gate
-// can't supply on its own.
+// the deny.
+//
+// ── Escape hatch ─────────────────────────────────────────────────────────────────────
+// A memory phrase can be a false positive: "no te olvides de cerrar el server al final"
+// directs the SUBAGENT'S own future action, not data it must recall from the delegator. For
+// that case the author adds the escapeHatch marker to the prompt to state, explicitly, that
+// no cross-conversation memory is actually required.
 
 import {
   runGate,
-  warn,
+  deny,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
@@ -26,6 +31,8 @@ import { PERSISTENCE_VERB } from '../../lib/signals.mjs';
 
 const GATE_ID = 'no-memory-dependency';
 const CONFIG_KEY = 'warnMemoryDependencyInBrief';
+
+const DEFAULT_ESCAPE_HATCH = 'memory-not-needed';
 
 const DEFAULT_MEMORY_DEPENDENCY_PATTERNS = [
   'acordate de|acu[eé]rdate de',
@@ -97,6 +104,7 @@ runGate(
     enabledByDefault: false,
     defaultParams: {
       memoryDependencyPatterns: DEFAULT_MEMORY_DEPENDENCY_PATTERNS,
+      escapeHatch: DEFAULT_ESCAPE_HATCH,
     },
   },
   ({ toolName, toolInput, parameters }) => {
@@ -104,6 +112,10 @@ runGate(
 
     const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
+
+    // Explicit opt-out: the author states no cross-conversation memory is actually required.
+    const escapeHatch = (parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH).toLowerCase();
+    if (escapeHatch && prompt.toLowerCase().includes(escapeHatch)) return;
 
     const memoryPattern = withUnicodeWordBoundary(
       (parameters.memoryDependencyPatterns ?? []).join('|'),
@@ -113,11 +125,12 @@ runGate(
     if (phrases.length === 0) return;
 
     const quotedPhrases = phrases.map((phrase) => `"${phrase}"`).join(', ');
-    warn(
+    deny(
       GATE_ID,
-      `This delegation depends on the model remembering something (${quotedPhrases}). ` +
-        'If it matters, it should live in a file, a flag, an environment variable, or a deterministic gate — ' +
-        "not in the model's memory.",
+      `This delegation depends on the subagent remembering something (${quotedPhrases}), but a ` +
+        'fresh subagent has none of this conversation. Put the data IN the prompt, in a file it ' +
+        'reads, a flag, or an already-persisted decision. If the phrase directs the subagent’s ' +
+        `own future action and needs no recalled data, add the marker "${parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH}" to the prompt.`,
     );
   },
 );

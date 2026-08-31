@@ -81,9 +81,13 @@ function readPayload() {
 // make something OCCUR deterministically; it is depending on the model's judgment for a
 // judgment call (whether this message describes a new task), same shape as ask-adoption.
 const CLASSIFY_PROMPT =
-  '[tasks] If the user just described a new actionable task (not a question, not small talk), ' +
-  'register it now: run `claude-gates task add "<title>" [--description <text>] [--size <size>]` ' +
-  'from the project root. Skip this for messages that are not a new task.';
+  '[tasks] MANDATORY before you respond: judge whether the message you just received describes ' +
+  'a new actionable task (not a question, not small talk, not a follow-up on an already-registered ' +
+  'task). If it does, you MUST register it now, before writing your reply — run ' +
+  '`claude-gates task add "<title>" [--description <text>] [--size <size>]` from the project root ' +
+  '(or the CLI\'s absolute path if `claude-gates` is not on PATH). Do not defer this, do not decide ' +
+  'to register it "later", do not silently skip it because the answer seems obvious. If it is not a ' +
+  'new task, skip registration — do not fabricate one.';
 
 function formatReminder(tasks) {
   const shown = tasks.slice(0, MAX_TASKS_SHOWN);

@@ -41,7 +41,8 @@ function writeTest(filePath) {
   };
 }
 function isWarn(result) {
-  return result?.hookSpecificOutput?.additionalContext !== undefined;
+  // The gate now DENIES rather than warns; the helper keeps its name but checks the deny.
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 const ENABLE = { gates: { warnTestWrittenAfterImplementation: true } };

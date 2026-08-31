@@ -16,7 +16,7 @@
             "delegation"
           ],
           "script": "gates/bash-commands/index.mjs",
-          "description": "Denies git reset --hard, rm -rf, force push, taskkill by image, and unauthorized remote publish.",
+          "description": "Denies git reset --hard, rm -rf over protected areas, force push, and taskkill by image.",
           "params": [
             {
               "name": "denyPatterns",
@@ -32,6 +32,25 @@
               "name": "embeddedInterpreterEnabled",
               "type": "boolean",
               "description": "Whether to block node/python -e that does raw file ops. Off by default."
+            }
+          ]
+        },
+        {
+          "id": "block-remote-publish",
+          "configKey": "blockRemotePublish",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": [
+            "shell",
+            "delegation"
+          ],
+          "script": "gates/block-remote-publish/index.mjs",
+          "description": "Denies unauthorized remote publish (git push, gh pr merge, gh release create). Disable to let the agent push on its own.",
+          "params": [
+            {
+              "name": "publishRules",
+              "type": "string[]",
+              "description": "Regex sources of remote-publish commands to deny. Replaces the built-in list."
             }
           ]
         },
@@ -213,7 +232,7 @@
           "tools": [
             "delegation"
           ],
-          "description": "Warns when the brief relies on the subagent remembering the conversation.",
+          "description": "Denies a brief that relies on the subagent remembering the conversation (escape hatch marker allows a false-positive phrase).",
           "script": "gates/no-memory-dependency/index.mjs",
           "params": [
             {
@@ -522,7 +541,7 @@
           "tools": [
             "write"
           ],
-          "description": "Warns when a test is created after its paired implementation.",
+          "description": "Denies creating a test after its paired implementation was already modified (escape hatch marker allows a regression test).",
           "script": "gates/test-after-implementation/index.mjs",
           "params": [
             {
@@ -558,7 +577,7 @@
           "tools": [
             "write"
           ],
-          "description": "Warns on voseo or regional lexicon in written text.",
+          "description": "Denies writing voseo or regional lexicon in text (escape hatch marker allows a deliberate quote/fixture/log).",
           "script": "gates/neutral-spanish/index.mjs",
           "params": [
             {
@@ -694,7 +713,7 @@
           "tools": [
             "question"
           ],
-          "description": "When autonomous mode is on, denies AskUserQuestion so the assistant decides instead of asking.",
+          "description": "When autonomous mode is on, denies AskUserQuestion so the assistant decides instead of asking. Also blocks a turn from ending to wait (via gates/autonomous-mode/stop.mjs, a Stop hook sharing this flag): it re-injects, once per cycle, an instruction to decide and proceed, leaving pending only what needs the user's own explicit decision.",
           "script": "gates/autonomous-mode/index.mjs"
         }
       ]
@@ -707,7 +726,7 @@
         {
           "id": "stop-pending",
           "configKey": "blockStopWithPendingTasks",
-          "default": false,
+          "default": true,
           "event": "Stop",
           "tools": [],
           "description": "Blocks the Stop event while the task store has active (open/in_forge) tasks for this project; lists them and how to close them. Respects stop_hook_active to avoid an infinite loop.",

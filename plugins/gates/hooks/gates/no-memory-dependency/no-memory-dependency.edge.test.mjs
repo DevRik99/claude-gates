@@ -29,7 +29,9 @@ function runGate(payload, { config } = {}) {
 }
 
 function isWarn(result) {
-  return typeof result?.hookSpecificOutput?.additionalContext === 'string';
+  // The gate now DENIES rather than warns; the helper keeps its name but checks the deny,
+  // so these "is the memory-dependency prompt detected at all?" cases still assert detection.
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 const ENABLED = { config: { gates: { warnMemoryDependencyInBrief: true } } };

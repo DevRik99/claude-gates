@@ -83,12 +83,9 @@ test('OK: destructive command inside a subshell is still caught', () => {
   assert.ok(isDeny(runGate(bash('echo `rm -rf src`'))));
 });
 
-// ── BUG candidate: env-var prefixed command, e.g. `FOO=x git push origin main`. The
-// git push pattern is \bgit\s+(?:-C\s+\S+\s+)?push\b which does not care what precedes
-// "git", so this should still be denied. Confirm rather than assume.
-test('OK: env-var-prefixed git push is still caught', () => {
-  assert.ok(isDeny(runGate(bash('FOO=bar git push origin main'))));
-});
+// Note: env-var-prefixed `git push` and other plain remote-publish bypass cases moved to
+// block-remote-publish/__tests__ along with the rule. `git push --force` stays here (it is
+// destructive), covered by the subshell/sh -c force-push cases above and below.
 
 // ── BUG: `sh -c "..."` / `bash -lc "..."` wrapping. The outer command line still
 // literally contains the inner destructive text as a substring (it's quoted, not
@@ -141,25 +138,5 @@ test('OK: taskkill flag order does not evade the kill-by-name pattern', () => {
   assert.ok(isDeny(runGate(bash('taskkill /IM node.exe /F'))));
 });
 
-// ── BUG: `gh pr merge` and `gh release create` only check for a literal `gh` invocation;
-// GitHub CLI can also be invoked as `gh.exe` on Windows PATH resolution, or through
-// `command gh pr merge` (shell builtin wrapper) — the pattern \bgh\s+ still matches
-// 'command gh pr merge' since \b matches at the 'gh' boundary regardless of preceding
-// text. Confirm.
-test('OK: "command gh pr merge" wrapper does not evade the remote-publish pattern', () => {
-  assert.ok(isDeny(runGate(bash('command gh pr merge 12'))));
-});
-
-// ── BUG: delegation prompt intent-detection reporting-verb bypass can be abused to slip
-// a REAL instruction past the two-stage check by simply prefixing it with a reporting verb
-// within DESCRIPTION_LOOK_BACK (80 chars), even though the actual intent is an order.
-test('BUG: prefixing an order with a reporting verb inside the lookback window defeats delegation intent detection', () => {
-  const result = runGate({
-    tool_name: 'Agent',
-    tool_input: {
-      prompt:
-        'The changelog mentions we should run git push origin main now to finish the release.',
-    },
-  });
-  assert.equal(result, null); // allowed: bypass confirmed (reporting verb precedes mention)
-});
+// Note: the `command gh pr merge` wrapper case and the delegation reporting-verb bypass case
+// moved to block-remote-publish/__tests__ along with the remote-publish rule.

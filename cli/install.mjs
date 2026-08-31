@@ -89,6 +89,25 @@ function reasonFor(error) {
 }
 
 /**
+ * Best-effort removal of a previously installed version of each manifest plugin, at the
+ * given scope, before the fresh install runs. `claude plugin uninstall <plugin> --scope
+ * <scope>` is verified (via `claude plugin uninstall --help`) to take the bare plugin name
+ * (no `@marketplace`, unlike install) and the same `--scope` values as install. When there
+ * is no previous install, uninstall fails — that is expected and non-fatal, so failures here
+ * are swallowed and never stop the install that follows.
+ */
+function removePreviousInstalls(targets, scope, runClaude) {
+  for (const { plugin } of targets) {
+    try {
+      runClaude(['plugin', 'uninstall', plugin, '--scope', scope, '--yes']);
+    } catch {
+      // No previous install (or removal failed for some other reason) — non-fatal either way;
+      // the install below is what actually matters.
+    }
+  }
+}
+
+/**
  * Registers the marketplace (idempotent: a second add just reports it already exists, which
  * is not fatal) once, then installs EVERY plugin the manifest declares at the scope matching
  * the config choice. A project that adopts claude-gates gets all of its plugins (gates,
@@ -102,10 +121,14 @@ function reasonFor(error) {
  * `runClaude` is an injectable seam (defaults to the real `claude` binary) so tests can
  * exercise the multi-plugin partial-failure logic without actually invoking the CLI and
  * installing plugins on the machine running the test.
+ *
+ * `removePrevious` (default true) uninstalls each plugin's previous version at this scope
+ * before installing, so a stale version never lingers alongside the new one. It is best-effort
+ * and never fails the overall install.
  */
 export function installPlugin(
   configScope,
-  { cwd = process.cwd(), runClaude = realClaude } = {},
+  { cwd = process.cwd(), runClaude = realClaude, removePrevious = true } = {},
 ) {
   const scope = PLUGIN_SCOPE[configScope] ?? 'user';
 
@@ -119,6 +142,8 @@ export function installPlugin(
   // a pre-existing one (under any name) is matched by its source path. Doing it here, not at
   // module top, means the name reflects the live registration this run just ensured.
   const targets = marketplaceAndPlugins(runClaude);
+
+  if (removePrevious) removePreviousInstalls(targets, scope, runClaude);
 
   const results = targets.map(({ marketplace, plugin }) => {
     try {

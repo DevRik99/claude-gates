@@ -30,7 +30,8 @@ function runGate(payload, { config, skills } = {}) {
 }
 
 function isWarn(result) {
-  return result?.hookSpecificOutput?.additionalContext !== undefined;
+  // The gate now DENIES rather than warns; the helper keeps its name but checks the deny.
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
 // FIXED: skillNameMatches no longer does bidirectional substring matching. A skill dir must

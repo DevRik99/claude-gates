@@ -32,17 +32,27 @@ function write(content) {
     tool_input: { file_path: '/repo/notes.md', content },
   };
 }
-function isWarn(result) {
-  return result?.hookSpecificOutput?.additionalContext !== undefined;
+function isDeny(result) {
+  return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-test('warns on Rioplatense voseo and lexicon', () => {
-  assert.ok(isWarn(runGate(write('vos tenés que revisar esto, dale'))));
-  assert.ok(isWarn(runGate(write('che, mirá el laburo que hicimos acá'))));
+test('DENIES Rioplatense voseo and lexicon (now a hard block, not a warn)', () => {
+  assert.ok(isDeny(runGate(write('vos tenés que revisar esto, dale'))));
+  assert.ok(isDeny(runGate(write('che, mirá el laburo que hicimos acá'))));
 });
 
 test('allows neutral Spanish', () => {
   assert.equal(runGate(write('tienes que revisar esto, de acuerdo')), null);
+});
+
+test('escape hatch: the marker in content allows legitimate regional text through', () => {
+  // A literal quote / fixture / log the author intentionally keeps regional.
+  assert.equal(
+    runGate(
+      write('El testigo dijo: "che, no sé nada". neutral-spanish:allow'),
+    ),
+    null,
+  );
 });
 
 test('disabled by config: the gate does not run', () => {
@@ -61,5 +71,5 @@ test('project regionalMarkers override replaces the built-in list', () => {
     },
   };
   assert.equal(runGate(write('vos tenés que revisar esto'), { config }), null);
-  assert.ok(isWarn(runGate(write('que bacano quedo esto'), { config })));
+  assert.ok(isDeny(runGate(write('que bacano quedo esto'), { config })));
 });

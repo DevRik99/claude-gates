@@ -31,6 +31,7 @@ test('normalizeOptions maps commander options', () => {
       yes: true,
       dryRun: true,
       install: undefined,
+      removePrevious: undefined,
     },
   );
   assert.equal(normalizeOptions({ gates: ['bash-commands'] }).mode, 'granular');

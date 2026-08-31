@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   runGate,
-  warn,
+  deny,
   toolInGroups,
   writtenPathOf,
   writtenContentOf,
@@ -111,9 +111,13 @@ runGate(
     );
     if (unmatched.length === 0) return;
 
-    warn(
+    deny(
       GATE_ID,
-      `New dependencies without a matching skill in ${parameters.projectSkillsDir}: ${unmatched.join(', ')}. Consider adding a skill documenting how to use them, or add them to depsWithoutOwnApi if they need none.`,
+      `New dependencies without a matching skill in ${parameters.projectSkillsDir}: ${unmatched.join(', ')}. ` +
+        'Add a skill documenting how to use each (directory name matching or containing the ' +
+        'package name), OR, if a dependency genuinely needs no skill, declare it in ' +
+        '`depsWithoutOwnApi` in .ai/config.json — that is the explicit opt-out, edited in the ' +
+        'same change. This blocks so an unreviewed dependency is a deliberate choice, not a default.',
     );
   },
 );

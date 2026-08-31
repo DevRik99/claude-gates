@@ -1,9 +1,17 @@
-import { runGate, warn, toolInGroups, writtenContentOf } from '../../lib/hook-io.mjs';
+import { runGate, deny, toolInGroups, writtenContentOf } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'neutral-spanish';
 const CONFIG_KEY = 'warnNonNeutralSpanish';
 
 const MAX_REPORTED_MARKERS = 8;
+
+// Escape hatch: when a written file legitimately needs regional text (a literal quote, a
+// test fixture, a captured log, a data sample), placing this marker anywhere in the content
+// tells the gate the regional wording is intentional and lets the write through. A deny (as
+// opposed to the old warn) cannot "advise and let pass", so a legitimate case needs an
+// explicit, greppable opt-out — a marker the author writes on purpose, never one the agent
+// could infer. A project can override it via config (escapeHatch).
+const DEFAULT_ESCAPE_HATCH = 'neutral-spanish:allow';
 
 // Data strings, not identifiers — never add these to a cSpell dictionary.
 const DEFAULT_REGIONAL_MARKERS = [
@@ -51,11 +59,16 @@ runGate(
     enabledByDefault: true,
     defaultParams: {
       regionalMarkers: DEFAULT_REGIONAL_MARKERS,
+      escapeHatch: DEFAULT_ESCAPE_HATCH,
     },
   },
   ({ toolName, toolInput, parameters }) => {
     const text = extractText(toolName, toolInput).toLowerCase();
     if (!text) return;
+
+    // Explicit opt-out for legitimate regional text (quote/fixture/log/data sample).
+    const escapeHatch = (parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH).toLowerCase();
+    if (escapeHatch && text.includes(escapeHatch)) return;
 
     const hits = [];
     for (const marker of parameters.regionalMarkers) {
@@ -71,9 +84,12 @@ runGate(
     if (hits.length === 0) return;
 
     const unique = [...new Set(hits)].slice(0, MAX_REPORTED_MARKERS);
-    warn(
+    deny(
       GATE_ID,
-      `Text being written contains regional Spanish markers: ${unique.join(', ')}. Prefer neutral Spanish unless this is a literal quote or data.`,
+      `Text being written contains regional Spanish markers: ${unique.join(', ')}. ` +
+        'Rewrite in neutral Spanish before writing. If the regional wording is intentional ' +
+        `(a literal quote, a test fixture, a captured log, a data sample), add the marker ` +
+        `"${parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH}" somewhere in the content to allow it.`,
     );
   },
 );

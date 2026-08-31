@@ -78,6 +78,10 @@ program
   )
   .option('-y, --yes', 'never prompt; use flags and defaults')
   .option('--no-install', 'write the config but do not install the plugin')
+  .option(
+    '--no-remove-previous',
+    'keep any previously installed plugin version instead of removing it first',
+  )
   .option('--dry-run', 'show the selection without writing')
   .action(async (options) => {
     const { runInit } = await import('./init.mjs');
