@@ -67,7 +67,11 @@ export const RISK_SIGNAL = withUnicodeWordBoundary(
 
 /** RISK_SIGNAL as plain regex-source alternatives (no boundary/flags), for gates that
  * build their own combined pattern (e.g. joined with other domain-specific sources). */
-export const RISK_SIGNAL_SOURCES = [MONEY_TERMS, AUTH_TERMS, DESTRUCTIVE_DEPLOY_TERMS];
+export const RISK_SIGNAL_SOURCES = [
+  MONEY_TERMS,
+  AUTH_TERMS,
+  DESTRUCTIVE_DEPLOY_TERMS,
+];
 
 // ── MUTATION_RISK_SIGNAL: broader than RISK_SIGNAL, used only to VOID an exemption ──
 // Several gates let a whitelisted read-only subagent name (or an exempt-query verb)
@@ -83,7 +87,8 @@ const MUTATION_RISK_TERMS =
   `${MONEY_TERMS}|${AUTH_TERMS}|credencial|credential|data|datos|borrar|delete|drop|` +
   `write|escrib|${DESTRUCTIVE_DEPLOY_TERMS}`;
 
-export const MUTATION_RISK_SIGNAL = withUnicodeWordBoundary(MUTATION_RISK_TERMS);
+export const MUTATION_RISK_SIGNAL =
+  withUnicodeWordBoundary(MUTATION_RISK_TERMS);
 
 // ── CONJECTURE: never-assume phrasing ────────────────────────────────────────────────
 // Prose stating an unverified assumption instead of a checked fact.
@@ -125,3 +130,43 @@ export const PERSISTENCE_VERB = new RegExp(
   PERSISTENCE_VERB_SOURCES.join('|'),
   'iu',
 );
+
+// ── BUILD_INTENT: a request to CREATE a tool/helper (reuse-before-build) ─────────────
+// A verb of creation FOLLOWED SHORTLY BY a "buildable thing" noun, in Spanish AND English.
+// The old pattern was English-only (write|create|build + script|gate|hook...), so a Spanish
+// brief ("armá un verificador", "hacé un helper") never tripped the reuse check.
+//
+// Split into two small regexes (a creation verb, and a tool noun) checked with a bounded gap
+// between them, rather than one large alternation. One monolithic pattern tripped the linter's
+// regex-complexity budget; two short ones stay well under it and read more clearly. The gap
+// (up to ~24 chars) lets an article/adjective sit between them ("build a new tool", "armá un
+// verificador nuevo") while keeping the noun anchored to the verb so "write a report" /
+// "escribí un correo" (non-tool nouns) do not match. Each side is word-boundary wrapped.
+const BUILD_VERB = withUnicodeWordBoundary(
+  'write|create|build|implement|add|make|' +
+    'escribe|escribi|escribir|crea|construye|construir|implementa|implementar|' +
+    'agrega|arma|hace|genera|generar|' +
+    // voseo / accented imperative forms spelled as literals (no [aá] class, which the linter
+    // counts against regex complexity): armá, hacé, creá, agregá, generá, escribí, construí.
+    'armá|hacé|creá|agregá|generá|escribí|construí',
+);
+const BUILDABLE_NOUN = withUnicodeWordBoundary(
+  'scripts?|verifiers?|gates?|hooks?|linters?|checkers?|tools?|helpers?|utilit(?:y|ies)|' +
+    'utils?|composables?|components?|services?|wrappers?|' +
+    'verificador(?:es)?|chequeador(?:es)?|herramientas?|utilidades?|ayudantes?|' +
+    'envoltorios?|componentes?|servicios?',
+);
+const BUILD_INTENT_MAX_GAP = 24;
+
+/** Whether the text expresses intent to CREATE a tool/helper (a creation verb closely
+ * followed by a tool noun), in Spanish or English. A method, not a bare regex, so each side
+ * stays a small pattern and the "verb → noun proximity" rule is explicit. */
+export function isBuildIntent(text) {
+  const verbMatch = BUILD_VERB.exec(text);
+  if (!verbMatch) return false;
+  const after = text.slice(
+    verbMatch.index + verbMatch[0].length,
+    verbMatch.index + verbMatch[0].length + BUILD_INTENT_MAX_GAP,
+  );
+  return BUILDABLE_NOUN.test(after);
+}

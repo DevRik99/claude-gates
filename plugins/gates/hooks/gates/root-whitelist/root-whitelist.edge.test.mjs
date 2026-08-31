@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -105,12 +105,18 @@ function bash(command) {
 
 test('FIXED: a shell redirection creating an orphan root file is now denied', () => {
   const p = project();
-  assert.ok(isDeny(p.run(bash('printf "x" > basura.txt'))), 'printf > basura.txt must be denied');
+  assert.ok(
+    isDeny(p.run(bash('printf "x" > basura.txt'))),
+    'printf > basura.txt must be denied',
+  );
 });
 
 test('FIXED: touch of an orphan root file via Bash is now denied', () => {
   const p = project();
-  assert.ok(isDeny(p.run(bash('touch orphan.js'))), 'touch orphan.js must be denied');
+  assert.ok(
+    isDeny(p.run(bash('touch orphan.js'))),
+    'touch orphan.js must be denied',
+  );
 });
 
 test('OK: a shell redirection into a whitelisted folder is allowed', () => {

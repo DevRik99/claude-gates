@@ -58,6 +58,30 @@ test('allows a whitelisted root file, a whitelisted folder and a dotfile', () =>
   assert.equal(run(write(root, '.env')), null);
 });
 
+test('allows the common framework root folders that the old narrow list wrongly blocked', () => {
+  // Regression: the previous whitelist only had src/tests/docs/scripts/plugins, so a real
+  // project creating app/ (Next/Nuxt/Laravel/Expo), lib/, public/, components/, pages/, api/
+  // was blocked at the root. Those are legitimate structural folders and must pass.
+  const { root, run } = project();
+  for (const folder of [
+    'app',
+    'lib',
+    'public',
+    'components',
+    'pages',
+    'api',
+    'packages',
+    'dist',
+    'assets',
+  ]) {
+    assert.equal(
+      run(write(root, join(folder, 'thing.js'))),
+      null,
+      `root folder '${folder}' must be allowed`,
+    );
+  }
+});
+
 test('disabled by config: the gate does not run', () => {
   const config = { gates: { blockPathsOutsideRootWhitelist: false } };
   const { root, run } = project({ config });

@@ -47,12 +47,82 @@ const DEFAULT_ROOT_FILES_WHITELIST = [
   '.env.example',
 ];
 
+// Root folders that real projects legitimately create. The old list (src/tests/docs/
+// scripts/plugins) was calibrated to THIS repo and wrongly blocked the root folders every
+// common framework creates — app (Next/Nuxt/Laravel/Expo), lib, public, dist, components,
+// pages, api, and so on. A root-level folder is a deliberate, structural choice; the value
+// of this gate is catching a stray FILE dropped next to package.json, not second-guessing a
+// project's directory layout. So the folder whitelist is broad (real framework/tooling
+// conventions) while the file whitelist stays the strict part. A project still overrides
+// either list wholesale via config.
 const DEFAULT_ROOT_FOLDERS_WHITELIST = [
+  // source / app code
   'src',
-  'tests',
-  'docs',
-  'scripts',
+  'app',
+  'lib',
+  'pkg',
+  'packages',
+  'apps',
+  'libs',
+  'components',
+  'pages',
+  'api',
+  'routes',
+  'server',
+  'client',
+  'shared',
+  'core',
+  'modules',
+  'features',
+  // web / framework conventions
+  'public',
+  'static',
+  'assets',
+  'styles',
+  'templates',
+  'views',
+  'layouts',
+  'middleware',
   'plugins',
+  'store',
+  'stores',
+  'hooks',
+  'composables',
+  'utils',
+  'helpers',
+  'services',
+  'config',
+  'configs',
+  'i18n',
+  'locales',
+  // tests / docs / tooling
+  'tests',
+  'test',
+  '__tests__',
+  'e2e',
+  'cypress',
+  'docs',
+  'doc',
+  'examples',
+  'example',
+  'scripts',
+  'tools',
+  'bin',
+  // build / generated (present in many repos, not worth blocking)
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'node_modules',
+  'vendor',
+  'target',
+  // infra / ops
+  'migrations',
+  'prisma',
+  'db',
+  'database',
+  'docker',
+  '.github',
 ];
 
 // The whitelist verdict for one target path. Returns a deny reason string when the path is a
@@ -78,12 +148,16 @@ function rootWhitelistViolation(target, filesWhitelist, foldersWhitelist) {
 
   if (!relativePath.includes(sep)) {
     const fileName = basename(relativePath);
-    if (fileName.startsWith('.') || filesWhitelist.has(fileName.toLowerCase())) return null;
+    if (fileName.startsWith('.') || filesWhitelist.has(fileName.toLowerCase()))
+      return null;
     return `'${fileName}' at the project root is not on the whitelist (${[...filesWhitelist].join(', ')}).`;
   }
 
   const topDirectory = relativePath.split(sep)[0];
-  if (topDirectory.startsWith('.') || foldersWhitelist.has(topDirectory.toLowerCase())) {
+  if (
+    topDirectory.startsWith('.') ||
+    foldersWhitelist.has(topDirectory.toLowerCase())
+  ) {
     return null;
   }
   return `Folder '${topDirectory}' at the project root is not on the whitelist (${[...foldersWhitelist].join(', ')}).`;
@@ -120,11 +194,17 @@ runGate(
     // a regex, and is why the write-tool path (which carries a concrete file_path) stays the
     // primary, most reliable surface.
     const targets = isShell
-      ? shellWrittenPaths(String(toolInput?.command ?? toolInput?.CommandLine ?? ''))
+      ? shellWrittenPaths(
+          String(toolInput?.command ?? toolInput?.CommandLine ?? ''),
+        )
       : [writtenPathOf(toolInput)];
 
     for (const target of targets) {
-      const reason = rootWhitelistViolation(target, filesWhitelist, foldersWhitelist);
+      const reason = rootWhitelistViolation(
+        target,
+        filesWhitelist,
+        foldersWhitelist,
+      );
       if (reason) deny(GATE_ID, reason);
     }
   },

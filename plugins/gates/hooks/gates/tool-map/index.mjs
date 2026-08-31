@@ -30,16 +30,41 @@ const DEFAULT_TOOL_MAP_FILE = join('.ai', 'tool-map.json');
 const JSON_INDENT = 2;
 const MAX_AUDIT_LENGTH = 300;
 
+// Kept in sync with reuse-before-build's scope (its read half): a file this gate would NOT
+// record is a file reuse-before-build would still flag, and the pair must agree on what
+// counts as a tool/helper. Extensions and folders are broad because a reusable helper lives
+// in many places (lib/utils/composables/components), not only the four original tool dirs.
 const EXECUTABLE_EXTENSIONS = new Set([
   '.js',
   '.mjs',
   '.cjs',
   '.ts',
+  '.tsx',
+  '.jsx',
+  '.vue',
   '.py',
   '.sh',
   '.ps1',
+  '.rb',
+  '.go',
 ]);
-const TOOL_FOLDERS = ['scripts/', 'hooks/', 'tools/', 'gates/'];
+const TOOL_FOLDERS = [
+  'scripts/',
+  'hooks/',
+  'tools/',
+  'gates/',
+  'lib/',
+  'libs/',
+  'utils/',
+  'util/',
+  'helpers/',
+  'helper/',
+  'composables/',
+  'components/',
+  'services/',
+  'shared/',
+  'common/',
+];
 
 // Phrases that mark a line as the author's audit statement. Matched against one line at a
 // time (no wrapping `.*`, which backtracks): the matching line is captured whole.
