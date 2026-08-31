@@ -11,10 +11,7 @@
           "configKey": "blockDestructiveShellCommands",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "shell",
-            "delegation"
-          ],
+          "tools": ["shell", "delegation"],
           "script": "gates/bash-commands/index.mjs",
           "description": "Denies git reset --hard, rm -rf over protected areas, force push, and taskkill by image.",
           "params": [
@@ -40,10 +37,7 @@
           "configKey": "blockRemotePublish",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "shell",
-            "delegation"
-          ],
+          "tools": ["shell", "delegation"],
           "script": "gates/block-remote-publish/index.mjs",
           "description": "Denies unauthorized remote publish (git push, gh pr merge, gh release create). Disable to let the agent push on its own.",
           "params": [
@@ -59,10 +53,7 @@
           "configKey": "blockWritesToProtectedPaths",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "shell"
-          ],
+          "tools": ["write", "shell"],
           "description": "Denies writes to .env, lockfiles and the harness itself.",
           "script": "gates/protected-paths/index.mjs",
           "params": [
@@ -83,9 +74,7 @@
           "configKey": "blockPathsOutsideRootWhitelist",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Denies new root-level files/folders outside the project's whitelist.",
           "script": "gates/root-whitelist/index.mjs",
           "params": [
@@ -106,10 +95,7 @@
           "configKey": "blockWaitingCommands",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "shell",
-            "delegation"
-          ],
+          "tools": ["shell", "delegation"],
           "description": "Denies sleep, tail -f, polling loops and foreground servers.",
           "script": "gates/no-blocking/index.mjs",
           "params": [
@@ -137,9 +123,7 @@
           "configKey": "requireBriefBeforeDelegating",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Requires goal, steps and done-when criteria in the prompt.",
           "script": "gates/brief-before-delegate/index.mjs",
           "params": [
@@ -160,9 +144,7 @@
           "configKey": "requireScopeListBeforeDelegating",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Requires IN SCOPE / OUT OF SCOPE / EDGE CASES sections.",
           "script": "gates/intent-flow/index.mjs",
           "params": [
@@ -183,9 +165,7 @@
           "configKey": "requireDeclaredRiskLevel",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Requires LEVEL: QUESTION|MICRO|STANDARD|HIGH-RISK consistent with the request.",
           "script": "gates/risk-level/index.mjs",
           "params": [
@@ -206,9 +186,7 @@
           "configKey": "requireCircuitBreakerOnDelegation",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Cuts the same delegation retried without substantial changes.",
           "script": "gates/circuit-breaker/index.mjs",
           "params": [
@@ -229,9 +207,7 @@
           "configKey": "warnMemoryDependencyInBrief",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Denies a brief that relies on the subagent remembering the conversation (escape hatch marker allows a false-positive phrase).",
           "script": "gates/no-memory-dependency/index.mjs",
           "params": [
@@ -247,9 +223,7 @@
           "configKey": "warnSequentialDelegations",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Warns after N consecutive sequential delegations within a time window, suggesting they be launched together instead.",
           "script": "gates/force-parallel/index.mjs",
           "params": [
@@ -282,9 +256,7 @@
           "configKey": "requireFeatureCatalog",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Single in_progress; done requires asserts and review.",
           "script": "gates/feature-catalog/index.mjs",
           "params": [
@@ -305,10 +277,7 @@
           "configKey": "requireSpecBeforeImplementing",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "delegation"
-          ],
+          "tools": ["write", "delegation"],
           "description": "Non-empty requirements/design/tasks before in_progress.",
           "script": "gates/sdd-specs/index.mjs",
           "params": [
@@ -329,9 +298,7 @@
           "configKey": "requireImplementationPipeline",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Definition, writing, validation, QA and closure declared before building.",
           "script": "gates/implementation-pipeline/index.mjs",
           "params": [
@@ -352,9 +319,7 @@
           "configKey": "requireLiveTaskWhenImplementing",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Requires an active task with a contract before implementing.",
           "script": "gates/mandatory-flow/index.mjs",
           "params": [
@@ -375,9 +340,7 @@
           "configKey": "requireTestMatrixWhenImplementing",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "delegation"
-          ],
+          "tools": ["delegation"],
           "description": "Requires a test matrix (types the requirement makes mandatory) in the brief.",
           "script": "gates/test-matrix/index.mjs",
           "params": [
@@ -410,9 +373,7 @@
           "configKey": "requireSkillForNewDependency",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "A new direct dependency requires a current skill.",
           "script": "gates/dependency-skills/index.mjs",
           "params": [
@@ -433,10 +394,7 @@
           "configKey": "requireRootCauseBeforePatch",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "delegation"
-          ],
+          "tools": ["write", "delegation"],
           "description": "Requires an origin-to-symptom diagnosis before a patch.",
           "script": "gates/root-cause-first/index.mjs",
           "params": [
@@ -452,10 +410,7 @@
           "configKey": "requireAuditBeforeBuilding",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "delegation"
-          ],
+          "tools": ["write", "delegation"],
           "description": "Before a new script/gate, state that no existing tool covers it.",
           "script": "gates/audit-before-build/index.mjs",
           "params": [
@@ -476,10 +431,7 @@
           "configKey": "requireVerificationBeforeAssuming",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "delegation"
-          ],
+          "tools": ["write", "delegation"],
           "description": "Flags unverified assumptions in briefs and code.",
           "script": "gates/never-assume/index.mjs",
           "params": [
@@ -495,10 +447,7 @@
           "configKey": "autodiscoverRulesAndSkills",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "execution",
-            "delegation"
-          ],
+          "tools": ["execution", "delegation"],
           "description": "Loads gates declared by the project's rules/*.mjs and skills/*/gate.mjs.",
           "script": "gates/rule-skill-autodiscovery/index.mjs",
           "params": [
@@ -519,10 +468,7 @@
           "configKey": "blockRegisteredRecurrences",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "execution",
-            "delegation"
-          ],
+          "tools": ["execution", "delegation"],
           "description": "A second occurrence of a defect class requires its deterministic block.",
           "script": "gates/recurrence-lock/index.mjs",
           "params": [
@@ -538,9 +484,7 @@
           "configKey": "warnTestWrittenAfterImplementation",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Denies creating a test after its paired implementation was already modified (escape hatch marker allows a regression test).",
           "script": "gates/test-after-implementation/index.mjs",
           "params": [
@@ -556,9 +500,7 @@
           "configKey": "requireNoReconfirmOfApproved",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "question"
-          ],
+          "tools": ["question"],
           "description": "Never re-ask what the user already answered.",
           "script": "gates/no-reconfirm/index.mjs",
           "params": [
@@ -574,9 +516,7 @@
           "configKey": "warnNonNeutralSpanish",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Denies writing voseo or regional lexicon in text (escape hatch marker allows a deliberate quote/fixture/log).",
           "script": "gates/neutral-spanish/index.mjs",
           "params": [
@@ -592,9 +532,7 @@
           "configKey": "warnTimeoutChangeWithoutDiagnosis",
           "default": true,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Warns when timeouts/retries change without evidence.",
           "script": "gates/diagnosis-before-patch/index.mjs",
           "params": [
@@ -610,9 +548,7 @@
           "configKey": "blockCommitWithFailingLint",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "shell"
-          ],
+          "tools": ["shell"],
           "description": "Denies git commit while the project's lint script fails. Autodetects package.json's lint script; allows silently when none is declared.",
           "script": "gates/lint-commit/index.mjs",
           "params": [
@@ -640,10 +576,7 @@
           "configKey": "requireReuseCheckBeforeBuilding",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "delegation"
-          ],
+          "tools": ["write", "delegation"],
           "description": "Consults the project tool map; blocks building a tool absent from it without an audit.",
           "script": "gates/reuse-before-build/index.mjs",
           "params": [
@@ -659,9 +592,7 @@
           "configKey": "maintainToolMap",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write"
-          ],
+          "tools": ["write"],
           "description": "Records discovered tools into the per-project map so exploration is not repeated.",
           "script": "gates/tool-map/index.mjs",
           "params": [
@@ -684,10 +615,7 @@
           "configKey": "requireForgeRunToEdit",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "write",
-            "shell"
-          ],
+          "tools": ["write", "shell"],
           "description": "In a forge-adopted project, denies edits/commands unless an active forge run exists for it.",
           "script": "gates/forge-flow/index.mjs",
           "params": [
@@ -710,9 +638,7 @@
           "configKey": "autonomousMode",
           "default": false,
           "event": "PreToolUse",
-          "tools": [
-            "question"
-          ],
+          "tools": ["question"],
           "description": "When autonomous mode is on, denies AskUserQuestion so the assistant decides instead of asking. Also blocks a turn from ending to wait (via gates/autonomous-mode/stop.mjs, a Stop hook sharing this flag): it re-injects, once per cycle, an instruction to decide and proceed, leaving pending only what needs the user's own explicit decision.",
           "script": "gates/autonomous-mode/index.mjs"
         }

@@ -21,10 +21,7 @@ function makeProject(config) {
   mkdirSync(join(project, '.git'));
   if (config) {
     mkdirSync(join(project, '.ai'));
-    writeFileSync(
-      join(project, '.ai', 'config.json'),
-      JSON.stringify(config),
-    );
+    writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(config));
   }
   return project;
 }
@@ -102,7 +99,8 @@ test('delegation prompt that only DESCRIBES a push is not a false positive', () 
     JSON.stringify({
       tool_name: 'Task',
       tool_input: {
-        prompt: 'I extended the guard so it denies "git push" without authorization.',
+        prompt:
+          'I extended the guard so it denies "git push" without authorization.',
       },
     }),
     project,

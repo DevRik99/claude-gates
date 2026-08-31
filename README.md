@@ -60,14 +60,15 @@ works even if you install one on its own.
 
 ---
 
-## The gates (30, in 7 families)
+## The gates (in families)
 
 `[on]` = enabled by default; `[off]` = enable it if you want it.
 
 ### 🔒 Security — hard blocks on destructive actions
 | Gate | | What it does |
 |---|---|---|
-| `bash-commands` | on | Blocks `git reset --hard`, `rm -rf`, force push, killing processes by name, and publishing to a remote without authorization. |
+| `bash-commands` | on | Blocks `git reset --hard`, `rm -rf` over protected areas, force push, and killing processes by name. |
+| `block-remote-publish` | on | Blocks `git push`, `gh pr merge`, `gh release create` without authorization. Set `blockRemotePublish: false` to let the agent publish on its own. |
 | `protected-paths` | on | Blocks writes to `.env`, lockfiles and the harness itself. |
 | `root-whitelist` | on | Blocks new root-level files/folders outside a whitelist. |
 | `no-blocking` | off | Blocks `sleep`, `tail -f`, polling loops and foreground servers. |
@@ -79,7 +80,7 @@ works even if you install one on its own.
 | `intent-flow` | off | Requires IN SCOPE / OUT OF SCOPE / EDGE CASES sections. |
 | `risk-level` | off | Requires a declared level (QUESTION/MICRO/STANDARD/HIGH-RISK). |
 | `circuit-breaker` | off | Cuts the same delegation retried without real changes. |
-| `no-memory-dependency` | off | Warns when the brief relies on the subagent "remembering" the chat. |
+| `no-memory-dependency` | off | Blocks a brief that relies on the subagent "remembering" the chat (add `memory-not-needed` to allow a false positive). |
 
 ### 📋 Spec-driven flow — only relevant if the project adopted spec-driven development
 | Gate | | What it does |
@@ -93,15 +94,15 @@ works even if you install one on its own.
 ### ✨ Quality — code hygiene, diagnosis and language
 | Gate | | What it does |
 |---|---|---|
-| `dependency-skills` | on | A new direct dependency requires a current skill. |
+| `dependency-skills` | on | Blocks a new direct dependency with no matching skill (declare it in `depsWithoutOwnApi` if it needs none). |
 | `root-cause-first` | off | Requires an origin→symptom diagnosis before a patch. |
 | `audit-before-build` | off | Before a new script/gate, requires stating that nothing existing covers it. |
 | `never-assume` | off | Flags unverified assumptions in briefs and code. |
 | `rule-skill-autodiscovery` | off | Loads gates the project declares in its `rules/` and `skills/`. |
 | `recurrence-lock` | on | A second occurrence of a defect class requires its deterministic block. |
-| `test-after-implementation` | off | Warns when a test is written after its paired implementation. |
+| `test-after-implementation` | off | Blocks a test written after its paired implementation (add `test-after-impl:allow` for a regression test). |
 | `no-reconfirm` | on | Never re-ask what you already answered. |
-| `neutral-spanish` | on | Warns about voseo or regional lexicon in written text. |
+| `neutral-spanish` | on | Blocks voseo or regional lexicon in written text (add `neutral-spanish:allow` for a deliberate quote/fixture). |
 | `diagnosis-before-patch` | on | Warns when timeouts/retries change without evidence. |
 
 ### 🔎 Tool discovery — don't reinvent the wheel
@@ -141,9 +142,11 @@ see and edit every knob:
       "rmRfProtectedAreas": ["/", "*", "src", "tests"],
       "denyPatterns": ["git reset --hard", "…"]
     },
+    "blockRemotePublish": { "enabled": false },
     "warnNonNeutralSpanish": {
       "enabled": true,
-      "regionalMarkers": ["tenés", "podés", "…"]
+      "regionalMarkers": ["tenés", "podés", "…"],
+      "escapeHatch": "neutral-spanish:allow"
     },
     "requireBriefBeforeDelegating": { "enabled": false }
   }
@@ -155,6 +158,12 @@ see and edit every knob:
   What the project declares **replaces** the gate's default.
 - A gate absent from the config uses its catalog default. Keys you already had in the file
   (e.g. `autoCommit`) are kept intact.
+- **Let the agent push:** set `"blockRemotePublish": { "enabled": false }`. Nothing is
+  hardcoded — every gate, remote publish included, obeys this flag.
+- **Escape hatches:** a few gates block (deny) but accept an explicit opt-out marker in the
+  content/prompt for a legitimate case: `neutral-spanish:allow` (a deliberate regional
+  quote), `test-after-impl:allow` (a regression test), `memory-not-needed` (a
+  non-memory phrase). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
 
 ---
 

@@ -33,7 +33,10 @@
     "README.md",
     "README.es.md",
     "plugins",
-    ".claude-plugin"
+    ".claude-plugin",
+    "!**/*.test.mjs",
+    "!**/test.mjs",
+    "!**/__tests__/**"
   ],
   "scripts": {
     "test": "node --test",

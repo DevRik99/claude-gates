@@ -1,4 +1,9 @@
-import { runGate, deny, toolInGroups, writtenContentOf } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenContentOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'neutral-spanish';
 const CONFIG_KEY = 'warnNonNeutralSpanish';
@@ -14,6 +19,10 @@ const MAX_REPORTED_MARKERS = 8;
 const DEFAULT_ESCAPE_HATCH = 'neutral-spanish:allow';
 
 // Data strings, not identifiers — never add these to a cSpell dictionary.
+// neutral-spanish:allow — this list IS the marker data; the gate must not deny its own source.
+// Now that this gate DENIES (not warns), a marker must be unambiguously regional. Tokens that
+// also occur in neutral Spanish were removed: "de una" (matches "de una lista/vez"), "allá"
+// (standard across the whole language) — a false positive here blocks a legitimate write.
 const DEFAULT_REGIONAL_MARKERS = [
   'tenés',
   'podés',
@@ -32,7 +41,6 @@ const DEFAULT_REGIONAL_MARKERS = [
   'contame',
   'fíjate vos',
   'acá',
-  'allá',
   'laburo',
   'laburar',
   'quilombo',
@@ -43,8 +51,7 @@ const DEFAULT_REGIONAL_MARKERS = [
   'guita',
   'al pedo',
   'un toque',
-  'capaz que',
-  'de una',
+  'capaz que', // neutral-spanish:allow (marker data, not prose)
 ];
 
 function extractText(toolName, toolInput) {
@@ -67,7 +74,9 @@ runGate(
     if (!text) return;
 
     // Explicit opt-out for legitimate regional text (quote/fixture/log/data sample).
-    const escapeHatch = (parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH).toLowerCase();
+    const escapeHatch = (
+      parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH
+    ).toLowerCase();
     if (escapeHatch && text.includes(escapeHatch)) return;
 
     const hits = [];

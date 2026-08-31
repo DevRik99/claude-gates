@@ -68,9 +68,10 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 ### 🔒 Security — bloqueos duros sobre lo destructivo
 | Gate | | Qué hace |
 |---|---|---|
-| `bash-commands` | on | Bloquea `git reset --hard`, `rm -rf`, force push, matar procesos por nombre, y publicar al remoto sin autorización. |
+| `bash-commands` | on | Bloquea `git reset --hard`, `rm -rf` sobre áreas protegidas, force push, y matar procesos por nombre. |
+| `block-remote-publish` | on | Bloquea `git push`, `gh pr merge`, `gh release create` sin autorización. Poné `blockRemotePublish: false` para permitir que el agente publique por su cuenta. |
 | `protected-paths` | on | Bloquea escrituras a `.env`, lockfiles y el propio harness. |
-| `root-whitelist` | on | Bloquea crear archivos/carpetas nuevos en la raíz fuera de una lista blanca. |
+| `root-whitelist` | on | Bloquea crear archivos/carpetas nuevos en la raíz fuera de la lista blanca. |
 | `no-blocking` | off | Bloquea `sleep`, `tail -f`, bucles de sondeo y servidores en primer plano. |
 
 ### 🤝 Delegation — exigencias sobre el brief al delegar a un subagente
@@ -80,7 +81,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `intent-flow` | off | Exige secciones QUÉ SÍ / QUÉ NO / EDGE CASES. |
 | `risk-level` | off | Exige declarar el nivel (QUESTION/MICRO/STANDARD/HIGH-RISK). |
 | `circuit-breaker` | off | Corta la misma delegación reintentada sin cambios reales. |
-| `no-memory-dependency` | off | Avisa si el brief depende de que el subagente "recuerde" la conversación. |
+| `no-memory-dependency` | off | Bloquea un brief que depende de que el subagente "recuerde" la conversación (marcador `memory-not-needed` para un falso positivo). |
 
 ### 📋 Spec-driven flow — solo aplican si el proyecto adoptó desarrollo por specs
 | Gate | | Qué hace |
@@ -94,15 +95,15 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 ### ✨ Quality — higiene de código, diagnóstico y lenguaje
 | Gate | | Qué hace |
 |---|---|---|
-| `dependency-skills` | on | Una dependencia directa nueva exige una skill vigente. |
+| `dependency-skills` | on | Bloquea una dependencia directa nueva sin skill que la cubra (declarala en `depsWithoutOwnApi` si no necesita). |
 | `root-cause-first` | off | Exige un diagnóstico origen→síntoma antes de un parche. |
 | `audit-before-build` | off | Antes de un script/gate nuevo, exige declarar que nada existente lo cubre. |
 | `never-assume` | off | Marca suposiciones sin verificar en briefs y código. |
 | `rule-skill-autodiscovery` | off | Carga los gates que el proyecto declara en sus `rules/` y `skills/`. |
 | `recurrence-lock` | on | La segunda aparición de un defecto exige su bloqueo determinista. |
-| `test-after-implementation` | off | Avisa cuando se escribe un test después de su implementación. |
+| `test-after-implementation` | off | Bloquea un test escrito después de su implementación pareja (marcador `test-after-impl:allow` para un test de regresión). |
 | `no-reconfirm` | on | Nunca vuelve a preguntar lo que ya respondiste. |
-| `neutral-spanish` | on | Avisa sobre voseo o léxico regional en el texto escrito. |
+| `neutral-spanish` | on | Bloquea voseo o léxico regional en el texto escrito (marcador `neutral-spanish:allow` para una cita/fixture deliberada). |
 | `diagnosis-before-patch` | on | Avisa cuando se cambian timeouts/reintentos sin evidencia. |
 
 ### 🔎 Tool discovery — no reinventar la rueda

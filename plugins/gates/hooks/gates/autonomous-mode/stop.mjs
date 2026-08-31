@@ -28,7 +28,6 @@
 import { isGateEnabled } from '../../lib/config.mjs';
 import { readHookPayload } from '../../lib/hook-io.mjs';
 
-const GATE_ID = 'autonomous-mode';
 const CONFIG_KEY = 'autonomousMode';
 
 const CONTINUE_MESSAGE =

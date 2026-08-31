@@ -69,7 +69,8 @@ runGate(
 
     // Explicit opt-out for a legitimate regression test (bug reproduced first, then pinned).
     const escapeHatch = parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH;
-    if (escapeHatch && writtenContentOf(toolInput).includes(escapeHatch)) return;
+    if (escapeHatch && writtenContentOf(toolInput).includes(escapeHatch))
+      return;
 
     const cwd = process.cwd();
     const statusLines = gitStatusPorcelain(cwd);

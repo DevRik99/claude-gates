@@ -1,0 +1,10 @@
+# Tests are for developing claude-gates, not for the published runtime. A gate needs only
+# its index.mjs/stop.mjs at runtime — its *.test.mjs and __tests__/ add weight and nothing
+# the installed hook uses. The `files` allowlist in package.json already scopes what ships;
+# this trims the test files out of that set.
+**/*.test.mjs
+**/__tests__/**
+
+# Mutation-testing and dev config that has no place in the installed package.
+stryker.conf.json
+.stryker-tmp/

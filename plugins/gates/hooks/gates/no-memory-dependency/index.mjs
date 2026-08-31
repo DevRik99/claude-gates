@@ -114,7 +114,9 @@ runGate(
     if (!prompt.trim()) return;
 
     // Explicit opt-out: the author states no cross-conversation memory is actually required.
-    const escapeHatch = (parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH).toLowerCase();
+    const escapeHatch = (
+      parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH
+    ).toLowerCase();
     if (escapeHatch && prompt.toLowerCase().includes(escapeHatch)) return;
 
     const memoryPattern = withUnicodeWordBoundary(

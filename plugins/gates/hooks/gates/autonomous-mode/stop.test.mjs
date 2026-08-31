@@ -41,7 +41,10 @@ function isBlock(result) {
 test('autonomousMode ON: the Stop hook BLOCKS and re-injects a decide-and-proceed message', () => {
   const project = makeProject({ gates: { autonomousMode: true } });
   const result = runHook({ session_id: 's', stop_hook_active: false }, project);
-  assert.ok(isBlock(result), 'must block so the turn does not just wait for the user');
+  assert.ok(
+    isBlock(result),
+    'must block so the turn does not just wait for the user',
+  );
   assert.match(result.reason, /autonomous/i);
   assert.match(result.reason, /proceed|decide/i);
 });
@@ -49,7 +52,11 @@ test('autonomousMode ON: the Stop hook BLOCKS and re-injects a decide-and-procee
 test('loop-guard: stop_hook_active=true ALLOWS the stop (never hangs the session)', () => {
   const project = makeProject({ gates: { autonomousMode: true } });
   const result = runHook({ session_id: 's', stop_hook_active: true }, project);
-  assert.equal(isBlock(result), false, 'the reminder fires once, then the turn may end');
+  assert.equal(
+    isBlock(result),
+    false,
+    'the reminder fires once, then the turn may end',
+  );
 });
 
 test('autonomousMode OFF (default): the Stop hook does nothing', () => {
