@@ -6,14 +6,8 @@
     "command": "node --test"
   },
   "coverageAnalysis": "off",
-  "mutate": [
-    "plugins/gates/hooks/gates/**/index.mjs"
-  ],
-  "ignorePatterns": [
-    "node_modules",
-    "dist",
-    ".stryker-tmp"
-  ],
+  "mutate": ["plugins/gates/hooks/gates/**/index.mjs"],
+  "ignorePatterns": ["node_modules", "dist", ".stryker-tmp"],
   "reporters": ["clear-text", "html", "json"],
   "htmlReporter": {
     "fileName": "reports/mutation/index.html"

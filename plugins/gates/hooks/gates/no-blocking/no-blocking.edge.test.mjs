@@ -50,10 +50,9 @@ test('FIXED: an mcp shell-equivalent tool running "sleep 30" is now recognized',
 // itself is never checked for plausibility, so trivially defeats the intent of a
 // "declared, justified wait": any two words work as an unchecked excuse.
 test('BUG (weak justification check): any two-word text after the marker escapes the block regardless of content', () => {
-  const result = runGate(
-    bash('sleep 9999 # WAIT-JUSTIFIED: because yes'),
-    { config: ENABLED },
-  );
+  const result = runGate(bash('sleep 9999 # WAIT-JUSTIFIED: because yes'), {
+    config: ENABLED,
+  });
   assert.equal(result, null); // allowed: marker escape has no semantic validation, only shape
 });
 
@@ -63,9 +62,7 @@ test('BUG (weak justification check): any two-word text after the marker escapes
 // match \b(npm|pnpm|yarn|bun)\s+(run\s+)?(dev|start|serve|watch)\b since that's a
 // substring test with no anchoring requirement (unlike sleep/timeout). Confirm no bypass.
 test('OK: piping a dev server through another command does not bypass the dev-server pattern', () => {
-  assert.ok(
-    isDeny(runGate(bash('npm run dev | cat'), { config: ENABLED })),
-  );
+  assert.ok(isDeny(runGate(bash('npm run dev | cat'), { config: ENABLED })));
 });
 
 // ── BUG: `NOT_TAKING_THE_TURN` includes `-d\b` as a generic "detached" flag marker. This
@@ -88,10 +85,7 @@ test('FIXED: an unrelated "-d" flag (curl -d) no longer escapes the blocking che
 // tool that appends '\n') would still satisfy `\s*$` since \s includes \n. Not pursued
 // further as a distinct bug; documenting as checked.
 test('OK: trailing background operator followed by trailing whitespace still escapes correctly (not a bug)', () => {
-  assert.equal(
-    runGate(bash('npm run dev &  '), { config: ENABLED }),
-    null,
-  );
+  assert.equal(runGate(bash('npm run dev &  '), { config: ENABLED }), null);
 });
 
 // ── BUG candidate: PowerShell `Start-Job` / `Start-Process ... -NoNewWindow` background

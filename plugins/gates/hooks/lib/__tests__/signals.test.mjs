@@ -37,7 +37,8 @@ test('RISK_SIGNAL matches destructive/deploy terms in EN and ES', () => {
 });
 
 test('bilingual control: an ES risk brief matches exactly like its EN equivalent', () => {
-  const es = 'implementa el endpoint para mover el saldo de una cuenta bancaria';
+  const es =
+    'implementa el endpoint para mover el saldo de una cuenta bancaria';
   const en = 'implement the endpoint to move the balance of a bank account';
   assert.equal(RISK_SIGNAL.test(es), RISK_SIGNAL.test(en));
   assert.ok(RISK_SIGNAL.test(es));
@@ -86,8 +87,14 @@ test('bilingual control: ES and EN conjecture brief both trigger', () => {
 });
 
 test('CONJECTURE does not fire on neutral confirmed statements', () => {
-  assert.equal(CONJECTURE.test('verified: the timezone is UTC per config.json'), false);
-  assert.equal(CONJECTURE.test('confirmado: el usuario esta autenticado'), false);
+  assert.equal(
+    CONJECTURE.test('verified: the timezone is UTC per config.json'),
+    false,
+  );
+  assert.equal(
+    CONJECTURE.test('confirmado: el usuario esta autenticado'),
+    false,
+  );
 });
 
 // ── PERSISTENCE_VERB ─────────────────────────────────────────────────────────────────

@@ -85,7 +85,7 @@ const CLASSIFY_PROMPT =
   'a new actionable task (not a question, not small talk, not a follow-up on an already-registered ' +
   'task). If it does, you MUST register it now, before writing your reply — run ' +
   '`claude-gates task add "<title>" [--description <text>] [--size <size>]` from the project root ' +
-  '(or the CLI\'s absolute path if `claude-gates` is not on PATH). Do not defer this, do not decide ' +
+  "(or the CLI's absolute path if `claude-gates` is not on PATH). Do not defer this, do not decide " +
   'to register it "later", do not silently skip it because the answer seems obvious. If it is not a ' +
   'new task, skip registration — do not fabricate one.';
 

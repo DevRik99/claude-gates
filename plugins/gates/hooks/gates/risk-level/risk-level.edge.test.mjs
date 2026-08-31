@@ -37,10 +37,16 @@ const SENSITIVE_NO_LEVEL =
 
 test('FIXED: a delegation tool name outside the native list is now caught via toolInGroups (MCP delegation signal)', () => {
   const result = runGate(
-    { tool_name: 'mcp__orchestrator__spawn_agent', tool_input: { prompt: SENSITIVE_NO_LEVEL } },
+    {
+      tool_name: 'mcp__orchestrator__spawn_agent',
+      tool_input: { prompt: SENSITIVE_NO_LEVEL },
+    },
     ENABLED,
   );
-  assert.ok(isDeny(result), 'gate now denies the no-level prompt under the MCP tool name too');
+  assert.ok(
+    isDeny(result),
+    'gate now denies the no-level prompt under the MCP tool name too',
+  );
 });
 
 test('FIXED: prompt carried in a field other than prompt/description/task is now read via delegationPromptOf', () => {
@@ -48,12 +54,18 @@ test('FIXED: prompt carried in a field other than prompt/description/task is now
     { tool_name: 'Agent', tool_input: { instructions: SENSITIVE_NO_LEVEL } },
     ENABLED,
   );
-  assert.ok(isDeny(result), 'gate now sees the prompt under "instructions" and denies it for missing LEVEL');
+  assert.ok(
+    isDeny(result),
+    'gate now sees the prompt under "instructions" and denies it for missing LEVEL',
+  );
 });
 
 test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-only subagent name', () => {
   const result = runGate(
-    { tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_LEVEL, subagent_type: 'plan' } },
+    {
+      tool_name: 'Agent',
+      tool_input: { prompt: SENSITIVE_NO_LEVEL, subagent_type: 'plan' },
+    },
     ENABLED,
   );
   assert.ok(
@@ -70,7 +82,10 @@ test('FIXED: the LAST level declaration governs, not the first (a decoy early me
   const prompt =
     'NIVEL: HIGH-RISK (nota: eso era para la tarea anterior, ignorar). Para esta tarea: NIVEL: MICRO. ' +
     'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.';
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt } },
+    ENABLED,
+  );
   assert.ok(
     isDeny(result),
     'gate now denies: the operative (last) declaration is MICRO, which contradicts the real money-mutation signal',
@@ -80,7 +95,10 @@ test('FIXED: the LAST level declaration governs, not the first (a decoy early me
 test('FIXED: two DIFFERENT levels that both look operative are denied as ambiguous, not silently resolved', () => {
   const prompt =
     'NIVEL: MICRO. Mas adelante, NIVEL: HIGH-RISK. Arregla el boton que no cambia de color en la pagina.';
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt } },
+    ENABLED,
+  );
   assert.ok(
     isDeny(result),
     'gate denies and asks for a single unambiguous LEVEL when multiple different levels are declared',
@@ -102,15 +120,31 @@ test('OK: repeating the SAME level twice is not treated as ambiguous', () => {
 });
 
 test('OK: same sensitive prompt without a read-only subagent name and no level is denied', () => {
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_LEVEL } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_LEVEL } },
+    ENABLED,
+  );
   assert.ok(isDeny(result));
 });
 
 test('OK: Task and invoke_subagent tool names are both covered', () => {
-  assert.ok(isDeny(runGate({ tool_name: 'Task', tool_input: { prompt: SENSITIVE_NO_LEVEL } }, ENABLED)));
   assert.ok(
     isDeny(
-      runGate({ tool_name: 'invoke_subagent', tool_input: { prompt: SENSITIVE_NO_LEVEL } }, ENABLED),
+      runGate(
+        { tool_name: 'Task', tool_input: { prompt: SENSITIVE_NO_LEVEL } },
+        ENABLED,
+      ),
+    ),
+  );
+  assert.ok(
+    isDeny(
+      runGate(
+        {
+          tool_name: 'invoke_subagent',
+          tool_input: { prompt: SENSITIVE_NO_LEVEL },
+        },
+        ENABLED,
+      ),
     ),
   );
 });

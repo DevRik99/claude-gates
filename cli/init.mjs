@@ -176,7 +176,8 @@ function renderSummary(registry, gatesMap) {
 async function askRemovePrevious(io) {
   return bail(
     await io.confirm({
-      message: 'Remove the previous plugin version before installing the new one?',
+      message:
+        'Remove the previous plugin version before installing the new one?',
       initialValue: true,
     }),
   );
@@ -194,6 +195,55 @@ async function confirmWrite(io, fileExists) {
     io.cancel('Nothing written.');
     process.exit(EXIT_CODE.FAILURE);
   }
+}
+
+/**
+ * Installs the gate plugins after the config has been written, unless the user turned
+ * everything off or opted out with `--no-install`. Additive: `claude plugin install`
+ * merges the gate hooks next to whatever is already configured. If it cannot run, this
+ * falls back to printing the manual command. Extracted from `runInit` purely to keep that
+ * function's branching within the project's complexity budget — same behavior, same order.
+ */
+async function installGatesAfterWrite({
+  flags,
+  gates,
+  scope,
+  cwd,
+  interactive,
+  io,
+  path,
+  merged,
+}) {
+  const wantsInstall = flags.install !== false && adoptionOf(gates) !== false;
+  if (!wantsInstall) {
+    io.outro(`Written ${path}.`);
+    return { path, config: merged, written: true, installed: false };
+  }
+
+  // Default true: a previous plugin version is removed before installing the new one, unless
+  // --no-remove-previous turned it off. Only asked when interactive — --yes or no TTY uses the
+  // flag/default without a prompt, so scripted and non-interactive runs never block on input.
+  const removePrevious =
+    flags.removePrevious !== false &&
+    (!interactive || (await askRemovePrevious(io)));
+
+  const result = installPlugin(scope, { cwd, removePrevious });
+  if (result.installed) {
+    io.outro(
+      `Written ${path} and installed all plugins (${result.scope} scope). ` +
+        'Restart the session (or run /plugin) for the gates to load.',
+    );
+  } else {
+    const manualCommands = pluginInstallCommands()
+      .filter((_command, index) => !result.results[index].installed)
+      .join('\n  ');
+    io.log.warn(
+      `Config written, but not every plugin installed automatically (${result.reason}). ` +
+        `Install the rest yourself with:\n  ${manualCommands}`,
+    );
+    io.outro(`Written ${path}.`);
+  }
+  return { path, config: merged, written: true, installed: result.installed };
 }
 
 export async function runInit(
@@ -240,37 +290,14 @@ export async function runInit(
 
   writeConfig(path, merged);
 
-  // Install based on the selection, unless the user turned everything off or opted out.
-  // Additive: `claude plugin install` merges the gate hooks next to whatever is already
-  // configured. If it cannot run, we fall back to printing the manual command.
-  const wantsInstall = flags.install !== false && adoptionOf(gates) !== false;
-  if (!wantsInstall) {
-    io.outro(`Written ${path}.`);
-    return { path, config: merged, written: true, installed: false };
-  }
-
-  // Default true: a previous plugin version is removed before installing the new one, unless
-  // --no-remove-previous turned it off. Only asked when interactive — --yes or no TTY uses the
-  // flag/default without a prompt, so scripted and non-interactive runs never block on input.
-  const removePrevious =
-    flags.removePrevious !== false &&
-    (!interactive || (await askRemovePrevious(io)));
-
-  const result = installPlugin(scope, { cwd, removePrevious });
-  if (result.installed) {
-    io.outro(
-      `Written ${path} and installed all plugins (${result.scope} scope). ` +
-        'Restart the session (or run /plugin) for the gates to load.',
-    );
-  } else {
-    const manualCommands = pluginInstallCommands()
-      .filter((_command, index) => !result.results[index].installed)
-      .join('\n  ');
-    io.log.warn(
-      `Config written, but not every plugin installed automatically (${result.reason}). ` +
-        `Install the rest yourself with:\n  ${manualCommands}`,
-    );
-    io.outro(`Written ${path}.`);
-  }
-  return { path, config: merged, written: true, installed: result.installed };
+  return installGatesAfterWrite({
+    flags,
+    gates,
+    scope,
+    cwd,
+    interactive,
+    io,
+    path,
+    merged,
+  });
 }

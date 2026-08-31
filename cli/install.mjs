@@ -17,8 +17,14 @@ const PLUGIN_SCOPE = Object.freeze({
   [SCOPES.GLOBAL]: 'user',
 });
 
+const BOM_CODE_POINT = 0xfeff;
+
+function stripBom(text) {
+  return text.charCodeAt(0) === BOM_CODE_POINT ? text.slice(1) : text;
+}
+
 function marketplaceManifest() {
-  return JSON.parse(readFileSync(MARKETPLACE_PATH, 'utf8').replace(/^﻿/, ''));
+  return JSON.parse(stripBom(readFileSync(MARKETPLACE_PATH, 'utf8')));
 }
 
 // A marketplace block in `plugin marketplace list` prints a name line (optionally bulleted
@@ -27,7 +33,14 @@ function marketplaceManifest() {
 const MARKETPLACE_NAME_LINE = /^[^\S\n]*(?:❯[^\S\n]*)?([\w-]+)[^\S\n]*$/;
 const MARKETPLACE_DIRECTORY_SOURCE =
   /^[^\S\n]*Source:[^\S\n]*Directory[^\S\n]*\(([^)]+)\)/i;
-const TRAILING_SLASHES = /[\\/]+$/;
+// A plain loop, not a regex: `/[\\/]+$/` is flagged as super-linear by the linter even
+// though this use is bounded and safe, and trimming trailing slashes one character at a
+// time from the end needs no backtracking-capable pattern at all.
+function trimTrailingSlashes(text) {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '/' || text[end - 1] === '\\')) end -= 1;
+  return text.slice(0, end);
+}
 
 /**
  * Every registered marketplace as `{ name, source }`, parsed from `plugin marketplace list`.
@@ -54,7 +67,7 @@ function listRegisteredMarketplaces(runClaude) {
     if (sourceMatch && currentName) {
       marketplaces.push({
         name: currentName,
-        source: sourceMatch[1].replace(TRAILING_SLASHES, ''),
+        source: trimTrailingSlashes(sourceMatch[1]),
       });
       currentName = null;
     }
@@ -72,7 +85,7 @@ function listRegisteredMarketplaces(runClaude) {
  * name when the listing is unavailable (e.g. no `claude` binary).
  */
 function registeredMarketplaceName(runClaude, fallbackName) {
-  const root = REPOSITORY_ROOT.replace(TRAILING_SLASHES, '');
+  const root = trimTrailingSlashes(REPOSITORY_ROOT);
   const here = listRegisteredMarketplaces(runClaude).find(
     (entry) => entry.source.toLowerCase() === root.toLowerCase(),
   );
@@ -104,7 +117,7 @@ function marketplaceAndPlugins(runClaude = realClaude) {
  * here (the common case). Best-effort: any failure is swallowed and the normal add still runs.
  */
 function repointMarketplaceIfStale(runClaude, manifestName) {
-  const here = REPOSITORY_ROOT.replace(TRAILING_SLASHES, '');
+  const here = trimTrailingSlashes(REPOSITORY_ROOT);
   const registered = listRegisteredMarketplaces(runClaude);
   if (registered.length === 0) return;
 

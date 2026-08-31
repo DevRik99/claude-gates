@@ -32,9 +32,6 @@ function runGate(payload, { config } = {}) {
 function bash(command) {
   return { tool_name: 'Bash', tool_input: { command } };
 }
-function delegate(prompt) {
-  return { tool_name: 'Agent', tool_input: { prompt } };
-}
 function isDeny(result) {
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }

@@ -16,7 +16,8 @@ const DEFAULT_PATCH_MARKER_PATTERNS = ['//\\s*todo:?\\s*fix\\s+later\\s+patch'];
 // new_source, replace_file_content's new_content) — the old reader missed new_source, so a
 // deferral marker written via NotebookEdit was never caught by this DENY gate.
 function textToScan(toolName, toolInput) {
-  if (toolInGroups(toolName, ['delegation'])) return delegationPromptOf(toolInput);
+  if (toolInGroups(toolName, ['delegation']))
+    return delegationPromptOf(toolInput);
   return writtenContentOf(toolInput);
 }
 

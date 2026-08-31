@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Directed mutation runner for the gates — the domain-specific complement to Stryker.
 //
 // Why this exists alongside Stryker: Stryker mutates broadly and scores overall survival,
@@ -36,13 +35,15 @@ const MUTATORS = [
     // in gates that don't import allow, and runGate would turn that throw back into a deny —
     // a false "survivor" that hides whether the TEST actually catches the missing block.
     id: 'deny-neutralized',
-    reason: 'the deny statement is neutralized (no block): a test must catch the missing block',
+    reason:
+      'the deny statement is neutralized (no block): a test must catch the missing block',
     find: /\bdeny\((?:[^()]|\([^()]*\))*\)\s*;/g,
     replace: 'void 0;',
   },
   {
     id: 'warn-neutralized',
-    reason: 'the warn statement is neutralized: a test asserting the notice must fail',
+    reason:
+      'the warn statement is neutralized: a test asserting the notice must fail',
     find: /\bwarn\((?:[^()]|\([^()]*\))*\)\s*;/g,
     replace: 'void 0;',
   },
@@ -54,18 +55,22 @@ const MUTATORS = [
   },
   {
     id: 'regex-to-match-nothing',
-    reason: 'a regexp literal is widened to (?!): it matches nothing, so no detection fires',
+    reason:
+      'a regexp literal is widened to (?!): it matches nothing, so no detection fires',
     find: /\/(?![/*])((?:\\.|[^/\\\n])+)\/([gimsuy]*)/g,
     replace: '/(?!)/$2',
   },
 ];
 
-function run(cmd, args, cwd) {
+function run(command, arguments_, cwd) {
   try {
-    execFileSync(cmd, args, { cwd, stdio: 'pipe', encoding: 'utf8' });
+    execFileSync(command, arguments_, { cwd, stdio: 'pipe', encoding: 'utf8' });
     return { passed: true };
   } catch (error) {
-    return { passed: false, output: `${error.stdout ?? ''}${error.stderr ?? ''}` };
+    return {
+      passed: false,
+      output: `${error.stdout ?? ''}${error.stderr ?? ''}`,
+    };
   }
 }
 
@@ -74,13 +79,15 @@ function gatesWithTests() {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .filter((name) => {
-      const dir = join(GATES_DIR, name);
-      return existsSync(join(dir, 'index.mjs')) && hasAnyTest(dir);
+      const directory = join(GATES_DIR, name);
+      return existsSync(join(directory, 'index.mjs')) && hasAnyTest(directory);
     });
 }
 
-function hasAnyTest(dir) {
-  return readdirSync(dir).some((file) => file.endsWith('.test.mjs') || file === 'test.mjs');
+function hasAnyTest(directory) {
+  return readdirSync(directory).some(
+    (file) => file.endsWith('.test.mjs') || file === 'test.mjs',
+  );
 }
 
 // A pattern-based mutator has no AST, so it can misfire inside comments and strings — a `/`
@@ -106,7 +113,10 @@ function mutantsFor(source) {
       const before = source.slice(0, at);
       const matched = match[0];
       const after = source.slice(at + matched.length);
-      const replaced = matched.replace(new RegExp(mutator.find.source, mutator.find.flags.replace('g', '')), mutator.replace);
+      const replaced = matched.replace(
+        new RegExp(mutator.find.source, mutator.find.flags.replace('g', '')),
+        mutator.replace,
+      );
       if (replaced === matched) continue; // no-op replacement, skip
       mutants.push({
         mutatorId: mutator.id,
@@ -120,18 +130,21 @@ function mutantsFor(source) {
   return mutants;
 }
 
-function baselineGreen(dir) {
-  const result = run('node', ['--test'], dir);
+function baselineGreen(directory) {
+  const result = run('node', ['--test'], directory);
   return result.passed;
 }
 
 function mutateGate(name) {
-  const dir = join(GATES_DIR, name);
-  const indexPath = join(dir, 'index.mjs');
+  const directory = join(GATES_DIR, name);
+  const indexPath = join(directory, 'index.mjs');
   const original = readFileSync(indexPath, 'utf8');
 
-  if (!baselineGreen(dir)) {
-    return { name, error: 'baseline suite is RED before mutation — fix tests first' };
+  if (!baselineGreen(directory)) {
+    return {
+      name,
+      error: 'baseline suite is RED before mutation — fix tests first',
+    };
   }
 
   const mutants = mutantsFor(original);
@@ -141,7 +154,7 @@ function mutateGate(name) {
   try {
     for (const mutant of mutants) {
       writeFileSync(indexPath, mutant.mutatedText);
-      const result = run('node', ['--test'], dir);
+      const result = run('node', ['--test'], directory);
       if (result.passed) {
         survivors.push({
           mutator: mutant.mutatorId,
@@ -163,21 +176,22 @@ function mutateGate(name) {
 function main() {
   const only = process.argv.slice(2);
   const gates = only.length ? only : gatesWithTests();
-  const report = [];
   let totalSurvivors = 0;
 
   for (const gate of gates) {
     const result = mutateGate(gate);
-    report.push(result);
     if (result.error) {
       process.stdout.write(`\n✗ ${gate}: ${result.error}\n`);
       continue;
     }
     totalSurvivors += result.survivors.length;
     const mark = result.survivors.length === 0 ? '✓' : '✗';
+    const survivedNote =
+      result.survivors.length > 0
+        ? `, ${result.survivors.length} SURVIVED\n`
+        : '\n';
     process.stdout.write(
-      `\n${mark} ${gate}: ${result.killed}/${result.total} mutants killed` +
-        (result.survivors.length ? `, ${result.survivors.length} SURVIVED\n` : '\n'),
+      `\n${mark} ${gate}: ${result.killed}/${result.total} mutants killed${survivedNote}`,
     );
     for (const survivor of result.survivors) {
       process.stdout.write(
@@ -186,9 +200,11 @@ function main() {
     }
   }
 
-  process.stdout.write(
-    `\n${totalSurvivors === 0 ? 'ALL MUTANTS KILLED' : `${totalSurvivors} MUTANT(S) SURVIVED`}\n`,
-  );
+  const verdict =
+    totalSurvivors === 0
+      ? 'ALL MUTANTS KILLED'
+      : `${totalSurvivors} MUTANT(S) SURVIVED`;
+  process.stdout.write(`\n${verdict}\n`);
   process.exit(totalSurvivors === 0 ? 0 : 1);
 }
 

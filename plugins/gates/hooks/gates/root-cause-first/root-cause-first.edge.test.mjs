@@ -42,7 +42,10 @@ test('FIXED: patch-marker comment via NotebookEdit is now denied', () => {
       cell_type: 'code',
     },
   };
-  assert.ok(isDeny(runGate(payload, ENABLE)), 'a patch marker via NotebookEdit must now be denied');
+  assert.ok(
+    isDeny(runGate(payload, ENABLE)),
+    'a patch marker via NotebookEdit must now be denied',
+  );
 });
 
 // FIXED: writtenContentOf reads replace_file_content's new_content field too.
@@ -54,5 +57,8 @@ test('FIXED: patch-marker via replace_file_content (new_content field) is now de
       new_content: '// TODO fix later patch',
     },
   };
-  assert.ok(isDeny(runGate(payload, ENABLE)), 'the field-name variant must now be denied');
+  assert.ok(
+    isDeny(runGate(payload, ENABLE)),
+    'the field-name variant must now be denied',
+  );
 });

@@ -14,7 +14,12 @@
 // The defaults live here, in the source, so a project reads them and knows exactly what
 // its override replaces.
 
-import { runGate, deny, toolInGroups, writtenPathOf } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenPathOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'protected-paths';
 const CONFIG_KEY = 'blockWritesToProtectedPaths';

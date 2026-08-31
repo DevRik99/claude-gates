@@ -65,8 +65,14 @@ test('toolInGroups classifies MCP tools by their action segment', () => {
   assert.equal(toolInGroups('mcp__filesystem__write_file', ['write']), true);
   assert.equal(toolInGroups('mcp__fs__edit_file', ['write']), true);
   assert.equal(toolInGroups('mcp__shell__exec', ['shell']), true);
-  assert.equal(toolInGroups('mcp__x__ask_user_confirmation', ['question']), true);
-  assert.equal(toolInGroups('mcp__orchestrator__spawn_agent', ['delegation']), true);
+  assert.equal(
+    toolInGroups('mcp__x__ask_user_confirmation', ['question']),
+    true,
+  );
+  assert.equal(
+    toolInGroups('mcp__orchestrator__spawn_agent', ['delegation']),
+    true,
+  );
   // A read-only MCP tool must NOT match a write/shell group.
   assert.equal(toolInGroups('mcp__fs__read_file', ['write', 'shell']), false);
   // Malformed mcp name (no action segment) does not match.

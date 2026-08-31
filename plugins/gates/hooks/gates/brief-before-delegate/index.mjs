@@ -189,9 +189,13 @@ function isReadOnlyRequest(prompt) {
 function missingSignals(prompt) {
   const missing = [];
   if (!markerHasSubstance(prompt, GOAL_PATTERN))
-    missing.push('a stated GOAL with real content (what this aims to achieve, not just the word "goal")');
+    missing.push(
+      'a stated GOAL with real content (what this aims to achieve, not just the word "goal")',
+    );
   if (!stepsHaveSubstance(prompt)) {
-    missing.push('STEPS as a list or numbered form with concrete files/actions, not a placeholder item');
+    missing.push(
+      'STEPS as a list or numbered form with concrete files/actions, not a placeholder item',
+    );
   }
   if (!markerHasSubstance(prompt, CRITERION_PATTERN)) {
     missing.push(

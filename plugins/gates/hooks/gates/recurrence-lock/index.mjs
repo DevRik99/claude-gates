@@ -56,7 +56,9 @@ function loadOpenRecurrences(projectRoot, thresholdAppearances) {
     // Trim before lowercasing so a padded status ("Closed ", "cerrada\n") is recognized —
     // a status compared without trimming left a validly-closed (but padded) recurrence
     // stuck as still-open, blocking unrelated work indefinitely.
-    const status = String(entry?.status ?? '').trim().toLowerCase();
+    const status = String(entry?.status ?? '')
+      .trim()
+      .toLowerCase();
     const isClosed = status === 'closed' || status === 'cerrada';
     return occurrenceCount >= thresholdAppearances && !isClosed;
   });

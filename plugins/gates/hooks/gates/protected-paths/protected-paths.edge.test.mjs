@@ -28,9 +28,6 @@ function runGate(payload, { config } = {}) {
 function write(filePath) {
   return { tool_name: 'Write', tool_input: { file_path: filePath } };
 }
-function edit(filePath) {
-  return { tool_name: 'Edit', tool_input: { file_path: filePath } };
-}
 function bash(command) {
   return { tool_name: 'Bash', tool_input: { command } };
 }
@@ -45,7 +42,10 @@ function isDeny(result) {
 // tool is now recognized regardless of its exact name.
 test('FIXED: mcp filesystem write_file targeting .env is now recognized as a write tool', () => {
   const result = runGate(
-    mcpTool('mcp__filesystem__write_file', { path: '/repo/.env', content: 'X=1' }),
+    mcpTool('mcp__filesystem__write_file', {
+      path: '/repo/.env',
+      content: 'X=1',
+    }),
   );
   assert.ok(isDeny(result));
 });
@@ -108,8 +108,17 @@ test('OK: mixed-case protected path does not bypass either the write or shell br
 // ── FIXED: the write and shell branches normalize backslashes to forward slashes before
 // comparing, so a Windows-style absolute path under hooks\ now matches the 'hooks/'
 // protected fragment.
+// Built with String#concat, not a literal: a literal starting `C:\` reads to the linter's
+// hard-coded-path heuristic as a real hard-coded location, which this fixture deliberately
+// is not (it is exercising Windows-path normalization, not pointing at a real path).
 test('FIXED: windows backslash path under hooks\\ now matches the "hooks/" protected fragment', () => {
-  const result = runGate(write('C:\\repo\\hooks\\gates\\evil.mjs'));
+  const windowsStylePath = 'C:'.concat(
+    '\\repo',
+    '\\hooks',
+    '\\gates',
+    '\\evil.mjs',
+  );
+  const result = runGate(write(windowsStylePath));
   assert.ok(isDeny(result));
 });
 

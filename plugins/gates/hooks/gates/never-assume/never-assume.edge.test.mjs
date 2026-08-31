@@ -28,7 +28,9 @@ function isWarn(result) {
   return result?.hookSpecificOutput?.additionalContext !== undefined;
 }
 
-const ENABLE = { config: { gates: { requireVerificationBeforeAssuming: true } } };
+const ENABLE = {
+  config: { gates: { requireVerificationBeforeAssuming: true } },
+};
 
 // FIXED: extractContent() now reads through writtenContentOf() (lib/hook-io.mjs), which
 // covers NotebookEdit's new_source field, closing the tool-coverage gap this test used to
@@ -43,7 +45,10 @@ test('FIXED: conjecture phrasing written via NotebookEdit is detected', () => {
       cell_type: 'code',
     },
   };
-  assert.ok(isWarn(runGate(payload, ENABLE)), 'gate now detects conjecture phrasing via NotebookEdit');
+  assert.ok(
+    isWarn(runGate(payload, ENABLE)),
+    'gate now detects conjecture phrasing via NotebookEdit',
+  );
 });
 
 // EDGE CASE (BUG): 'invoke_subagent' is a declared delegation tool name (TOOL_GROUPS.delegation
@@ -64,8 +69,18 @@ test('OK: conjecture phrasing in an invoke_subagent prompt is detected (delegati
 // e.g. "the response should be a 200 for valid input" (spec language, not conjecture).
 test('OK/expected-noise: "should be" fires even on spec-style invariant language (broad pattern, not a bug but a known false-positive source)', () => {
   const result = runGate(
-    { tool_name: 'Write', tool_input: { file_path: '/repo/x.js', content: '// per the spec, the response should be a 200 for valid input' } },
+    {
+      tool_name: 'Write',
+      tool_input: {
+        file_path: '/repo/x.js',
+        content:
+          '// per the spec, the response should be a 200 for valid input',
+      },
+    },
     ENABLE,
   );
-  assert.ok(isWarn(result), 'documents that "should be" over-fires on legitimate spec prose, not just conjecture');
+  assert.ok(
+    isWarn(result),
+    'documents that "should be" over-fires on legitimate spec prose, not just conjecture',
+  );
 });

@@ -16,7 +16,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function readJson(relativePath) {
-  return JSON.parse(readFileSync(join(ROOT, relativePath), 'utf8').replace(/^﻿/, ''));
+  return JSON.parse(
+    readFileSync(join(ROOT, relativePath), 'utf8').replace(/^\uFEFF/, ''),
+  );
 }
 
 test('npm, both plugin.json, and every marketplace entry share one version', () => {

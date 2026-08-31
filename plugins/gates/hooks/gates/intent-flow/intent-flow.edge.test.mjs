@@ -30,17 +30,25 @@ function isDeny(result) {
   return result?.hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-const ENABLED = { config: { gates: { requireScopeListBeforeDelegating: true } } };
+const ENABLED = {
+  config: { gates: { requireScopeListBeforeDelegating: true } },
+};
 
 const SENSITIVE_NO_SCOPE =
   'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.';
 
 test('FIXED: a delegation tool name outside the native list is now caught via toolInGroups (MCP delegation signal)', () => {
   const result = runGate(
-    { tool_name: 'mcp__orchestrator__spawn_agent', tool_input: { prompt: SENSITIVE_NO_SCOPE } },
+    {
+      tool_name: 'mcp__orchestrator__spawn_agent',
+      tool_input: { prompt: SENSITIVE_NO_SCOPE },
+    },
     ENABLED,
   );
-  assert.ok(isDeny(result), 'gate now denies the sensitive-no-scope prompt under the MCP tool name too');
+  assert.ok(
+    isDeny(result),
+    'gate now denies the sensitive-no-scope prompt under the MCP tool name too',
+  );
 });
 
 test('FIXED: prompt carried in a field other than prompt/description/task is now read via delegationPromptOf', () => {
@@ -48,7 +56,10 @@ test('FIXED: prompt carried in a field other than prompt/description/task is now
     { tool_name: 'Agent', tool_input: { instructions: SENSITIVE_NO_SCOPE } },
     ENABLED,
   );
-  assert.ok(isDeny(result), 'gate now sees the prompt under "instructions" and denies it for missing scope list');
+  assert.ok(
+    isDeny(result),
+    'gate now sees the prompt under "instructions" and denies it for missing scope list',
+  );
 });
 
 test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-only subagent name', () => {
@@ -56,7 +67,10 @@ test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-o
   // carries a mutation-risk signal (money/auth/data/write/deploy): a subagent named
   // "explore" cannot exempt a real money-mutation delegation just by using that label.
   const result = runGate(
-    { tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_SCOPE, subagent_type: 'explore' } },
+    {
+      tool_name: 'Agent',
+      tool_input: { prompt: SENSITIVE_NO_SCOPE, subagent_type: 'explore' },
+    },
     ENABLED,
   );
   assert.ok(
@@ -82,15 +96,31 @@ test('OK: a whitelisted read-only subagent name with no mutation-risk signal is 
 });
 
 test('OK: same sensitive prompt without a read-only subagent name is denied', () => {
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_SCOPE } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_SCOPE } },
+    ENABLED,
+  );
   assert.ok(isDeny(result));
 });
 
 test('OK: Task and invoke_subagent tool names are both covered', () => {
-  assert.ok(isDeny(runGate({ tool_name: 'Task', tool_input: { prompt: SENSITIVE_NO_SCOPE } }, ENABLED)));
   assert.ok(
     isDeny(
-      runGate({ tool_name: 'invoke_subagent', tool_input: { prompt: SENSITIVE_NO_SCOPE } }, ENABLED),
+      runGate(
+        { tool_name: 'Task', tool_input: { prompt: SENSITIVE_NO_SCOPE } },
+        ENABLED,
+      ),
+    ),
+  );
+  assert.ok(
+    isDeny(
+      runGate(
+        {
+          tool_name: 'invoke_subagent',
+          tool_input: { prompt: SENSITIVE_NO_SCOPE },
+        },
+        ENABLED,
+      ),
     ),
   );
 });

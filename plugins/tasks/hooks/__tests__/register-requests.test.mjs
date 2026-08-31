@@ -56,7 +56,9 @@ test('does NOT recite active tasks before remindEveryMessages is reached', () =>
   const project = makeProject();
   const store = openTaskStore(project);
   store.add(sampleTask('t1'));
-  writeConfig(project, { remindOpenTasks: { enabled: true, remindEveryMessages: 3 } });
+  writeConfig(project, {
+    remindOpenTasks: { enabled: true, remindEveryMessages: 3 },
+  });
 
   const first = runHook(project);
   assert.doesNotMatch(first, /OPEN TASKS/);
@@ -68,7 +70,9 @@ test('recites active tasks once remindEveryMessages is reached, then resets the 
   const project = makeProject();
   const store = openTaskStore(project);
   store.add(sampleTask('t1'));
-  writeConfig(project, { remindOpenTasks: { enabled: true, remindEveryMessages: 2 } });
+  writeConfig(project, {
+    remindOpenTasks: { enabled: true, remindEveryMessages: 2 },
+  });
 
   runHook(project); // 1st call: counter -> 1, no reminder
   const forced = runHook(project); // 2nd call: counter hits threshold -> reminder + reset

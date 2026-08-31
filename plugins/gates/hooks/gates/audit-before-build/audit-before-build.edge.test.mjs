@@ -30,10 +30,6 @@ function delegate(prompt) {
 function write(filePath, content) {
   return { tool_name: 'Write', tool_input: { file_path: filePath, content } };
 }
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
-}
-
 const ENABLE = { config: { gates: { requireAuditBeforeBuilding: true } } };
 
 // EDGE CASE (BUG): AUDIT_EVIDENCE_PATTERN is a bare substring/regex test over the WHOLE
@@ -47,7 +43,11 @@ test('BUG: false negative — audit language elsewhere in the prompt, unrelated 
     'Context: earlier we confirmed no existing tool handles our deploy pipeline. ' +
     'Now, unrelated task: create a new script that scrapes user passwords from logs.';
   const { out } = runGate(delegate(prompt), ENABLE);
-  assert.equal(out, null, 'gate allows because AUDIT_EVIDENCE_PATTERN matched irrelevant boilerplate anywhere in the prompt');
+  assert.equal(
+    out,
+    null,
+    'gate allows because AUDIT_EVIDENCE_PATTERN matched irrelevant boilerplate anywhere in the prompt',
+  );
 });
 
 // EDGE CASE (BUG): INLINE_JUSTIFICATION_PATTERN for a direct Write is similarly a bare
@@ -60,8 +60,15 @@ test('BUG: false negative — the word "justification:" appearing in an unrelate
     '// their headers, as an example of our commenting convention.',
     'export function run() {}',
   ].join('\n');
-  const { out } = runGate(write('/repo/scripts/new-thing.mjs', content), ENABLE);
-  assert.equal(out, null, 'gate allows because the literal string "justification:" appears anywhere, regardless of whether it actually justifies this file');
+  const { out } = runGate(
+    write('/repo/scripts/new-thing.mjs', content),
+    ENABLE,
+  );
+  assert.equal(
+    out,
+    null,
+    'gate allows because the literal string "justification:" appears anywhere, regardless of whether it actually justifies this file',
+  );
 });
 
 // EDGE CASE: confirm the "editing an existing file" exemption (checkWrite, index.mjs line
@@ -79,5 +86,9 @@ test('OK (documented, not a new bug): pre-creating an empty file at the target p
     cwd: project,
     env: { ...process.env, HOME: project, USERPROFILE: project },
   });
-  assert.equal(out2.trim() ? JSON.parse(out2.trim()) : null, null, 'existsSync(rawPath) exemption means pre-touching the file first defeats the whole gate');
+  assert.equal(
+    out2.trim() ? JSON.parse(out2.trim()) : null,
+    null,
+    'existsSync(rawPath) exemption means pre-touching the file first defeats the whole gate',
+  );
 });

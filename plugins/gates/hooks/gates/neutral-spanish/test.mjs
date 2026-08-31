@@ -48,9 +48,7 @@ test('allows neutral Spanish', () => {
 test('escape hatch: the marker in content allows legitimate regional text through', () => {
   // A literal quote / fixture / log the author intentionally keeps regional.
   assert.equal(
-    runGate(
-      write('El testigo dijo: "che, no sé nada". neutral-spanish:allow'),
-    ),
+    runGate(write('El testigo dijo: "che, no sé nada". neutral-spanish:allow')),
     null,
   );
 });

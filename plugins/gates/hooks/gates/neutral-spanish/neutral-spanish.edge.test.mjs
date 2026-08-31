@@ -42,7 +42,10 @@ test('FIXED: NotebookEdit carrying regional Spanish is detected', () => {
       cell_type: 'markdown',
     },
   };
-  assert.ok(isWarn(runGate(payload)), 'gate now detects regional Spanish written via NotebookEdit');
+  assert.ok(
+    isWarn(runGate(payload)),
+    'gate now detects regional Spanish written via NotebookEdit',
+  );
 });
 
 // FIXED: write_to_file is recognized by toolInGroups(toolName, ['write']) (native name in
@@ -55,7 +58,10 @@ test('FIXED: write_to_file with regional Spanish content is detected', () => {
       content: 'che, mirá el laburo que hicimos acá',
     },
   };
-  assert.ok(isWarn(runGate(payload)), 'gate now detects regional Spanish written via write_to_file');
+  assert.ok(
+    isWarn(runGate(payload)),
+    'gate now detects regional Spanish written via write_to_file',
+  );
 });
 
 // EDGE CASE 3: false-positive check on legitimate neutral words that are substrings-adjacent
@@ -65,9 +71,16 @@ test('FIXED: write_to_file with regional Spanish content is detected', () => {
 test('OK: word boundary prevents false positive on words containing a marker as substring', () => {
   const result = runGate({
     tool_name: 'Write',
-    tool_input: { file_path: '/repo/notes.md', content: 'Tengo una sospecha sobre estos hermosos resultados.' },
+    tool_input: {
+      file_path: '/repo/notes.md',
+      content: 'Tengo una sospecha sobre estos hermosos resultados.',
+    },
   });
-  assert.equal(result, null, 'false positive: "sos" matched inside sospecha/hermosos');
+  assert.equal(
+    result,
+    null,
+    'false positive: "sos" matched inside sospecha/hermosos',
+  );
 });
 
 // EDGE CASE 4: "dale" is in the marker list as Rioplatense slang, but is this over-broad?
@@ -76,7 +89,14 @@ test('OK: word boundary prevents false positive on words containing a marker as 
 test('OK: marker "dale" does not fire on a word merely containing it', () => {
   const result = runGate({
     tool_name: 'Write',
-    tool_input: { file_path: '/repo/notes.md', content: 'Actualiza el dataleer o el dalext.' },
+    tool_input: {
+      file_path: '/repo/notes.md',
+      content: 'Actualiza el dataleer o el dalext.',
+    },
   });
-  assert.equal(result, null, 'false positive: "dale" matched inside a longer word');
+  assert.equal(
+    result,
+    null,
+    'false positive: "dale" matched inside a longer word',
+  );
 });

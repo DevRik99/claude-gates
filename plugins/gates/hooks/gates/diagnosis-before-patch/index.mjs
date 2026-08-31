@@ -1,4 +1,9 @@
-import { runGate, warn, toolInGroups, writtenContentOf } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  writtenContentOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'diagnosis-before-patch';
 const CONFIG_KEY = 'warnTimeoutChangeWithoutDiagnosis';

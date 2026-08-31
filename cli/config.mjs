@@ -72,8 +72,10 @@ export function configPathFor(
 // unreadable. init.mjs bails loudly on `corrupt`, but a caller relying on `data` alone (as
 // `mergeConfig` does) would otherwise merge onto `{}` and silently drop every existing gate
 // override the user made. This is the same failure mode fixed in the gates' own config.mjs.
+const BOM_CODE_POINT = 0xfeff;
+
 function stripBom(text) {
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  return text.charCodeAt(0) === BOM_CODE_POINT ? text.slice(1) : text;
 }
 
 export function readConfig(path) {

@@ -13,7 +13,7 @@ import { MODES } from './selection.mjs';
 const DUMP_ENV = 'CLAUDE_GATES_DUMP_DEFAULTS';
 
 /** A gate's `hooks/` directory: each plugin (registry's per-family `plugin`) owns its own. */
-function pluginHooksDir(pluginName) {
+function pluginHooksDirectory(pluginName) {
   return join(REPOSITORY_ROOT, 'plugins', pluginName, 'hooks');
 }
 
@@ -28,7 +28,7 @@ function defaultParametersOf(gate) {
   try {
     const out = execFileSync(
       process.execPath,
-      [join(pluginHooksDir(gate.plugin), gate.script)],
+      [join(pluginHooksDirectory(gate.plugin), gate.script)],
       { encoding: 'utf8', env: { ...process.env, [DUMP_ENV]: '1' } },
     );
     return JSON.parse(out).defaultParams ?? {};
@@ -38,10 +38,11 @@ function defaultParametersOf(gate) {
 }
 
 /** The existing entry's params, stripped of `enabled` — {} for a boolean or missing entry. */
-function existingParamsOf(existingEntry) {
+function existingParametersOf(existingEntry) {
   if (!existingEntry || typeof existingEntry !== 'object') return {};
-  const { enabled: _enabled, ...params } = existingEntry;
-  return params;
+  const parameters = { ...existingEntry };
+  delete parameters.enabled;
+  return parameters;
 }
 
 /**
@@ -93,10 +94,10 @@ export function materializeGates(
     }
 
     const defaults = defaultParametersOf(gate);
-    const params = hasExisting
-      ? { ...defaults, ...existingParamsOf(existingGates[gate.configKey]) }
+    const parameters = hasExisting
+      ? { ...defaults, ...existingParametersOf(existingGates[gate.configKey]) }
       : defaults;
-    gates[gate.configKey] = { enabled, ...params };
+    gates[gate.configKey] = { enabled, ...parameters };
   }
   return gates;
 }

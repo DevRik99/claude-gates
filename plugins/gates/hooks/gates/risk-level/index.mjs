@@ -169,7 +169,9 @@ function declaredLevels(prompt) {
     DECLARED_LEVEL_PATTERN.source,
     `${DECLARED_LEVEL_PATTERN.flags}g`,
   );
-  return [...prompt.matchAll(withGlobal)].map((match) => match[2].toUpperCase());
+  return [...prompt.matchAll(withGlobal)].map((match) =>
+    match[2].toUpperCase(),
+  );
 }
 
 /** The operative LEVEL: the LAST declaration in the prompt (a delegator who corrects an

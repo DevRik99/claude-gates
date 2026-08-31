@@ -58,14 +58,18 @@ const ACTIVE_TASKS_FILE = join('.ai', 'tasks', 'active.json');
 const BLOCKING_STATUSES = new Set(['open', 'in_forge']);
 const BLOCKED_STATUS = 'blocked';
 
+const BOM_CODE_POINT = 0xfeff;
+
 function stripBom(text) {
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  return text.charCodeAt(0) === BOM_CODE_POINT ? text.slice(1) : text;
 }
 
 function projectRootOf(startDirectory) {
   let current = startDirectory;
   while (true) {
-    if (PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(current, marker)))) {
+    if (
+      PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(current, marker)))
+    ) {
       return current;
     }
     const parent = dirname(current);
@@ -97,10 +101,11 @@ function describeTasks(tasks) {
   return tasks
     .map(
       (task) =>
-        `  - [${task.status}] ${task.id}: ${task.title ?? '(untitled)'}` +
-        (task.status === BLOCKED_STATUS && task.blockedReason
-          ? ` (blocked: ${task.blockedReason})`
-          : ''),
+        `  - [${task.status}] ${task.id}: ${task.title ?? '(untitled)'}${
+          task.status === BLOCKED_STATUS && task.blockedReason
+            ? ` (blocked: ${task.blockedReason})`
+            : ''
+        }`,
     )
     .join('\n');
 }

@@ -43,13 +43,18 @@ function isDeny(result) {
 }
 
 function enableGate(project) {
-  writeProjectConfig(project, { gates: { requireSpecBeforeImplementing: true } });
+  writeProjectConfig(project, {
+    gates: { requireSpecBeforeImplementing: true },
+  });
 }
 
 test('FIXED: an Edit (new_string) moving a feature to spec_ready with no contract is now detected', () => {
   const project = makeProject();
   enableGate(project);
-  writeFileSync(join(project, '.ai', 'feature_list.json'), JSON.stringify({ features: [] }));
+  writeFileSync(
+    join(project, '.ai', 'feature_list.json'),
+    JSON.stringify({ features: [] }),
+  );
   mkdirSync(join(project, '.ai', 'features', 'checkout'), { recursive: true });
   const payload = {
     tool_name: 'Edit',
@@ -70,7 +75,10 @@ test('FIXED: an Edit (new_string) moving a feature to spec_ready with no contrac
 test('FIXED: malformed/invalid JSON content on a catalog write now denies (fail-closed)', () => {
   const project = makeProject();
   enableGate(project);
-  writeFileSync(join(project, '.ai', 'feature_list.json'), JSON.stringify({ features: [] }));
+  writeFileSync(
+    join(project, '.ai', 'feature_list.json'),
+    JSON.stringify({ features: [] }),
+  );
   mkdirSync(join(project, '.ai', 'features', 'checkout'), { recursive: true });
   const payload = {
     tool_name: 'Write',
@@ -78,8 +86,7 @@ test('FIXED: malformed/invalid JSON content on a catalog write now denies (fail-
       file_path: join(project, '.ai', 'feature_list.json'),
       // deliberately invalid JSON (unquoted keys): the gate can no longer verify the
       // spec-contract invariant for this write, so it denies instead of allowing.
-      content:
-        '{features: [{name: "checkout", status: "spec_ready"}]}',
+      content: '{features: [{name: "checkout", status: "spec_ready"}]}',
     },
   };
   assert.ok(
@@ -93,7 +100,9 @@ test('FIXED: a catalog living outside process.cwd() is now found via the written
   enableGate(project);
   // The catalog lives under sub/.ai/feature_list.json, not the project root's .ai/ --
   // findCatalog now also resolves catalogLocations relative to dirname(writtenPath).
-  mkdirSync(join(project, 'sub', '.ai', 'features', 'checkout'), { recursive: true });
+  mkdirSync(join(project, 'sub', '.ai', 'features', 'checkout'), {
+    recursive: true,
+  });
   writeFileSync(
     join(project, 'sub', '.ai', 'feature_list.json'),
     JSON.stringify({ features: [{ name: 'checkout', status: 'spec_ready' }] }),
@@ -116,7 +125,10 @@ test('FIXED: a catalog living outside process.cwd() is now found via the written
 test('OK: the equivalent Write-tool payload at the project root IS caught (control)', () => {
   const project = makeProject();
   enableGate(project);
-  writeFileSync(join(project, '.ai', 'feature_list.json'), JSON.stringify({ features: [] }));
+  writeFileSync(
+    join(project, '.ai', 'feature_list.json'),
+    JSON.stringify({ features: [] }),
+  );
   const payload = {
     tool_name: 'Write',
     tool_input: {

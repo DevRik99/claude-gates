@@ -15,8 +15,30 @@ const DEFAULT_EXECUTABLE_EXTENSIONS = [
 ];
 const DEFAULT_TOOL_FOLDERS = ['scripts/', 'hooks/', 'tools/'];
 
-const NEW_TOOL_INTENT_PATTERN =
-  /\b(create|write|build|add|cre(?:a|á)|crear|escrib(?:e|í)|escribir|constru(?:ye|í)|construir|agreg(?:a|á)|agregar)\b[^.]{0,60}\b(script|verifier|checker|gate|hook|linter|tool|verificador|chequeador|gate|hook|linter|herramienta)\b/iu;
+// A verb ("create", "escribir", ...) followed within 60 non-period characters by a tool noun
+// ("script", "gate", ...) signals intent to build a new tool. Split into two smaller patterns
+// (checked one after the other, within a bounded window) instead of one combined alternation:
+// the single-regex form crossed sonarjs's regex-complexity budget, and this reads easier too.
+const NEW_TOOL_VERB_PATTERN =
+  /\b(?:create|write|build|add|cre[aá]r?|escrib(?:e|ir|í)|constru(?:ye|ir)|agreg[aá]r?)\b/giu;
+const NEW_TOOL_NOUN_PATTERN =
+  /\b(?:script|verifier|checker|gate|hook|linter|tool|verificador|chequeador|herramienta)\b/iu;
+const NEW_TOOL_NOUN_WINDOW = 60;
+
+function hasNewToolIntent(text) {
+  NEW_TOOL_VERB_PATTERN.lastIndex = 0;
+  let match;
+  while ((match = NEW_TOOL_VERB_PATTERN.exec(text)) !== null) {
+    const afterVerb = match.index + match[0].length;
+    let window = text.slice(afterVerb, afterVerb + NEW_TOOL_NOUN_WINDOW);
+    const dotIndex = window.indexOf('.');
+    if (dotIndex !== -1) window = window.slice(0, dotIndex);
+    if (NEW_TOOL_NOUN_PATTERN.test(window)) return true;
+    if (match.index === NEW_TOOL_VERB_PATTERN.lastIndex)
+      NEW_TOOL_VERB_PATTERN.lastIndex += 1;
+  }
+  return false;
+}
 
 const AUDIT_EVIDENCE_PATTERN =
   /already exists|no existing tool|no plugin|audited and|justification:|no existe una herramienta|no existe la herramienta|no hay plugin|ya existe|busque? si ya existe|verifiqu[eé] que no (hay|existe)|audit[eé] herramientas|justificacion:|justificaci[oó]n:/i;
@@ -27,7 +49,7 @@ const INLINE_JUSTIFICATION_PATTERN =
 function checkDelegation(toolInput) {
   const prompt = toolInput?.prompt;
   if (typeof prompt !== 'string') return;
-  if (!NEW_TOOL_INTENT_PATTERN.test(prompt)) return;
+  if (!hasNewToolIntent(prompt)) return;
   if (AUDIT_EVIDENCE_PATTERN.test(prompt)) return;
 
   deny(

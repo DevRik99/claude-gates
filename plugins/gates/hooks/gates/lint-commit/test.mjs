@@ -51,7 +51,10 @@ test('lint exits non-zero: git commit is denied with tail of output', () => {
   const project = projectWithLintScript(1);
   const result = runGate(project, bashPayload('git commit -m "x"'));
   assert.ok(isDeny(result), 'expected a deny result');
-  assert.match(result.hookSpecificOutput.permissionDecisionReason, /Lint failed/);
+  assert.match(
+    result.hookSpecificOutput.permissionDecisionReason,
+    /Lint failed/,
+  );
 });
 
 test('lint exits zero: git commit is allowed', () => {
@@ -74,12 +77,17 @@ test('a non-commit shell command is never blocked, even with failing lint', () =
 
 test('git -C <path> commit is still recognized as a commit (global-option bypass closed)', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(project, bashPayload(`git -C ${project} commit -m "x"`));
+  const result = runGate(
+    project,
+    bashPayload(`git -C ${project} commit -m "x"`),
+  );
   assert.ok(isDeny(result));
 });
 
 test('gate disabled: commit is allowed even with failing lint', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(project, bashPayload('git commit -m "x"'), { enabled: false });
+  const result = runGate(project, bashPayload('git commit -m "x"'), {
+    enabled: false,
+  });
   assert.equal(result, null);
 });

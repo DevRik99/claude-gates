@@ -67,20 +67,28 @@ export function toolNamesFor(groups) {
  * an MCP ask tool. Native (non-mcp) names are still matched exactly via TOOL_GROUPS.
  */
 const MCP_GROUP_SIGNALS = Object.freeze({
-  write: /(?:write|edit|create|append|patch|replace|insert|modify|save|update)/i,
-  shell: /(?:shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
-  delegation: /(?:agent|task|delegat|subagent|spawn|dispatch|orchestrat|worker)/i,
+  write:
+    /(?:write|edit|create|append|patch|replace|insert|modify|save|update)/i,
+  shell:
+    /(?:shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
+  delegation:
+    /(?:agent|task|delegat|subagent|spawn|dispatch|orchestrat|worker)/i,
   question: /(?:ask|question|confirm|prompt|approv|choice|elicit|clarif)/i,
-  execution: /(?:write|edit|create|append|patch|replace|insert|modify|save|update|shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
+  execution:
+    /(?:write|edit|create|append|patch|replace|insert|modify|save|update|shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
 });
 
 const MCP_TOOL_PREFIX = 'mcp__';
+// mcp__<server>__<action>: prefix + server + action, three underscore-delimited segments.
+const MCP_TOOL_NAME_SEGMENT_COUNT = 3;
 
 /** The action segment of an MCP tool name (`mcp__server__do_thing` -> `do_thing`), or ''. */
 function mcpActionSegment(toolName) {
   if (!toolName.startsWith(MCP_TOOL_PREFIX)) return '';
   const parts = toolName.split('__');
-  return parts.length >= 3 ? parts.slice(2).join('__') : '';
+  return parts.length >= MCP_TOOL_NAME_SEGMENT_COUNT
+    ? parts.slice(2).join('__')
+    : '';
 }
 
 /**
@@ -125,7 +133,9 @@ export function writtenContentOf(toolInput) {
   if (!toolInput || typeof toolInput !== 'object') return '';
   if (Array.isArray(toolInput.edits)) {
     return toolInput.edits
-      .map((edit) => String(edit?.new_string ?? edit?.new_source ?? edit?.content ?? ''))
+      .map((edit) =>
+        String(edit?.new_string ?? edit?.new_source ?? edit?.content ?? ''),
+      )
       .join('\n');
   }
   const direct =
@@ -163,7 +173,7 @@ export function writtenPathOf(toolInput) {
 // limitation is documented on the gates that use this, the honest boundary of a regex.
 const SHELL_WRITE_PATTERNS = [
   // redirection: `> file`, `>> file`, `1> file`, `&> file` (not `2>` alone — stderr)
-  /(?:^|\s|;|&&|\|\|)(?:[0-9]*|&)>>?\s*(['"]?)([^\s'"|;&<>]+)\1/g,
+  /(?:^|\s|;|&&|\|\|)(?:\d*|&)>>?\s*(['"]?)([^\s'"|;&<>]+)\1/g,
   // touch / tee target(s)
   /\b(?:touch|tee)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
   // cp / mv / install destination is the LAST path; capture the first arg after the command

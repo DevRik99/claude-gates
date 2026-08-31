@@ -45,7 +45,10 @@ test('FIXED: a delegation tool name outside the native list is now caught via to
     tool_input: { prompt: NO_BRIEF_PROMPT },
   };
   const result = runGate(payload, ENABLED);
-  assert.ok(isDeny(result), 'gate now denies the brief-less prompt under the MCP tool name too');
+  assert.ok(
+    isDeny(result),
+    'gate now denies the brief-less prompt under the MCP tool name too',
+  );
 });
 
 test('FIXED: brief carried in a field other than prompt/description/task is now read via delegationPromptOf', () => {
@@ -54,10 +57,16 @@ test('FIXED: brief carried in a field other than prompt/description/task is now 
   // no longer read as an empty prompt.
   const payload = {
     tool_name: 'Agent',
-    tool_input: { instructions: NO_BRIEF_PROMPT, subagent_type: 'worker-senior' },
+    tool_input: {
+      instructions: NO_BRIEF_PROMPT,
+      subagent_type: 'worker-senior',
+    },
   };
   const result = runGate(payload, ENABLED);
-  assert.ok(isDeny(result), 'gate now sees the brief under "instructions" and denies it for being brief-less');
+  assert.ok(
+    isDeny(result),
+    'gate now sees the brief under "instructions" and denies it for being brief-less',
+  );
 });
 
 test('FIXED: keyword-only compliance no longer passes with content that does not carry a real brief', () => {
@@ -71,7 +80,10 @@ test('FIXED: keyword-only compliance no longer passes with content that does not
     'Implementa el arreglo correspondiente segun corresponda en el sistema relevante.',
   ].join('\n');
   assert.ok(prompt.length >= 180, 'sanity: prompt clears the length floor');
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt } },
+    ENABLED,
+  );
   assert.ok(
     isDeny(result),
     'gate now denies a brief that is letter-compliant (has GOAL/STEPS/CRITERION markers) but has no real content',
@@ -88,7 +100,10 @@ test('FIXED: a real brief with substantial content past each marker is still all
     '',
     'Criterio: se considera hecho cuando el test de regresion pasa y el login redirige correctamente.',
   ].join('\n');
-  assert.equal(runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED), null);
+  assert.equal(
+    runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED),
+    null,
+  );
 });
 
 test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-only subagent name', () => {
@@ -113,11 +128,17 @@ test('bilingual control: an EN mutation-risk prompt voids the exemption exactly 
   const en =
     'Implement saving the user payment data to the database and write the auth token to the session file.';
   const resultEs = runGate(
-    { tool_name: 'Agent', tool_input: { prompt: es, subagent_type: 'explore' } },
+    {
+      tool_name: 'Agent',
+      tool_input: { prompt: es, subagent_type: 'explore' },
+    },
     ENABLED,
   );
   const resultEn = runGate(
-    { tool_name: 'Agent', tool_input: { prompt: en, subagent_type: 'explore' } },
+    {
+      tool_name: 'Agent',
+      tool_input: { prompt: en, subagent_type: 'explore' },
+    },
     ENABLED,
   );
   assert.ok(isDeny(resultEs));
@@ -127,7 +148,10 @@ test('bilingual control: an EN mutation-risk prompt voids the exemption exactly 
 test('OK: a whitelisted read-only subagent name with no mutation-risk signal is still exempt', () => {
   assert.equal(
     runGate(
-      { tool_name: 'Agent', tool_input: { prompt: NO_BRIEF_PROMPT, subagent_type: 'explore' } },
+      {
+        tool_name: 'Agent',
+        tool_input: { prompt: NO_BRIEF_PROMPT, subagent_type: 'explore' },
+      },
       ENABLED,
     ),
     null,
@@ -135,17 +159,31 @@ test('OK: a whitelisted read-only subagent name with no mutation-risk signal is 
 });
 
 test('OK: a genuinely brief-less implementation delegation via Agent is denied', () => {
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt: NO_BRIEF_PROMPT } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt: NO_BRIEF_PROMPT } },
+    ENABLED,
+  );
   assert.ok(isDeny(result));
 });
 
 test('OK: Task and invoke_subagent tool names are both covered (in TOOL_GROUPS.delegation)', () => {
   assert.ok(
-    isDeny(runGate({ tool_name: 'Task', tool_input: { prompt: NO_BRIEF_PROMPT } }, ENABLED)),
+    isDeny(
+      runGate(
+        { tool_name: 'Task', tool_input: { prompt: NO_BRIEF_PROMPT } },
+        ENABLED,
+      ),
+    ),
   );
   assert.ok(
     isDeny(
-      runGate({ tool_name: 'invoke_subagent', tool_input: { prompt: NO_BRIEF_PROMPT } }, ENABLED),
+      runGate(
+        {
+          tool_name: 'invoke_subagent',
+          tool_input: { prompt: NO_BRIEF_PROMPT },
+        },
+        ENABLED,
+      ),
     ),
   );
 });

@@ -33,17 +33,24 @@ const CONFIG_FILE = 'config.json';
 // read. Anchoring on `.git` alone silently dropped the project layer in such repos.
 const PROJECT_ROOT_MARKERS = ['.git', PROJECT_STATE_DIRECTORY];
 
+const BOM_CODE_POINT = 0xfeff;
+
+// Strip a leading UTF-8 BOM (U+FEFF) before parsing. `readFileSync(path,'utf8')` does NOT
+// remove it, and JSON.parse throws on a leading BOM — so a config saved by a Windows editor or
+// by PowerShell 5.1's `Set-Content -Encoding utf8` (which prepends a BOM) would be read as
+// unparseable, treated as absent, and SILENTLY DROP every gate disable in it. That is the
+// opposite of safe: it re-enables protections the project turned off, and (worse for the
+// symmetric case) means a project can't be trusted to have been read at all. Removing the
+// BOM makes the common Windows round-trip parse correctly. Compared by char code (not a regex
+// literal) so the BOM never appears as literal irregular whitespace in the source.
+function stripBom(text) {
+  return text.charCodeAt(0) === BOM_CODE_POINT ? text.slice(1) : text;
+}
+
 function readJsonOrNull(path) {
   if (!existsSync(path)) return null;
   try {
-    // Strip a UTF-8 BOM (﻿) before parsing. `readFileSync(path,'utf8')` does NOT remove
-    // it, and JSON.parse throws on a leading BOM — so a config saved by a Windows editor or by
-    // PowerShell 5.1's `Set-Content -Encoding utf8` (which prepends a BOM) would be read as
-    // unparseable, treated as absent, and SILENTLY DROP every gate disable in it. That is the
-    // opposite of safe: it re-enables protections the project turned off, and (worse for the
-    // symmetric case) means a project can't be trusted to have been read at all. Removing the
-    // BOM makes the common Windows round-trip parse correctly.
-    return JSON.parse(readFileSync(path, 'utf8').replace(/^﻿/, ''));
+    return JSON.parse(stripBom(readFileSync(path, 'utf8')));
   } catch {
     // A genuinely corrupt project config must not silently disable protection: treat it as
     // absent, which falls through to the global config and then to the registry defaults.

@@ -88,14 +88,20 @@ test('denies missing E2E for a Spanish money brief (cobro/saldo/cuota), not just
 });
 
 test('bilingual control: an EN money brief with only unit coverage denies for the same reason as its ES equivalent', () => {
-  const es = 'Nivel: STANDARD\nImplementá el cobro de la cuota. Verificación: vitest cubre el cálculo.';
-  const en = 'Level: STANDARD\nImplement the fee charge. Verification: vitest covers the calculation.';
+  const es =
+    'Nivel: STANDARD\nImplementá el cobro de la cuota. Verificación: vitest cubre el cálculo.';
+  const en =
+    'Level: STANDARD\nImplement the fee charge. Verification: vitest covers the calculation.';
   const resultEs = runGate(delegate(es), { config: enabledConfig() });
   const resultEn = runGate(delegate(en), { config: enabledConfig() });
   assert.ok(isDeny(resultEs));
   assert.ok(isDeny(resultEn));
-  assert.ok(resultEs.hookSpecificOutput.permissionDecisionReason.includes('E2E'));
-  assert.ok(resultEn.hookSpecificOutput.permissionDecisionReason.includes('E2E'));
+  assert.ok(
+    resultEs.hookSpecificOutput.permissionDecisionReason.includes('E2E'),
+  );
+  assert.ok(
+    resultEn.hookSpecificOutput.permissionDecisionReason.includes('E2E'),
+  );
 });
 
 test('allows a Spanish brief that declares unit, E2E and negative cases with Spanish wording', () => {

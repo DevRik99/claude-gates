@@ -29,7 +29,9 @@ function projectWithAutonomous(autonomous) {
   mkdirSync(join(project, '.ai'));
   writeFileSync(
     join(project, '.ai', 'config.json'),
-    JSON.stringify({ gates: { autonomousMode: { enabled: Boolean(autonomous) } } }),
+    JSON.stringify({
+      gates: { autonomousMode: { enabled: Boolean(autonomous) } },
+    }),
   );
   return project;
 }
@@ -62,8 +64,15 @@ test('BYPASS: payload missing tool_name entirely is ALLOWED even in autonomous m
   // Valid JSON, but no tool_name/name field. toolNameOf returns payload?.tool_name ??
   // payload?.name ?? '' -> ''. Same bypass, reached via a well-formed but incomplete payload
   // (e.g. a future/unknown hook event shape) rather than malformed JSON.
-  const result = runGateRaw(JSON.stringify({ tool_input: { questions: [] } }), project);
-  assert.equal(result, null, 'PASA(bug): payload without tool_name bypasses the deny');
+  const result = runGateRaw(
+    JSON.stringify({ tool_input: { questions: [] } }),
+    project,
+  );
+  assert.equal(
+    result,
+    null,
+    'PASA(bug): payload without tool_name bypasses the deny',
+  );
 });
 
 test('FIXED: a differently-cased tool name ("askuserquestion") is now DENIED', () => {
@@ -100,5 +109,8 @@ test('control: canonical AskUserQuestion with well-formed payload IS denied (san
     }),
     project,
   );
-  assert.ok(isDeny(result), 'FALLA(ok): the one exact name it knows is still blocked');
+  assert.ok(
+    isDeny(result),
+    'FALLA(ok): the one exact name it knows is still blocked',
+  );
 });

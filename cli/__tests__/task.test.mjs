@@ -23,9 +23,9 @@ function makeProject() {
   return project;
 }
 
-function runCli(args, cwd) {
+function runCli(arguments_, cwd) {
   try {
-    const stdout = execFileSync(process.execPath, [CLI_ENTRY, ...args], {
+    const stdout = execFileSync(process.execPath, [CLI_ENTRY, ...arguments_], {
       cwd,
       encoding: 'utf8',
     });
@@ -41,7 +41,10 @@ function runCli(args, cwd) {
 
 test('task add persists a new open task under .ai/tasks/active.json', () => {
   const project = makeProject();
-  const result = runCli(['task', 'add', 'Fix the thing', '--description', 'details'], project);
+  const result = runCli(
+    ['task', 'add', 'Fix the thing', '--description', 'details'],
+    project,
+  );
   assert.equal(result.code, 0, result.stderr);
 
   const activePath = join(project, '.ai', 'tasks', 'active.json');
@@ -101,7 +104,10 @@ test('task abandon needs no evidence and moves the task to history', () => {
   const project = makeProject();
   runCli(['task', 'add', 'Drop me', '--id', 't1'], project);
 
-  const result = runCli(['task', 'abandon', 't1', '--reason', 'obsolete'], project);
+  const result = runCli(
+    ['task', 'abandon', 't1', '--reason', 'obsolete'],
+    project,
+  );
   assert.equal(result.code, 0, result.stderr);
 
   const historyPath = join(project, '.ai', 'tasks', 'history.json');

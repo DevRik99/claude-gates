@@ -65,7 +65,10 @@ const familySchema = z.object({
   description: z.string().min(1),
   // Which plugin's hooks/ directory the family's gate scripts resolve against. Optional so
   // existing families need no change: absent means the original 'gates' plugin.
-  plugin: z.string().regex(ID_PATTERN, 'plugin id must be kebab-case').optional(),
+  plugin: z
+    .string()
+    .regex(ID_PATTERN, 'plugin id must be kebab-case')
+    .optional(),
   gates: z.array(gateSchema).min(1),
 });
 

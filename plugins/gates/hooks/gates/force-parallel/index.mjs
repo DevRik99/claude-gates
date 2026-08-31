@@ -33,7 +33,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runGate, warn, toolInGroups, delegationPromptOf } from '../../lib/hook-io.mjs';
+import {
+  runGate,
+  warn,
+  toolInGroups,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'force-parallel';
 const CONFIG_KEY = 'warnSequentialDelegations';
@@ -42,13 +47,17 @@ const DELEGATION_GROUPS = ['delegation'];
 const DEFAULT_SEQUENTIAL_THRESHOLD = 3;
 const DEFAULT_SEQUENTIAL_WINDOW_MS = 120000;
 const DEFAULT_JUSTIFIED_MARKER = 'SEQUENTIAL-JUSTIFIED';
+const MS_PER_SECOND = 1000;
 
 const STATE_ROOT = join(tmpdir(), 'claude-gates', 'force-parallel');
 const STATE_FILE = 'state.json';
 const UNKNOWN_SESSION = 'unknown-session';
 
 function statePathFor(sessionId) {
-  const safeSessionId = String(sessionId || UNKNOWN_SESSION).replace(/[^\w-]/g, '_');
+  const safeSessionId = String(sessionId || UNKNOWN_SESSION).replace(
+    /[^\w-]/g,
+    '_',
+  );
   return join(STATE_ROOT, safeSessionId, STATE_FILE);
 }
 
@@ -91,12 +100,15 @@ runGate(
   ({ toolName, toolInput, sessionId, parameters }) => {
     if (!toolInGroups(toolName, DELEGATION_GROUPS)) return;
 
-    const marker = parameters.sequentialJustifiedMarker ?? DEFAULT_JUSTIFIED_MARKER;
+    const marker =
+      parameters.sequentialJustifiedMarker ?? DEFAULT_JUSTIFIED_MARKER;
     const prompt = delegationPromptOf(toolInput);
     if (prompt.includes(marker)) return; // declared reason not to parallelize: no warning
 
-    const threshold = parameters.sequentialThreshold ?? DEFAULT_SEQUENTIAL_THRESHOLD;
-    const windowMs = parameters.sequentialWindowMs ?? DEFAULT_SEQUENTIAL_WINDOW_MS;
+    const threshold =
+      parameters.sequentialThreshold ?? DEFAULT_SEQUENTIAL_THRESHOLD;
+    const windowMs =
+      parameters.sequentialWindowMs ?? DEFAULT_SEQUENTIAL_WINDOW_MS;
 
     const statePath = statePathFor(sessionId);
     const state = readState(statePath);
@@ -112,7 +124,10 @@ runGate(
     warn(
       GATE_ID,
       WARN_MESSAGE.replace('{count}', String(nextCount))
-        .replace('{windowSeconds}', String(Math.round(windowMs / 1000)))
+        .replace(
+          '{windowSeconds}',
+          String(Math.round(windowMs / MS_PER_SECOND)),
+        )
         .replace('{marker}', marker),
     );
   },

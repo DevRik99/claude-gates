@@ -73,7 +73,7 @@ test('toolNameOf/runGate: unparseable JSON payload coalesces toolName to empty s
   assert.match(
     result.hookSpecificOutput.permissionDecisionReason,
     /toolName=""/,
-    'confirms toolNameOf(...) ?? \'\' resolves corrupt payloads to the empty string, ' +
+    "confirms toolNameOf(...) ?? '' resolves corrupt payloads to the empty string, " +
       'the exact value that fails to match any TOOL_GROUPS Set',
   );
 });
@@ -146,7 +146,10 @@ test('corrupted project config.json does not silently disable a protective (defa
   const project = mkdtempSync(join(tmpdir(), 'hookio-proj-'));
   mkdirSync(join(project, '.git'));
   mkdirSync(join(project, '.ai'));
-  writeFileSync(join(project, '.ai', 'config.json'), '{ this is not valid json ][');
+  writeFileSync(
+    join(project, '.ai', 'config.json'),
+    '{ this is not valid json ][',
+  );
   const home = mkdtempSync(join(tmpdir(), 'hookio-home-'));
   const scratch = mkdtempSync(join(tmpdir(), 'hookio-edge-'));
   const gatePath = writeProbeGate(scratch);
@@ -160,7 +163,7 @@ test('corrupted project config.json does not silently disable a protective (defa
   assert.ok(
     isDeny(result),
     'FALLA(ok): corrupt project config treated as absent -> falls through to global (none) ' +
-      '-> registryDefault (true) -> still protected, matching config.mjs\'s documented intent',
+      "-> registryDefault (true) -> still protected, matching config.mjs's documented intent",
   );
 });
 

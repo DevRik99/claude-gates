@@ -44,7 +44,9 @@ function isDeny(result) {
 }
 
 function enableGate(project) {
-  writeProjectConfig(project, { gates: { requireLiveTaskWhenImplementing: true } });
+  writeProjectConfig(project, {
+    gates: { requireLiveTaskWhenImplementing: true },
+  });
 }
 
 test('FIXED: a Task delegation carrying its brief in `description` is now checked', () => {

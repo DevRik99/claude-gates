@@ -40,7 +40,10 @@ test('FIXED: NotebookEdit changing a timeout value is detected', () => {
       cell_type: 'code',
     },
   };
-  assert.ok(isWarn(runGate(payload)), 'gate now detects a timeout change via NotebookEdit');
+  assert.ok(
+    isWarn(runGate(payload)),
+    'gate now detects a timeout change via NotebookEdit',
+  );
 });
 
 // FIXED: replace_file_content is recognized by toolInGroups(toolName, ['write']) (native
@@ -53,7 +56,10 @@ test('FIXED: replace_file_content changing a timeout value is detected', () => {
       content: 'const REQUEST_TIMEOUT_MS = 30000;',
     },
   };
-  assert.ok(isWarn(runGate(payload)), 'gate now detects a timeout change via replace_file_content');
+  assert.ok(
+    isWarn(runGate(payload)),
+    'gate now detects a timeout change via replace_file_content',
+  );
 });
 
 // EDGE CASE: confirm severity really is warn-only, never deny, for a real match (per WARN
@@ -61,7 +67,10 @@ test('FIXED: replace_file_content changing a timeout value is detected', () => {
 test('OK: matched content produces warn, never deny', () => {
   const result = runGate({
     tool_name: 'Write',
-    tool_input: { file_path: '/repo/src/config.js', content: 'const REQUEST_TIMEOUT_MS = 30000;' },
+    tool_input: {
+      file_path: '/repo/src/config.js',
+      content: 'const REQUEST_TIMEOUT_MS = 30000;',
+    },
   });
   assert.ok(isWarn(result));
   assert.notEqual(result?.hookSpecificOutput?.permissionDecision, 'deny');

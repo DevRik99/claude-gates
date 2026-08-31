@@ -63,20 +63,35 @@ test('disabled by default (registry default is false)', () => {
 });
 
 test('warns on conjecture phrasing in Spanish', () => {
-  assert.ok(isWarn(runGate(write('// supongo que la zona horaria es UTC'), ENABLE)));
-  assert.ok(isWarn(runGate(write('// probablemente sea correcto omitir esto'), ENABLE)));
-  assert.ok(isWarn(runGate(write('// deberia ser suficiente con este chequeo'), ENABLE)));
+  assert.ok(
+    isWarn(runGate(write('// supongo que la zona horaria es UTC'), ENABLE)),
+  );
+  assert.ok(
+    isWarn(runGate(write('// probablemente sea correcto omitir esto'), ENABLE)),
+  );
+  assert.ok(
+    isWarn(
+      runGate(write('// deberia ser suficiente con este chequeo'), ENABLE),
+    ),
+  );
 });
 
 test('bilingual control: ES and EN equivalent conjecture briefs both warn', () => {
-  const es = write('// creo que el usuario ya esta autenticado, no lo verifique');
-  const en = write('// i assume the user is already authenticated, did not verify it');
+  const es = write(
+    '// creo que el usuario ya esta autenticado, no lo verifique',
+  );
+  const en = write(
+    '// i assume the user is already authenticated, did not verify it',
+  );
   assert.ok(isWarn(runGate(es, ENABLE)));
   assert.ok(isWarn(runGate(en, ENABLE)));
 });
 
 test('allows neutral Spanish content without conjecture phrasing', () => {
-  assert.equal(runGate(write('const contrasena = "verificada";'), ENABLE), null);
+  assert.equal(
+    runGate(write('const contrasena = "verificada";'), ENABLE),
+    null,
+  );
 });
 
 test('project conjecturePatterns override replaces the built-in list', () => {

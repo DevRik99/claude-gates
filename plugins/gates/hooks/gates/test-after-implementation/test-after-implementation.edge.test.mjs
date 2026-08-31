@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
 function newProject({ config, git = true } = {}) {
-  const project = mkdtempSync(join(tmpdir(), 'test-after-implementation-edge-'));
+  const project = mkdtempSync(
+    join(tmpdir(), 'test-after-implementation-edge-'),
+  );
   if (git) {
     execFileSync('git', ['init', '-q'], { cwd: project });
     execFileSync('git', ['config', 'user.email', 'a@b.c'], { cwd: project });
@@ -33,13 +35,11 @@ function runGateIn(project, payload) {
 }
 
 function writeTest(filePath) {
-  return { tool_name: 'Write', tool_input: { file_path: filePath, content: 'test content' } };
+  return {
+    tool_name: 'Write',
+    tool_input: { file_path: filePath, content: 'test content' },
+  };
 }
-function isWarn(result) {
-  // The gate now DENIES rather than warns; the helper keeps its name but checks the deny.
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
-}
-
 const ENABLE = { gates: { warnTestWrittenAfterImplementation: true } };
 
 // EDGE CASE (BUG): the paired-implementation match requires the changed file's directory
@@ -54,7 +54,11 @@ test('BUG: false negative — implementation and test in different conventional 
   writeFileSync(join(project, 'src', 'thing.js'), 'export const thing = 1;');
   const testPath = join(project, '__tests__', 'thing.test.js');
   const result = runGateIn(project, writeTest(testPath));
-  assert.equal(result, null, 'gate misses the exact case it targets because dirname(test) !== dirname(impl) under a __tests__/ layout');
+  assert.equal(
+    result,
+    null,
+    'gate misses the exact case it targets because dirname(test) !== dirname(impl) under a __tests__/ layout',
+  );
 });
 
 // EDGE CASE (BUG): only `git status --porcelain` (uncommitted changes) is checked. If the
@@ -66,8 +70,14 @@ test('BUG: false negative — once the paired implementation change is committed
   const project = newProject({ config: ENABLE });
   writeFileSync(join(project, 'thing.js'), 'export const thing = 1;');
   execFileSync('git', ['add', '-A'], { cwd: project });
-  execFileSync('git', ['commit', '-q', '-m', 'implement thing'], { cwd: project });
+  execFileSync('git', ['commit', '-q', '-m', 'implement thing'], {
+    cwd: project,
+  });
   const testPath = join(project, 'thing.test.js');
   const result = runGateIn(project, writeTest(testPath));
-  assert.equal(result, null, 'committing the implementation first launders the same temporal violation past a git-status-based check');
+  assert.equal(
+    result,
+    null,
+    'committing the implementation first launders the same temporal violation past a git-status-based check',
+  );
 });

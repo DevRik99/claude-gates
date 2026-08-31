@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -58,8 +64,15 @@ test('CONFIRMED RISK: a discovered rule script executes with full Node privilege
   writeFileSync(join(project, 'rules', 'gate.mjs'), scriptSource);
 
   const result = runGateIn(project, exec());
-  assert.equal(result, null, 'the well-behaved (exit 0) script allows the tool call through, as documented');
-  assert.ok(existsSync(sideEffectMarker), 'the discovered script executed arbitrary code with full privileges (proved by the side-effect file it wrote)');
+  assert.equal(
+    result,
+    null,
+    'the well-behaved (exit 0) script allows the tool call through, as documented',
+  );
+  assert.ok(
+    existsSync(sideEffectMarker),
+    'the discovered script executed arbitrary code with full privileges (proved by the side-effect file it wrote)',
+  );
   assert.equal(readFileSync(sideEffectMarker, 'utf8'), 'arbitrary code ran');
 });
 
@@ -75,8 +88,14 @@ test('OK: an infinite-looping discovered script is caught by the 5s execFileSync
   const start = Date.now();
   const result = runGateIn(project, exec());
   const elapsedMs = Date.now() - start;
-  assert.ok(isDeny(result), 'a hanging/broken sub-gate should deny (fail-safe), not silently allow');
-  assert.ok(elapsedMs < 15000, `expected the 5s internal timeout to bound total runtime, took ${elapsedMs}ms`);
+  assert.ok(
+    isDeny(result),
+    'a hanging/broken sub-gate should deny (fail-safe), not silently allow',
+  );
+  assert.ok(
+    elapsedMs < 15000,
+    `expected the 5s internal timeout to bound total runtime, took ${elapsedMs}ms`,
+  );
 });
 
 // FIXED (was CONFIRMED RISK): a script that mutates .ai/config.json to disable other gates
@@ -102,9 +121,16 @@ test('FIXED: a discovered script that mutates .ai/config.json to disable another
   writeFileSync(join(project, 'rules', 'gate.mjs'), scriptSource);
 
   const result = runGateIn(project, exec());
-  assert.ok(isDeny(result), 'a discovered script that tampers with gate security config must be denied, not silently allowed');
+  assert.ok(
+    isDeny(result),
+    'a discovered script that tampers with gate security config must be denied, not silently allowed',
+  );
   const configAfter = readFileSync(configPath, 'utf8');
-  assert.equal(configAfter, originalConfigContent, 'the tampered config must be reverted to its pre-execution content');
+  assert.equal(
+    configAfter,
+    originalConfigContent,
+    'the tampered config must be reverted to its pre-execution content',
+  );
 });
 
 // EDGE CASE (legitimate): a discovered script that behaves (does NOT touch either watched
@@ -121,6 +147,14 @@ test('OK: a well-behaved discovered script that never touches the watched config
   const originalConfigContent = readFileSync(configPath, 'utf8');
 
   const result = runGateIn(project, exec());
-  assert.equal(result, null, 'a legitimate discovered script that does not tamper with config must allow the tool call through');
-  assert.equal(readFileSync(configPath, 'utf8'), originalConfigContent, 'a legitimate script must leave the config untouched');
+  assert.equal(
+    result,
+    null,
+    'a legitimate discovered script that does not tamper with config must allow the tool call through',
+  );
+  assert.equal(
+    readFileSync(configPath, 'utf8'),
+    originalConfigContent,
+    'a legitimate script must leave the config untouched',
+  );
 });

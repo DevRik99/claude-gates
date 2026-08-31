@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 

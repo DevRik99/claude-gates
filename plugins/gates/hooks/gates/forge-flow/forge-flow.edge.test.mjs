@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -46,7 +46,9 @@ function isDeny(result) {
 
 function isWarn(result) {
   const output = result?.hookSpecificOutput;
-  return Boolean(output?.additionalContext) && output.permissionDecision !== 'deny';
+  return (
+    Boolean(output?.additionalContext) && output.permissionDecision !== 'deny'
+  );
 }
 
 function makeForgeDatabase(directory, activeCwd) {
@@ -57,7 +59,9 @@ function makeForgeDatabase(directory, activeCwd) {
   );
   if (activeCwd) {
     database
-      .prepare('INSERT INTO runs (id, cwd, current_phase, status) VALUES (?,?,?,?)')
+      .prepare(
+        'INSERT INTO runs (id, cwd, current_phase, status) VALUES (?,?,?,?)',
+      )
       .run('r1', activeCwd, 'build', 'active');
   }
   database.close();
@@ -78,7 +82,10 @@ test('DEGRADED-WARN: a corrupt (non-SQLite) DB file allows the write but WARNS v
   // state 'unknown' -> the gate ALLOWS (a broken lookup must not freeze all work) but emits a
   // warn, so degraded enforcement is never invisible. This is the fix for the old silent
   // fail-open that disabled the whole gate with no trace.
-  assert.ok(isWarn(result), 'corrupt DB must allow-with-warning, not allow silently');
+  assert.ok(
+    isWarn(result),
+    'corrupt DB must allow-with-warning, not allow silently',
+  );
 });
 
 test('DEGRADED-WARN: DB exists but "runs" table is missing/wrong schema warns visibly', () => {
@@ -93,12 +100,18 @@ test('DEGRADED-WARN: DB exists but "runs" table is missing/wrong schema warns vi
     { tool_name: 'Write', tool_input: { file_path: 'x.js', content: 'x' } },
     project,
   );
-  assert.ok(isWarn(result), 'schema drift must allow-with-warning, not allow silently');
+  assert.ok(
+    isWarn(result),
+    'schema drift must allow-with-warning, not allow silently',
+  );
 });
 
 test('FAIL-CLOSED (deny): DB file plainly absent at the configured path denies the write', () => {
   const project = adoptedProject();
-  writeConfig(project, join(tmpdir(), 'definitely-does-not-exist-' + Date.now(), 'forge.db'));
+  writeConfig(
+    project,
+    join(tmpdir(), `definitely-does-not-exist-${Date.now()}`, 'forge.db'),
+  );
   const result = runGate(
     { tool_name: 'Write', tool_input: { file_path: 'x.js', content: 'x' } },
     project,
@@ -107,7 +120,10 @@ test('FAIL-CLOSED (deny): DB file plainly absent at the configured path denies t
   // (line 72: "no DB yet -> no runs at all -> deny") -- this is the ONE path that is
   // fail-closed; every other failure mode (corrupt file, missing table, locked file,
   // node:sqlite unavailable) is fail-open via the catch block.
-  assert.ok(isDeny(result), 'FALLA(ok): absent DB is the sole fail-closed path');
+  assert.ok(
+    isDeny(result),
+    'FALLA(ok): absent DB is the sole fail-closed path',
+  );
 });
 
 test('FIXED: an MCP filesystem write tool is now gated (denied with no active run)', () => {
@@ -125,7 +141,10 @@ test('FIXED: an MCP filesystem write tool is now gated (denied with no active ru
   // ACTING_GROUPS = ['execution'] and toolInGroups matches mcp__*__write_file via the write
   // signal, so an MCP filesystem write is now subject to the active-run requirement exactly
   // like a native Write. No active run -> deny.
-  assert.ok(isDeny(result), 'MCP write tool must now be gated like a native Write');
+  assert.ok(
+    isDeny(result),
+    'MCP write tool must now be gated like a native Write',
+  );
 });
 
 test('control: the same DB/config DOES deny a native Write (proves the MCP case above is a real gap, not a config issue)', () => {
@@ -137,7 +156,10 @@ test('control: the same DB/config DOES deny a native Write (proves the MCP case 
     { tool_name: 'Write', tool_input: { file_path: 'x.js', content: 'x' } },
     project,
   );
-  assert.ok(isDeny(result), 'FALLA(ok): native Write is correctly denied under identical setup');
+  assert.ok(
+    isDeny(result),
+    'FALLA(ok): native Write is correctly denied under identical setup',
+  );
 });
 
 test('FIXED: an MCP shell/exec tool (mcp__ide__executeCode) is now gated', () => {
@@ -146,10 +168,16 @@ test('FIXED: an MCP shell/exec tool (mcp__ide__executeCode) is now gated', () =>
   const databasePath = makeForgeDatabase(home); // no active run
   writeConfig(project, databasePath);
   const result = runGate(
-    { tool_name: 'mcp__ide__executeCode', tool_input: { code: 'require("fs").writeFileSync("x.js","x")' } },
+    {
+      tool_name: 'mcp__ide__executeCode',
+      tool_input: { code: 'require("fs").writeFileSync("x.js","x")' },
+    },
     project,
   );
   // forge-flow now consumes the 'execution' group, which includes mcp__ide__executeCode and,
   // via toolInGroups, any mcp__* exec/run surface. No active run -> deny.
-  assert.ok(isDeny(result), 'mcp__ide__executeCode must now be gated by forge-flow');
+  assert.ok(
+    isDeny(result),
+    'mcp__ide__executeCode must now be gated by forge-flow',
+  );
 });

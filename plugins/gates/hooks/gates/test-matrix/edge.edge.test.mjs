@@ -59,5 +59,8 @@ test('OK: the equivalent payload using `prompt` IS caught (control)', () => {
       subagent_type: 'backend',
     },
   };
-  assert.ok(isDeny(runGate(payload, { config: enabledConfig() })), 'control failed');
+  assert.ok(
+    isDeny(runGate(payload, { config: enabledConfig() })),
+    'control failed',
+  );
 });

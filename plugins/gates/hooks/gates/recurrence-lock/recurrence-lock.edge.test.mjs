@@ -42,9 +42,18 @@ test('OK: mcp__ide__executeCode is covered because it is in TOOL_GROUPS.executio
   const project = newProject();
   writeFileSync(
     join(project, '.ai', 'reincidencias.json'),
-    JSON.stringify({ classes: [{ class: 'x', occurrences: [1, 2], status: 'open' }] }),
+    JSON.stringify({
+      classes: [{ class: 'x', occurrences: [1, 2], status: 'open' }],
+    }),
   );
-  assert.ok(isDeny(runGateIn(project, { tool_name: 'mcp__ide__executeCode', tool_input: {} })));
+  assert.ok(
+    isDeny(
+      runGateIn(project, {
+        tool_name: 'mcp__ide__executeCode',
+        tool_input: {},
+      }),
+    ),
+  );
 });
 
 // FIXED (was BUG): status is now trimmed before lowercasing, so a padded/capitalized status
@@ -55,18 +64,29 @@ test('FIXED: a status of "Closed " (capitalized, trailing space) is trimmed and 
   const project = newProject();
   writeFileSync(
     join(project, '.ai', 'reincidencias.json'),
-    JSON.stringify({ classes: [{ class: 'x', occurrences: [1, 2], status: 'Closed ' }] }),
+    JSON.stringify({
+      classes: [{ class: 'x', occurrences: [1, 2], status: 'Closed ' }],
+    }),
   );
-  assert.equal(runGateIn(project, exec()), null, 'a padded/capitalized "Closed " status must be trimmed and recognized as closed, allowing the tool call through');
+  assert.equal(
+    runGateIn(project, exec()),
+    null,
+    'a padded/capitalized "Closed " status must be trimmed and recognized as closed, allowing the tool call through',
+  );
 });
 
 test('OK: a genuine typo status like "closd" is NOT recognized as closed and stays open-blocking (no typo-tolerance)', () => {
   const project = newProject();
   writeFileSync(
     join(project, '.ai', 'reincidencias.json'),
-    JSON.stringify({ classes: [{ class: 'x', occurrences: [1, 2], status: 'closd' }] }),
+    JSON.stringify({
+      classes: [{ class: 'x', occurrences: [1, 2], status: 'closd' }],
+    }),
   );
-  assert.ok(isDeny(runGateIn(project, exec())), 'a typo status must not be silently treated as closed');
+  assert.ok(
+    isDeny(runGateIn(project, exec())),
+    'a typo status must not be silently treated as closed',
+  );
 });
 
 // FIXED (was BUG): occurrences are now deduplicated (by id/hash, or by value for bare
@@ -77,9 +97,15 @@ test('FIXED: duplicate identical entries in occurrences[] are deduplicated befor
   const project = newProject();
   writeFileSync(
     join(project, '.ai', 'reincidencias.json'),
-    JSON.stringify({ classes: [{ class: 'dup', occurrences: [1, 1], status: 'open' }] }),
+    JSON.stringify({
+      classes: [{ class: 'dup', occurrences: [1, 1], status: 'open' }],
+    }),
   );
-  assert.equal(runGateIn(project, exec()), null, 'duplicate occurrence entries must be deduplicated before comparing against thresholdAppearances');
+  assert.equal(
+    runGateIn(project, exec()),
+    null,
+    'duplicate occurrence entries must be deduplicated before comparing against thresholdAppearances',
+  );
 });
 
 // OK: genuinely distinct occurrences (even with the same shape) must still count normally —
@@ -98,5 +124,8 @@ test('OK: distinct occurrence entries (identified by id) still count toward the 
       ],
     }),
   );
-  assert.ok(isDeny(runGateIn(project, exec())), 'two genuinely distinct occurrences (different ids) must still trip the threshold');
+  assert.ok(
+    isDeny(runGateIn(project, exec())),
+    'two genuinely distinct occurrences (different ids) must still trip the threshold',
+  );
 });

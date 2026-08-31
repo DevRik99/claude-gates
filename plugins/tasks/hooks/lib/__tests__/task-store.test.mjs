@@ -99,7 +99,9 @@ test('closing as done WITHOUT evidence is refused; the task stays active', () =>
 test('abandon is a terminal close: moves to history with reason, no evidence needed', () => {
   const store = openTaskStore(makeProject());
   store.add(sampleTask('t1'));
-  const { task } = store.close('t1', STATUS.ABANDONED, { reason: 'no longer needed' });
+  const { task } = store.close('t1', STATUS.ABANDONED, {
+    reason: 'no longer needed',
+  });
   assert.equal(task.status, STATUS.ABANDONED);
   assert.equal(store.active().length, 0);
   assert.equal(store.history()[0].status, STATUS.ABANDONED);
@@ -112,7 +114,11 @@ test('promoteToForge links a run and keeps the task active as in_forge', () => {
   const promoted = store.promoteToForge('t1', 'run-42');
   assert.equal(promoted.status, STATUS.IN_FORGE);
   assert.equal(promoted.forgeRunId, 'run-42');
-  assert.equal(store.active().length, 1, 'in_forge is still active, not closed');
+  assert.equal(
+    store.active().length,
+    1,
+    'in_forge is still active, not closed',
+  );
 });
 
 test('close rejects a non-terminal status and an unknown id', () => {
@@ -156,15 +162,18 @@ test('a corrupt active.json is treated as empty, then healed by a write', () => 
 
 test('a UTF-8 BOM on active.json/counter.json does not make the store treat them as empty/corrupt', () => {
   const project = makeProject();
-  const tasksDir = join(project, '.ai', 'tasks');
-  mkdirSync(tasksDir, { recursive: true });
+  const tasksDirectory = join(project, '.ai', 'tasks');
+  mkdirSync(tasksDirectory, { recursive: true });
 
   const bom = '﻿';
   writeFileSync(
-    join(tasksDir, 'active.json'),
+    join(tasksDirectory, 'active.json'),
     bom + JSON.stringify({ tasks: [sampleTask('t1')] }),
   );
-  writeFileSync(join(tasksDir, 'counter.json'), bom + JSON.stringify({ count: 3 }));
+  writeFileSync(
+    join(tasksDirectory, 'counter.json'),
+    bom + JSON.stringify({ count: 3 }),
+  );
 
   const store = openTaskStore(project);
   assert.deepEqual(

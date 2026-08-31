@@ -32,8 +32,8 @@
 // allow (nothing to enforce, never invented). Lint run exits non-zero: deny with the last
 // ~15 lines of its combined output. Lint run exits zero: allow.
 
-import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
 
@@ -90,7 +90,9 @@ function resolveLintCommand(cwd, lintCommandOverride) {
 }
 
 function tailLines(text, count) {
-  const lines = String(text).split(/\r?\n/).filter((line) => line.length > 0);
+  const lines = String(text)
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
   return lines.slice(-count).join('\n');
 }
 
@@ -138,7 +140,8 @@ runGate(
     }
 
     if (result.status !== 0) {
-      const combinedOutput = `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
+      const combinedOutput =
+        `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
       deny(
         GATE_ID,
         `Lint failed (exit ${result.status}) — commit blocked until it passes:\n` +

@@ -84,8 +84,23 @@ const DEFAULT_BLOCKING_PATTERNS = [
 // unrelated flag whitelist a genuine foreground `sleep`. Detached forms are now matched
 // explicitly (--detach, docker/compose -d at a word boundary before end/pipe), and PowerShell's
 // Start-Job / Start-Process -NoNewWindow backgrounding is recognized.
-const NOT_TAKING_THE_TURN =
-  /(&\s*$|\bnohup\b|\bstart\s+\/b\b|--detach\b|\b-d(?=\s*($|[|;&]))|\bStart-Job\b|\bStart-Process\b[^|;\n]*-NoNewWindow\b|\brun_in_background\b)/i;
+// One big alternation trips the linter's regex-complexity check, so each background form is
+// its own short regex tested with `.some()` — matching EXACTLY what the combined pattern did
+// (verified case-by-case). Order does not matter: any one match means the command detaches.
+const NOT_TAKING_THE_TURN_FORMS = [
+  /&\s*$/i,
+  /\bnohup\b/i,
+  /\bstart\s+\/b\b/i,
+  /--detach\b/i,
+  /\b-d(?=\s*($|[|;&]))/i,
+  /\bStart-Job\b/i,
+  /\bStart-Process\b[^|;\n]*-NoNewWindow\b/i,
+  /\brun_in_background\b/i,
+];
+
+function detachesFromTurn(command) {
+  return NOT_TAKING_THE_TURN_FORMS.some((pattern) => pattern.test(command));
+}
 
 function compile(source) {
   return new RegExp(source, 'i');
@@ -119,7 +134,7 @@ runGate(
 
     // Already declared in the background: the turn stays free, which is all that matters.
     if (toolInput.run_in_background === true) return;
-    if (NOT_TAKING_THE_TURN.test(command)) return;
+    if (detachesFromTurn(command)) return;
 
     // A declared wait with its reason is a decision, not an oversight.
     const marker = String(parameters.waitJustifiedMarker ?? '');

@@ -35,14 +35,21 @@ function isWarn(result) {
 }
 
 const ENABLED = { config: { gates: { warnMemoryDependencyInBrief: true } } };
-const MEMORY_PROMPT = 'Acordate de lo que hablamos antes y aplica el mismo criterio.';
+const MEMORY_PROMPT =
+  'Acordate de lo que hablamos antes y aplica el mismo criterio.';
 
 test('FIXED: a delegation tool name outside the native list is now caught via toolInGroups (MCP delegation signal)', () => {
   const result = runGate(
-    { tool_name: 'mcp__orchestrator__spawn_agent', tool_input: { prompt: MEMORY_PROMPT } },
+    {
+      tool_name: 'mcp__orchestrator__spawn_agent',
+      tool_input: { prompt: MEMORY_PROMPT },
+    },
     ENABLED,
   );
-  assert.ok(isWarn(result), 'gate now warns for the memory-dependency prompt under the MCP tool name too');
+  assert.ok(
+    isWarn(result),
+    'gate now warns for the memory-dependency prompt under the MCP tool name too',
+  );
 });
 
 test('FIXED: prompt carried in a field other than prompt/description/task is now read via delegationPromptOf', () => {
@@ -50,7 +57,10 @@ test('FIXED: prompt carried in a field other than prompt/description/task is now
     { tool_name: 'Agent', tool_input: { instructions: MEMORY_PROMPT } },
     ENABLED,
   );
-  assert.ok(isWarn(result), 'gate now sees the prompt under "instructions" and warns');
+  assert.ok(
+    isWarn(result),
+    'gate now sees the prompt under "instructions" and warns',
+  );
 });
 
 test('FIXED: a persistence noun with no verb no longer suppresses the warning', () => {
@@ -60,7 +70,10 @@ test('FIXED: a persistence noun with no verb no longer suppresses the warning', 
   const prompt =
     'Acordate de lo que dijimos del login (el reporte esta en incident.md) y aplica el ' +
     'mismo criterio de siempre.';
-  const result = runGate({ tool_name: 'Agent', tool_input: { prompt } }, ENABLED);
+  const result = runGate(
+    { tool_name: 'Agent', tool_input: { prompt } },
+    ENABLED,
+  );
   assert.ok(
     isWarn(result),
     'gate now warns: "incident.md" nearby with no persistence verb is not a real persistence instruction',
@@ -68,7 +81,14 @@ test('FIXED: a persistence noun with no verb no longer suppresses the warning', 
 });
 
 test('OK: a genuine memory-dependency phrase via Agent is warned', () => {
-  assert.ok(isWarn(runGate({ tool_name: 'Agent', tool_input: { prompt: MEMORY_PROMPT } }, ENABLED)));
+  assert.ok(
+    isWarn(
+      runGate(
+        { tool_name: 'Agent', tool_input: { prompt: MEMORY_PROMPT } },
+        ENABLED,
+      ),
+    ),
+  );
 });
 
 test('OK: a memory phrase paired with a real persistence verb still suppresses the warning', () => {
@@ -76,7 +96,8 @@ test('OK: a memory phrase paired with a real persistence verb still suppresses t
     {
       tool_name: 'Agent',
       tool_input: {
-        prompt: 'No te olvides de guardar la decision en .ai/decision.md antes de continuar.',
+        prompt:
+          'No te olvides de guardar la decision en .ai/decision.md antes de continuar.',
       },
     },
     ENABLED,

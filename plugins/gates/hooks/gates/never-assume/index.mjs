@@ -16,7 +16,8 @@ const CONFIG_KEY = 'requireVerificationBeforeAssuming';
 const DEFAULT_CONJECTURE_PATTERNS = CONJECTURE_SOURCES;
 
 function extractContent(toolName, toolInput) {
-  if (toolInGroups(toolName, ['delegation'])) return delegationPromptOf(toolInput);
+  if (toolInGroups(toolName, ['delegation']))
+    return delegationPromptOf(toolInput);
   return writtenContentOf(toolInput);
 }
 

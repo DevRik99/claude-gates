@@ -83,10 +83,7 @@ function globalConfigPath() {
 }
 
 function securityConfigPaths(projectRoot) {
-  return [
-    join(projectRoot, PROJECT_CONFIG_RELATIVE_PATH),
-    globalConfigPath(),
-  ];
+  return [join(projectRoot, PROJECT_CONFIG_RELATIVE_PATH), globalConfigPath()];
 }
 
 /** Reads raw bytes (or null if absent) and their hash, per watched config path. */
@@ -122,7 +119,7 @@ function revertConfigs(snapshots) {
 }
 
 /** Whether any watched config file's content changed since `before`. */
-function configsTampered(before, projectRoot) {
+function configsTampered(before) {
   const after = snapshotConfigs(before.map((snapshot) => snapshot.path));
   return before.some((snapshot, index) => snapshot.hash !== after[index].hash);
 }
@@ -163,7 +160,7 @@ runGate(
         failed = true;
       }
 
-      if (configsTampered(before, projectRoot)) {
+      if (configsTampered(before)) {
         revertConfigs(before);
         deny(
           GATE_ID,

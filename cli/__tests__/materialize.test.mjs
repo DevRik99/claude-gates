@@ -12,7 +12,7 @@ import { resolveSelection, MODES } from '../selection.mjs';
 
 const registry = loadRegistry();
 const gates = allGates(registry);
-const paramGate = gates.find(
+const parameterGate = gates.find(
   (gate) => Array.isArray(gate.params) && gate.params.length > 0,
 );
 
@@ -23,10 +23,15 @@ function mergedGatesAfter(mode, existingGates) {
     gates: existingGates,
   };
   const selection = resolveSelection(registry, mode, {
-    gates: [paramGate.id],
-    families: [paramGate.family],
+    gates: [parameterGate.id],
+    families: [parameterGate.family],
   });
-  const materialized = materializeGates(registry, selection, existing.gates, mode);
+  const materialized = materializeGates(
+    registry,
+    selection,
+    existing.gates,
+    mode,
+  );
   return mergeConfig(existing, {
     adopted: 'partial',
     gates: materialized,
@@ -35,26 +40,28 @@ function mergedGatesAfter(mode, existingGates) {
 }
 
 test('registry has at least one gate with params, for these tests to exercise', () => {
-  assert.ok(paramGate, 'registry must have at least one gate with params');
+  assert.ok(parameterGate, 'registry must have at least one gate with params');
 });
 
 test('DEFAULTS re-run preserves a gate the user already disabled, with its custom params, untouched', () => {
   const merged = mergedGatesAfter(MODES.DEFAULTS, {
-    [paramGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
+    [parameterGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
   });
 
   assert.equal(
-    merged[paramGate.configKey].enabled,
+    merged[parameterGate.configKey].enabled,
     false,
     'a gate the user disabled must stay disabled after a defaults re-run',
   );
   assert.equal(
-    merged[paramGate.configKey].__userTuned,
+    merged[parameterGate.configKey].__userTuned,
     'kept-value',
     "the user's own param edit must not be replaced by the gate's built-in default",
   );
 
-  const untouched = gates.find((gate) => gate.configKey !== paramGate.configKey);
+  const untouched = gates.find(
+    (gate) => gate.configKey !== parameterGate.configKey,
+  );
   assert.ok(
     Object.prototype.hasOwnProperty.call(merged, untouched.configKey),
     'a gate absent from the existing config must still appear after materializing',
@@ -63,23 +70,23 @@ test('DEFAULTS re-run preserves a gate the user already disabled, with its custo
 
 test('an explicit GRANULAR pick overrides a previously disabled gate: the named choice wins', () => {
   const merged = mergedGatesAfter(MODES.GRANULAR, {
-    [paramGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
+    [parameterGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
   });
 
   assert.equal(
-    merged[paramGate.configKey].enabled,
+    merged[parameterGate.configKey].enabled,
     true,
     'naming a gate in --gates must re-enable it even if the config had it disabled',
   );
 });
 
-test('an explicit GRANULAR pick still preserves the user\'s own params (no new values were passed)', () => {
+test("an explicit GRANULAR pick still preserves the user's own params (no new values were passed)", () => {
   const merged = mergedGatesAfter(MODES.GRANULAR, {
-    [paramGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
+    [parameterGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
   });
 
   assert.equal(
-    merged[paramGate.configKey].__userTuned,
+    merged[parameterGate.configKey].__userTuned,
     'kept-value',
     'params the user tuned by hand survive an explicit pick that only changes enabled',
   );
@@ -87,9 +94,9 @@ test('an explicit GRANULAR pick still preserves the user\'s own params (no new v
 
 test('FAMILIES mode behaves the same as GRANULAR for an already-configured gate', () => {
   const merged = mergedGatesAfter(MODES.FAMILIES, {
-    [paramGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
+    [parameterGate.configKey]: { enabled: false, __userTuned: 'kept-value' },
   });
 
-  assert.equal(merged[paramGate.configKey].enabled, true);
-  assert.equal(merged[paramGate.configKey].__userTuned, 'kept-value');
+  assert.equal(merged[parameterGate.configKey].enabled, true);
+  assert.equal(merged[parameterGate.configKey].__userTuned, 'kept-value');
 });

@@ -78,7 +78,7 @@ test('readConfig strips a leading UTF-8 BOM instead of treating the file as corr
   const directory = temporaryDirectory();
   const path = join(directory, 'config.json');
   const bom = '﻿';
-  writeFileSync(path, bom + '{"autoCommit":true}');
+  writeFileSync(path, `${bom}{"autoCommit":true}`);
   assert.deepEqual(readConfig(path), {
     exists: true,
     data: { autoCommit: true },

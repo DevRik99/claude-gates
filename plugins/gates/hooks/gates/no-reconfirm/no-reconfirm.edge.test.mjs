@@ -20,7 +20,10 @@ function newProject({ config } = {}) {
 
 function writeTranscript(project, events) {
   const transcriptPath = join(project, 'transcript.jsonl');
-  writeFileSync(transcriptPath, events.map((e) => JSON.stringify(e)).join('\n'));
+  writeFileSync(
+    transcriptPath,
+    events.map((event) => JSON.stringify(event)).join('\n'),
+  );
   return transcriptPath;
 }
 
@@ -70,7 +73,10 @@ test('BUG: approving one migration is treated as approval for an unrelated migra
   const result = runGateIn(project, askQuestion(transcriptPath, question));
   // Documents the false positive: the gate claims this was "already approved" even though
   // the user approved a migration of a DIFFERENT database (staging, not billing).
-  assert.ok(isWarn(result), 'expected the (buggy) false-positive warn to fire: no entity/target check, only generic word overlap');
+  assert.ok(
+    isWarn(result),
+    'expected the (buggy) false-positive warn to fire: no entity/target check, only generic word overlap',
+  );
 });
 
 // EDGE CASE (BUG candidate): false negative via negation. The APPROVAL_PATTERN matches
@@ -79,7 +85,9 @@ test('BUG: approving one migration is treated as approval for an unrelated migra
 test('BUG: a NEGATED approval phrase ("do not go ahead") is still treated as approval', () => {
   const project = newProject();
   const transcriptPath = writeTranscript(project, [
-    humanTurn('do not go ahead with migrating the authentication database schema'),
+    humanTurn(
+      'do not go ahead with migrating the authentication database schema',
+    ),
   ]);
   const question = {
     header: 'Migration',
@@ -87,5 +95,8 @@ test('BUG: a NEGATED approval phrase ("do not go ahead") is still treated as app
     options: [],
   };
   const result = runGateIn(project, askQuestion(transcriptPath, question));
-  assert.ok(isWarn(result), 'expected the (buggy) warn to fire even though the user said NOT to go ahead — APPROVAL_PATTERN has no negation check');
+  assert.ok(
+    isWarn(result),
+    'expected the (buggy) warn to fire even though the user said NOT to go ahead — APPROVAL_PATTERN has no negation check',
+  );
 });

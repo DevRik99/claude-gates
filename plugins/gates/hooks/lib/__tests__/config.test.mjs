@@ -163,7 +163,7 @@ test('a project config saved WITH a UTF-8 BOM is still read (not silently droppe
   mkdirSync(join(project, '.ai'), { recursive: true });
   writeFileSync(
     join(project, '.ai', 'config.json'),
-    '﻿' + JSON.stringify({ gates: { [GATE_KEY]: { enabled: false } } }),
+    `\uFEFF${JSON.stringify({ gates: { [GATE_KEY]: { enabled: false } } })}`,
   );
   assert.equal(
     isGateEnabled(GATE_KEY, true, project, { home }),

@@ -60,9 +60,7 @@ test('FIXED: a run_command-shaped MCP tool with a different name is now recogniz
   // e.g. an MCP server that exposes its shell tool as mcp__shell__run instead of run_command.
   // toolInGroups classifies it into the shell group by its action segment, so the destructive
   // command it carries is now inspected and denied.
-  const result = runGate(
-    mcpTool('mcp__shell__run', { command: 'rm -rf src' }),
-  );
+  const result = runGate(mcpTool('mcp__shell__run', { command: 'rm -rf src' }));
   assert.ok(isDeny(result));
 });
 
@@ -97,7 +95,7 @@ test('OK: destructive command inside a subshell is still caught', () => {
 // in stripQuoted's quote-stripping heuristic used for delegation.
 test('OK: destructive command wrapped in sh -c is still caught (raw command string has no quote-stripping for shell tools)', () => {
   assert.ok(isDeny(runGate(bash('sh -c "git push origin main --force"'))));
-  assert.ok(isDeny(runGate(bash('bash -lc \'rm -rf src\''))));
+  assert.ok(isDeny(runGate(bash("bash -lc 'rm -rf src'"))));
 });
 
 // ── BUG: rm -rf with a relative-but-not-listed path segment prefix, e.g. `rm -rf ./src`
