@@ -10,6 +10,10 @@ forge-mcp.db*
 # Per-project task state written at runtime (not source)
 .ai/tasks/
 
+# Tool map is written at runtime by the tool-map gate and records absolute, machine-specific
+# paths — it is per-machine dev state, not source.
+.ai/tool-map.json
+
 # Keep .ai/config.json (the repo's own gate config for developing the gates) tracked.
 # It disables the gates that false-positive when editing the gates themselves, so the
 # repo builds the same way on any machine. Everything else under .ai/ that is runtime

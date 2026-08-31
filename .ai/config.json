@@ -1,5 +1,5 @@
 {
-  "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project -> global, so this overrides the global config locally without touching it. Two reasons a gate is off here: (1) false positives when editing this very repo's own gate source; (2) TEMPORARY during parallel gate migration, a half-edited gate that runs against the main agent throws at load and blocks every tool call. Re-enable/delete these keys when the migration lands. blockDestructiveShellCommands is deliberately NOT here: it stays ON even in dev.",
+  "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project -> global, so this overrides the global config locally without touching it. Reasons a gate is off here: (1) false positives when editing this very repo's own gate source — e.g. blockLintSuppression matches its own DEFAULT_SUPPRESSION_PATTERNS ('eslint-disable', '@ts-ignore') as literal data whenever you edit that gate or any test that mentions them; (2) TEMPORARY during parallel gate migration, a half-edited gate that runs against the main agent throws at load and blocks every tool call. Re-enable/delete these keys when the migration lands. blockDestructiveShellCommands is deliberately NOT here: it stays ON even in dev. no-coauthor is NOT here: it only fires on `git commit`, never on editing gate source.",
   "adopted": "partial",
   "gateVersion": "3.0.0",
   "gates": {
@@ -10,6 +10,9 @@
       "enabled": false
     },
     "blockRemotePublish": {
+      "enabled": false
+    },
+    "blockLintSuppression": {
       "enabled": false
     }
   }
