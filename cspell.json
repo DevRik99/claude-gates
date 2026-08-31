@@ -19,7 +19,8 @@
     "borrar",
     "escrib",
     "nuevo",
-    "nueva"
+    "nueva",
+    "adoc"
   ],
   "ignorePaths": ["node_modules/**", "package-lock.json"]
 }

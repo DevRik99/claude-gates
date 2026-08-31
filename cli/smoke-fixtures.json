@@ -424,6 +424,18 @@
       },
       "needsState": true,
       "note": "needs a git repo with a staged lintable file that fails lint and a resolvable linter; a bare payload cannot reproduce the staged-file scan."
+    },
+    {
+      "id": "atomic-commit",
+      "configKey": "blockNonAtomicCommits",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": { "command": "git commit -m \"stuff\"" }
+      },
+      "needsState": true,
+      "note": "needs a git repo with a staged set that mixes >maxNatures natures or exceeds maxFiles; a bare payload cannot reproduce the staged-file scan."
     }
   ]
 }

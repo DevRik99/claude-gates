@@ -596,6 +596,37 @@
           ]
         },
         {
+          "id": "atomic-commit",
+          "configKey": "blockNonAtomicCommits",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["shell"],
+          "description": "Denies a git commit that is not atomic: one mixing more than N distinct natures of change (code/tests/deps/config...) or staging more reviewable files than a commit should carry. Docs/assets/generated files are not counted. Escape hatch [wip] for one deliberately broad commit.",
+          "script": "gates/atomic-commit/index.mjs",
+          "params": [
+            {
+              "name": "maxFiles",
+              "type": "number",
+              "description": "Max counted (reviewable) files in one commit. Default 12."
+            },
+            {
+              "name": "maxNatures",
+              "type": "number",
+              "description": "Max distinct counted natures of change in one commit. Default 2."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Substring in the commit command that allows one deliberately broad commit. Default [wip]."
+            },
+            {
+              "name": "natures",
+              "type": "string[]",
+              "description": "Classification table ({name, source, counts}) mapping a path to a nature. Replaces the built-in list."
+            }
+          ]
+        },
+        {
           "id": "no-coauthor",
           "configKey": "blockCoauthorTrailers",
           "default": true,

@@ -332,6 +332,16 @@
         ]
       },
       {
+        "matcher": "Bash|run_command|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/atomic-commit/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
         "hooks": [
           {
