@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 30 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 39 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -108,6 +108,10 @@ works even if you install one on its own.
 | `no-reconfirm`              | on  | Never re-ask what you already answered.                                                                        |
 | `neutral-spanish`           | on  | Blocks voseo or regional lexicon in written text (add `neutral-spanish:allow` for a deliberate quote/fixture). |
 | `diagnosis-before-patch`    | on  | Warns when timeouts/retries change without evidence.                                                           |
+| `lint-commit`               | off | Blocks `git commit` while the project's lint script fails (autodetects `npm run lint`; silent if none).        |
+| `staged-lint`               | off | Blocks `git commit` when the **staged** files fail lint — lints only what you staged, so your change can't add new lint debt while pre-existing debt in untouched files never blocks you. Add `[skip-lint]` for a deliberate exception. |
+| `no-coauthor`               | on  | Blocks a `git commit` carrying an AI/agent attribution trailer (`Co-Authored-By`, `Generated with`, a session trailer). Add `[allow-coauthor]` for one legitimate co-author. |
+| `no-lint-suppression`       | on  | Blocks a write that silences the linter/type-checker (`eslint-disable`, `@ts-ignore`, a rule set to `off`) instead of fixing the code. Add `lint-ok: <reason>` on the same line for a documented false positive. |
 
 ### 🔎 Tool discovery — don't reinvent the wheel
 
@@ -122,10 +126,14 @@ works even if you install one on its own.
 | ------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forge-flow` | off | In a project that adopted [forge](https://github.com/DevRik99/forge-mcp), blocks editing/running unless an active forge run exists. Closes the hole the MCP cannot: it forces you through the pipeline. |
 
-### 🩺 Session start — startup checks _(work in progress)_
+### 🩺 Session & context — startup checks and capability injection
 
-`doctor`, `ask-adoption`, `wiring-check` — declared in the catalog; their scripts are being
-migrated next.
+| Gate             |     | What it does                                                                                                                                                                                          |
+| ---------------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `doctor`         | on  | On session start, runs the environment validator and only speaks on failure.                                                                                                                        |
+| `ask-adoption`   | on  | In a project that never answered, makes the assistant ask what to adopt.                                                                                                                            |
+| `wiring-check`   | on  | Warns when a registered hook is missing or a script is orphaned.                                                                                                                                     |
+| `capability-map` | off | On every message, injects the project's capability catalog — skills, agents/subagents, commands — as compact data, and persists it to `.ai/capability-map.json` (like the tool map). Autosynced from disk. Never blocks. |
 
 ---
 
@@ -170,7 +178,14 @@ see and edit every knob:
 - **Escape hatches:** a few gates block (deny) but accept an explicit opt-out marker in the
   content/prompt for a legitimate case: `neutral-spanish:allow` (a deliberate regional
   quote), `test-after-impl:allow` (a regression test), `memory-not-needed` (a
-  non-memory phrase). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
+  non-memory phrase), `[allow-coauthor]` (one legitimate co-author on a commit),
+  `lint-ok: <reason>` (a documented linter false positive), `[skip-lint]` (skip the
+  staged-lint check for one commit). `dependency-skills` opts out via its
+  `depsWithoutOwnApi` list.
+- **Capability injection:** `capability-map` (off by default) is fully tunable — pick which
+  kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
+  (`maxClauseChars`), add extra roots per kind, or turn off persistence (`"persist": false`)
+  and point the map file elsewhere (`mapFile`).
 
 ---
 
