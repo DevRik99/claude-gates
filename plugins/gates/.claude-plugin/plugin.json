@@ -1,15 +1,9 @@
 {
   "name": "gates",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Deterministic gates for Claude Code: destructive-command blocks, protected paths, delegation briefs, spec-driven flow and session-start validation. Selection lives in config, not in code.",
   "author": {
     "name": "Devrik"
   },
-  "keywords": [
-    "hooks",
-    "guards",
-    "gates",
-    "PreToolUse",
-    "SessionStart"
-  ]
+  "keywords": ["hooks", "guards", "gates", "PreToolUse", "SessionStart"]
 }
