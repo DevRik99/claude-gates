@@ -93,6 +93,12 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 const STDIN_FILE_DESCRIPTOR = 0;
 const CONFIG_KEY = 'injectCapabilityMap';
 const DUMP_ENV = 'CLAUDE_GATES_DUMP_DEFAULTS';
+// The registry default this gate is shipped with. Kept here (not only in dumpDefaults) so
+// main() and dumpDefaults agree by construction — a value duplicated in two places is
+// exactly the desync that let a gate silently miss its own registry default before (see
+// the project's default-desync incident: registry.json and the gate's own hardcoded
+// enabledByDefault drifting apart across a version bump).
+const ENABLED_BY_DEFAULT = true;
 const DEFAULT_MAX_CLAUSE_CHARS = 120;
 const DEFAULT_KINDS = ['skills', 'agents', 'commands'];
 const DEFAULT_MAP_FILE = join('.ai', 'capability-map.json');
@@ -128,7 +134,13 @@ function projectRootOf(startDirectory) {
   }
 }
 
-/** The capability-map gate config entry (project overrides global), or null. */
+/** The capability-map gate config entry (project overrides global). `enabled` is `true`/
+ * `false` only when a project or global config explicitly declared it — absent (undefined)
+ * means "nothing was declared, fall back to the registry default", the same three-state
+ * shape config.mjs's isGateEnabled uses for every other gate. Distinguishing "never
+ * declared" from "explicitly false" matters once ENABLED_BY_DEFAULT is true: without it, a
+ * project that never touched this gate's config would look identical to one that turned it
+ * off, and the registry default could never take effect. */
 function gateConfig(startDirectory) {
   const root = projectRootOf(startDirectory);
   const projectData = root ? readJson(join(root, PROJECT_CONFIG)) : null;
@@ -137,7 +149,7 @@ function gateConfig(startDirectory) {
   const entry = layer[CONFIG_KEY];
   if (typeof entry === 'boolean') return { enabled: entry };
   if (entry && typeof entry === 'object') return entry;
-  return null;
+  return {};
 }
 
 function readPayload() {
@@ -538,7 +550,7 @@ function dumpDefaults() {
     JSON.stringify({
       id: 'capability-map',
       configKey: CONFIG_KEY,
-      enabledByDefault: false,
+      enabledByDefault: ENABLED_BY_DEFAULT,
       defaultParams: {
         kinds: DEFAULT_KINDS,
         maxClauseChars: DEFAULT_MAX_CLAUSE_CHARS,
@@ -639,7 +651,9 @@ function main() {
   const cwd = payload.cwd || process.cwd();
 
   const config = gateConfig(cwd);
-  if (!config || config.enabled !== true) return; // opt-in: off unless explicitly enabled
+  const isEnabled =
+    config.enabled === undefined ? ENABLED_BY_DEFAULT : config.enabled;
+  if (!isEnabled) return;
 
   const settings = resolvedConfig(config);
   const rawCatalog = buildRawCatalog(

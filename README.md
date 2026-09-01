@@ -90,7 +90,7 @@ works even if you install one on its own.
 | ------------------------- | --- | -------------------------------------------------------------------- |
 | `feature-catalog`         | on  | A single feature in progress; closing requires asserts and review.   |
 | `sdd-specs`               | off | Requires non-empty requirements/design/tasks before implementing.    |
-| `brief-approved`          | off | Requires a recorded user approval (`status: approved` + quote) on the cited feature's brief before implementing. |
+| `brief-approved`          | on  | Requires a recorded user approval (`status: approved` + quote) on the cited feature's brief before implementing. |
 | `implementation-pipeline` | off | Requires declaring definition → writing → validation → QA → closure. |
 | `mandatory-flow`          | off | Requires an active task with a contract before implementing.         |
 | `test-matrix`             | off | Requires a test matrix (the types the requirement makes mandatory).  |
@@ -135,7 +135,7 @@ works even if you install one on its own.
 | `doctor`         | on  | On session start, runs the environment validator and only speaks on failure.                                                                                                                        |
 | `ask-adoption`   | on  | In a project that never answered, makes the assistant ask what to adopt.                                                                                                                            |
 | `wiring-check`   | on  | Warns when a registered hook is missing or a script is orphaned.                                                                                                                                     |
-| `capability-map` | off | Every `injectEveryMessages` messages (default 10; always on the first run and whenever a capability is added/removed), injects the project's capability catalog — skills, agents/subagents, commands — as compact data, and persists it to `.ai/capability-map.json` (like the tool map). Autosynced from disk. Never blocks. |
+| `capability-map` | on | Every `injectEveryMessages` messages (default 10; always on the first run and whenever a capability is added/removed), injects the project's capability catalog — skills, agents/subagents, commands — as compact data, and persists it to `.ai/capability-map.json` (like the tool map). Autosynced from disk. Never blocks. |
 
 ---
 
@@ -184,7 +184,7 @@ see and edit every knob:
   `lint-ok: <reason>` (a documented linter false positive), `[skip-lint]` (skip the
   staged-lint check for one commit), `[wip]` (allow one deliberately broad,
   non-atomic commit). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
-- **Capability injection:** `capability-map` (off by default) is fully tunable — pick which
+- **Capability injection:** `capability-map` (on by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
   (`maxClauseChars`, default 120), add extra roots per kind, throttle how often the full
   catalog is re-injected (`injectEveryMessages`, default 10 — the persisted map file itself

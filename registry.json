@@ -296,7 +296,7 @@
         {
           "id": "brief-approved",
           "configKey": "requireApprovedBriefBeforeImplementing",
-          "default": false,
+          "default": true,
           "event": "PreToolUse",
           "tools": ["delegation"],
           "description": "Denies implementing a cited feature whose brief has no recorded user approval (status: approved + approval_quote frontmatter).",
@@ -847,7 +847,7 @@
         {
           "id": "capability-map",
           "configKey": "injectCapabilityMap",
-          "default": false,
+          "default": true,
           "event": "UserPromptSubmit",
           "tools": [],
           "description": "Injects the current catalog of the project's AI capabilities (skills, agents/subagents, commands) as compact context on every message, grouped by kind, read fresh from disk. Also persists it to .ai/capability-map.json like the tool map. Autosynced: it lists the directories, never a hardcoded copy. Never blocks.",

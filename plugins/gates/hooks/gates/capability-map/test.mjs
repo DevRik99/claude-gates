@@ -80,9 +80,19 @@ function runnerFor(project) {
     });
 }
 
-test('opt-in: silent when config does not enable the gate', () => {
+test('on by default: injects with no config declared at all', () => {
+  const { out } = runGate({
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  assert.match(out, /deploy — Deploys/);
+});
+
+test('explicit enabled:false silences the gate even though it is on by default', () => {
   assert.equal(
-    runGate({ skills: [{ name: 'deploy', description: 'Deploys.' }] }).out,
+    runGate({
+      config: { gates: { injectCapabilityMap: false } },
+      skills: [{ name: 'deploy', description: 'Deploys.' }],
+    }).out,
     '',
   );
 });

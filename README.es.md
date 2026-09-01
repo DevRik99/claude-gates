@@ -88,7 +88,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 |---|---|---|
 | `feature-catalog` | on | Una sola feature en progreso; cerrar exige asserts y revisión. |
 | `sdd-specs` | off | Exige requirements/design/tasks no vacíos antes de implementar. |
-| `brief-approved` | off | Exige una aprobación del usuario registrada (`status: approved` + cita) en el brief de la feature citada antes de implementar. |
+| `brief-approved` | on | Exige una aprobación del usuario registrada (`status: approved` + cita) en el brief de la feature citada antes de implementar. |
 | `implementation-pipeline` | off | Exige declarar definición → escritura → validación → QA → cierre. |
 | `mandatory-flow` | off | Exige una tarea activa con contrato antes de implementar. |
 | `test-matrix` | off | Exige una matriz de tests (los tipos que el requerimiento vuelve obligatorios). |
@@ -129,7 +129,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `doctor` | on | Al iniciar la sesión, corre el validador de entorno y solo habla si algo falla. |
 | `ask-adoption` | on | En un proyecto que nunca respondió, hace que el asistente pregunte qué adoptar. |
 | `wiring-check` | on | Avisa cuando un hook registrado falta o un script quedó huérfano. |
-| `capability-map` | off | Cada `injectEveryMessages` mensajes (default 10; siempre en la primera corrida y cuando se agrega/borra una capacidad), inyecta el catálogo de capacidades del proyecto — skills, agents/subagents, comandos — como dato compacto, y lo persiste en `.ai/capability-map.json` (como el mapa de herramientas). Autosincronizado desde el disco. Nunca bloquea. |
+| `capability-map` | on | Cada `injectEveryMessages` mensajes (default 10; siempre en la primera corrida y cuando se agrega/borra una capacidad), inyecta el catálogo de capacidades del proyecto — skills, agents/subagents, comandos — como dato compacto, y lo persiste en `.ai/capability-map.json` (como el mapa de herramientas). Autosincronizado desde el disco. Nunca bloquea. |
 
 ---
 
@@ -171,7 +171,7 @@ ves y editas cada perilla:
   (saltea el chequeo de staged-lint por un commit), `[wip]` (permite un commit
   deliberadamente amplio, no atómico). `dependency-skills` se exime vía su lista
   `depsWithoutOwnApi`.
-- **Inyección de capacidades:** `capability-map` (off por defecto) es totalmente ajustable —
+- **Inyección de capacidades:** `capability-map` (on por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
   (`maxClauseChars`, default 120), agregá raíces extra por tipo, regulá cada cuánto se
   re-inyecta el catálogo completo (`injectEveryMessages`, default 10 — el archivo persistido

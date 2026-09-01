@@ -169,7 +169,7 @@ runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
-    enabledByDefault: false,
+    enabledByDefault: true,
     defaultParams: {
       catalogLocations: DEFAULT_CATALOG_LOCATIONS,
       exemptSubagents: DEFAULT_EXEMPT_SUBAGENTS,
