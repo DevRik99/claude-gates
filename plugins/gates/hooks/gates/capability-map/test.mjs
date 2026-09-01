@@ -230,6 +230,40 @@ test('a blurb override is used verbatim instead of mechanical truncation', () =>
   assert.match(out, /a11y — Doctrina WCAG 2\.2 corta y con esencia/);
 });
 
+test('adding an override AFTER the map was already cached invalidates the cache (regression: overrides file was not fingerprinted, so a cached run kept serving the stale mechanically-truncated blurb forever)', () => {
+  const project = mkdtempSync(join(tmpdir(), 'capability-map-'));
+  mkdirSync(join(project, '.git'));
+  mkdirSync(join(project, '.ai'));
+  writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(ENABLED));
+  const skillDirectory = join(project, '.claude', 'skills', 'a11y');
+  mkdirSync(skillDirectory, { recursive: true });
+  writeFileSync(
+    join(skillDirectory, 'SKILL.md'),
+    '---\nname: a11y\ndescription: Referencia normativa completa de accesibilidad web con mucho detalle que no entra\n---\n',
+  );
+  const run = runnerFor(project);
+
+  const first = run(); // no override yet: mechanical truncation
+  assert.doesNotMatch(first, /Doctrina WCAG/);
+
+  // The skill file itself is untouched — only the overrides file is added. Without the
+  // overrides file in the fingerprint, the persisted catalog's fingerprint would still
+  // match and the stale (un-overridden) blurb would keep being served.
+  writeFileSync(
+    join(project, '.ai', 'blurb-overrides.json'),
+    JSON.stringify({ a11y: 'Doctrina WCAG 2.2 corta y con esencia' }),
+  );
+  const second = run();
+  assert.match(second, /a11y — Doctrina WCAG 2\.2 corta y con esencia/);
+
+  const mapPath = join(project, '.ai', 'capability-map.json');
+  const map = JSON.parse(readFileSync(mapPath, 'utf8'));
+  assert.equal(
+    map.capabilities.skills.find((s) => s.name === 'a11y').blurb,
+    'Doctrina WCAG 2.2 corta y con esencia',
+  );
+});
+
 test('throttling: only the Nth message injects; disk-unchanged runs in between are silent', () => {
   const project = mkdtempSync(join(tmpdir(), 'capability-map-'));
   mkdirSync(join(project, '.git'));

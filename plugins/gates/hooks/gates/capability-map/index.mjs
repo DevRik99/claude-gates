@@ -401,18 +401,46 @@ function entriesForKind(kind, cwd, config, maxClauseChars) {
   return unique;
 }
 
-/** The overrides map (skill name -> hand-written blurb), read fresh every run — it is a
- * small JSON file, not worth fingerprinting. Project file wins over the global one entry-
- * by-entry (Object.assign, global first) so a project can override a single global entry
- * without having to repeat the rest. */
-function blurbOverridesFor(cwd, blurbOverridesFile) {
+/** The two override file paths in effect for this cwd (global always; project only when a
+ * project root is found), regardless of whether either currently exists. Shared by
+ * blurbOverridesFor (reads them) and blurbOverrideStampsFor (fingerprints them) so the two
+ * can never drift to different paths. */
+function blurbOverridePathsFor(cwd, blurbOverridesFile) {
   const globalPath = join(homedir(), '.claude', 'blurb-overrides.json');
   const root = projectRootOf(cwd);
   const projectPath = root ? join(root, blurbOverridesFile) : null;
+  return projectPath ? [globalPath, projectPath] : [globalPath];
+}
+
+/** The overrides map (capability name -> hand-written blurb). Project file wins over the
+ * global one entry-by-entry (spread, global first) so a project can override a single
+ * global entry without having to repeat the rest. */
+function blurbOverridesFor(cwd, blurbOverridesFile) {
+  const [globalPath, projectPath] = blurbOverridePathsFor(
+    cwd,
+    blurbOverridesFile,
+  );
   return {
     ...(readJson(globalPath) ?? {}),
     ...(projectPath ? (readJson(projectPath) ?? {}) : {}),
   };
+}
+
+/** Stamps for the override file(s) themselves, in the same "<path>:<mtimeMs>" shape as a
+ * capability's stamp — folded into the fingerprint so EDITING AN OVERRIDE (with no skill
+ * file touched at all) still invalidates the cached catalog. Without this, a fresh or
+ * changed blurb-overrides.json would sit unused: the persisted catalog's fingerprint would
+ * still match (no skill/agent/command changed) and resolveCatalog would keep serving the
+ * stale, un-overridden blurb forever — the exact bug a real run surfaced (clean-architecture
+ * got an override added to blurb-overrides.json after the map had already been generated
+ * once, and kept showing the mechanically-truncated text on every later run because nothing
+ * ever invalidated the cache). A missing override file contributes a stable "absent" stamp
+ * (not skipped) so going from absent -> present is itself a fingerprint change. */
+function blurbOverrideStampsFor(cwd, blurbOverridesFile) {
+  return blurbOverridePathsFor(cwd, blurbOverridesFile).map((path) => {
+    const mtimeMs = mtimeMsOf(path);
+    return `${path}:${mtimeMs === null ? 'absent' : mtimeMs}`;
+  });
 }
 
 /** Turns a raw entry (description/maxClauseChars/stamp) into the rendered shape
@@ -429,16 +457,20 @@ function applyBlurbs(entries, overrides) {
 }
 
 /** A stable, order-independent fingerprint of every source file's path+mtime across the
- * whole catalog. Two scans of an unchanged disk produce the same fingerprint; adding,
- * removing, or touching any skill/agent/command file changes it. Sorted before hashing so
+ * whole catalog, plus any `extraStamps` the caller folds in (the override file(s) — see
+ * blurbOverrideStampsFor; a capability's rendered blurb depends on both its own source file
+ * AND the overrides file, so both must be able to invalidate the cache). Two scans of an
+ * otherwise-unchanged disk produce the same fingerprint; adding, removing, or touching any
+ * skill/agent/command file, or the overrides file, changes it. Sorted before hashing so
  * filesystem enumeration order (which readdirSync does not guarantee) never causes a false
  * "changed" reading. sha256 not for any security property (this is a change-detection
  * checksum, nothing here is adversarial) — plain sha1 just trips the linter's blanket
  * weak-hash rule, and sha256 is just as cheap at this size. */
-function fingerprintOf(catalog) {
+function fingerprintOf(catalog, extraStamps = []) {
   const stamps = Object.values(catalog)
     .flat()
     .map((entry) => entry.stamp)
+    .concat(extraStamps)
     .sort();
   return createHash('sha256').update(stamps.join('\n')).digest('hex');
 }
@@ -618,7 +650,11 @@ function main() {
   );
   if (Object.keys(rawCatalog).length === 0) return; // nothing to surface: never overwrite a good map
 
-  const fingerprint = fingerprintOf(rawCatalog);
+  const overrideStamps = blurbOverrideStampsFor(
+    cwd,
+    settings.blurbOverridesFile,
+  );
+  const fingerprint = fingerprintOf(rawCatalog, overrideStamps);
   const root = projectRootOf(cwd);
   const mapPath = root ? join(root, settings.mapFile) : null;
   const persisted = mapPath
