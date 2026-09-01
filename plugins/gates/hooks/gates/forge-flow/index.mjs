@@ -121,11 +121,11 @@ runGate(
     const result = await forgeRunState(root, forgeDatabasePath);
 
     if (result.state === 'active') return; // pipeline is running → allow
-    if (result.state === 'none') deny(GATE_ID, DENY_MESSAGE); // no run → block
+    if (result.state === 'none') deny(CONFIG_KEY, DENY_MESSAGE); // no run → block
     // state 'unknown': the DB could not be read. Allow so a broken lookup never freezes work,
     // but surface it loudly — a silent allow here would disable the enforcer without a trace.
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       `forge enforcement is degraded: the forge DB could not be read (${result.reason}). ` +
         'Allowing this action, but the pipeline is NOT being enforced. Check that forge is ' +
         `installed and ${forgeDatabasePath} is readable, or turn this gate off if intended.`,

@@ -133,7 +133,7 @@ function runLintOverStaged(lintCommand, files, cwd, timeoutMs) {
 function denyIfLintFailed(result, lintCommand, escapeHatch) {
   if (result.error) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Could not run the lint command ("${lintCommand}") over the staged files: ` +
         `${result.error.message}. Fix the lint setup or set lintCommand/` +
         `${CONFIG_KEY} in .ai/config.json.`,
@@ -144,7 +144,7 @@ function denyIfLintFailed(result, lintCommand, escapeHatch) {
       `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
     const outputTail = tailLines(combinedOutput, OUTPUT_TAIL_LINES);
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `The files you staged fail lint — commit blocked until your own changes are clean ` +
         `(the rest of the repo is not checked). Fix them, or add "${escapeHatch}" to the ` +
         `commit command for a deliberate exception:\n${outputTail}`,

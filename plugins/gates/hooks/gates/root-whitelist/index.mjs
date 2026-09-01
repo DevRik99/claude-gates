@@ -205,7 +205,7 @@ runGate(
         filesWhitelist,
         foldersWhitelist,
       );
-      if (reason) deny(GATE_ID, reason);
+      if (reason) deny(CONFIG_KEY, reason);
     }
   },
 );

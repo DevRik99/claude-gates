@@ -448,7 +448,7 @@ function identityKey(signature) {
 
 function denyRepeatedAttempt(count) {
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This same task received ${count} consecutive attempts (same goal, same scope and the same files) ` +
       'in this session, regardless of which subagent_type carried it. STOP retrying and ASK THE USER ' +
       'for help now: state what you tried, what blocked it, and the specific decision or input you need ' +

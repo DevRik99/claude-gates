@@ -203,7 +203,7 @@ runGate(
     if (unapproved.length === 0) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This implementation delegation cites feature(s) [${unapproved.join(', ')}] ` +
         'whose brief/contract has no recorded approval. Paste the FULL brief into the ' +
         'chat, get an explicit confirmation from the user (not a vague "dale"/"sigamos" ' +

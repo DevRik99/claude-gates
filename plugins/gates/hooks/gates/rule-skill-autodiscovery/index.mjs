@@ -163,7 +163,7 @@ runGate(
       if (configsTampered(before)) {
         revertConfigs(before);
         deny(
-          GATE_ID,
+          CONFIG_KEY,
           `Discovered rule/skill script ${relative(projectRoot, script)} attempted to modify gate security configuration (.ai/config.json or the global config). The change was reverted and the action is blocked.`,
         );
         return;
@@ -171,7 +171,7 @@ runGate(
 
       if (failed) {
         deny(
-          GATE_ID,
+          CONFIG_KEY,
           `Sub-gate failed: ${relative(projectRoot, script)}. Fix it before continuing.`,
         );
         return;

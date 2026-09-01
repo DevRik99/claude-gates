@@ -129,7 +129,7 @@ function recordTool(mapPath, normalizedPath, auditLine, toolMapFile) {
     );
   } catch (error) {
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       `Could not record this tool in ${toolMapFile}: ${error?.message ?? error}. ` +
         'The build proceeds, but the discovery was not remembered.',
     );

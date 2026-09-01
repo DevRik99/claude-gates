@@ -175,7 +175,7 @@ runGate(
 
     const lines = missing.map((entry) => `  ${entry.line}`).join('\n');
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Missing ${missing.length} test type(s) the requirement makes mandatory. Test types ` +
         'are chosen ACCORDING TO THE REQUIREMENT: E2E if it touches money/auth/persistence, ' +
         'visual/QA if it touches UI, and always unit or mutation. ' +

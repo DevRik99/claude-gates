@@ -122,7 +122,7 @@ runGate(
     if (nextCount < threshold) return;
 
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       WARN_MESSAGE.replace('{count}', String(nextCount))
         .replace(
           '{windowSeconds}',

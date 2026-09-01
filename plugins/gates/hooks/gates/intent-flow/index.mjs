@@ -181,7 +181,7 @@ function missingSignals(prompt) {
 
 function denyUnresolvedUnknown() {
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     'This request touches a high-impact signal (money/auth/persisted data/public contract/' +
       'irreversible/production) AND declares an unresolved UNKNOWN. Do not relaunch assuming an ' +
       'answer — ask the user what to decide about that UNKNOWN before delegating again.',
@@ -192,7 +192,7 @@ function denyTooShortForScopeList(prompt) {
   const excerpt = prompt.slice(0, PROMPT_EXCERPT_LENGTH);
   const ellipsis = prompt.length > PROMPT_EXCERPT_LENGTH ? '…' : '';
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This implementation request ("${excerpt}${ellipsis}") does not carry a scope list: missing IN ` +
       'SCOPE, OUT OF SCOPE and EDGE CASES. Add it to the prompt before relaunching.',
   );
@@ -200,7 +200,7 @@ function denyTooShortForScopeList(prompt) {
 
 function denyMissingSignals(missing) {
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This implementation request does not declare, in recognizable form: ${missing.join('; ')}. ` +
       'Add what is missing to the prompt before relaunching this delegation.',
   );

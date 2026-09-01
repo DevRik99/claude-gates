@@ -107,7 +107,7 @@ runGate(
     if (!pairedImplementationChanged) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Creating test ${testFileName} after its paired implementation was already modified ` +
         '(uncommitted). Write the test before or alongside the implementation, not after — a ' +
         'test that passes the first time it runs proves nothing about the change. If this is a ' +

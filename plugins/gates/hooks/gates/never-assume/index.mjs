@@ -49,7 +49,7 @@ runGate(
     if (hits.length === 0) return;
 
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       `Content contains conjecture phrasing without stated verification: ${hits.join(', ')}. Verify before asserting instead of assuming.`,
     );
   },

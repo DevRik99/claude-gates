@@ -128,7 +128,7 @@ runGate(
 
     const quotedPhrases = phrases.map((phrase) => `"${phrase}"`).join(', ');
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This delegation depends on the subagent remembering something (${quotedPhrases}), but a ` +
         'fresh subagent has none of this conversation. Put the data IN the prompt, in a file it ' +
         'reads, a flag, or an already-persisted decision. If the phrase directs the subagent’s ' +

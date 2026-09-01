@@ -175,7 +175,7 @@ runGate(
     const lines = missingStages.map((stage) => `  ${stage.line}`).join('\n');
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This delegation is going to build code but skips ${missingStages.length} pipeline ` +
         `stage(s). ${details} ${
           isHighRisk

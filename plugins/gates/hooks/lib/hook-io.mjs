@@ -359,7 +359,7 @@ export async function runGate(gate, check) {
     });
   } catch (error) {
     deny(
-      gate.id,
+      gate.configKey,
       `The gate failed to evaluate and blocks the action for safety: ${error?.message ?? error}.`,
     );
   }

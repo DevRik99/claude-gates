@@ -43,7 +43,7 @@ runGate(
     if (!matched) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Content matches a patch-without-diagnosis marker (${matched.source}). Identify and fix the root cause before patching; do not defer with a "fix later" marker.`,
     );
   },

@@ -173,7 +173,7 @@ function checkDestructive(command, parameters) {
       : [entry, 'Destructive command is not allowed.'],
   );
   for (const [source, reason] of denyPairs) {
-    if (compile(source).test(normalized)) deny(GATE_ID, reason);
+    if (compile(source).test(normalized)) deny(CONFIG_KEY, reason);
   }
 
   // rm -rf over a protected area: areas read from config at runtime, so editing
@@ -184,12 +184,12 @@ function checkDestructive(command, parameters) {
     rmRfAreas.length > 0 &&
     compile(rmRfSourceFrom(rmRfAreas)).test(command)
   ) {
-    deny(GATE_ID, "'rm -rf' over a protected area is not allowed.");
+    deny(CONFIG_KEY, "'rm -rf' over a protected area is not allowed.");
   }
 
   if (parameters.embeddedInterpreterEnabled) {
     const reason = checkEmbeddedInterpreter(command);
-    if (reason) deny(GATE_ID, reason);
+    if (reason) deny(CONFIG_KEY, reason);
   }
 }
 

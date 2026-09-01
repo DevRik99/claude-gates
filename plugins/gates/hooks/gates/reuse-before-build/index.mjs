@@ -224,7 +224,7 @@ function checkDelegation(toolInput, cwd, parameters) {
   const prompt = delegationPromptOf(toolInput);
   if (!isBuildIntent(prompt)) return;
   if (buildIsCleared(prompt, cwd, parameters, null)) return;
-  deny(GATE_ID, DENY_MESSAGE);
+  deny(CONFIG_KEY, DENY_MESSAGE);
 }
 
 /** Write: block a new tool-like file that is not cleared by content, map, or an installed dep. */
@@ -237,7 +237,7 @@ function checkWrite(toolInput, cwd, parameters) {
   const content = writtenContentOf(toolInput);
   const toolBaseName = basename(filePath).replace(/\.[^.]+$/, '');
   if (buildIsCleared(content, cwd, parameters, toolBaseName)) return;
-  deny(GATE_ID, DENY_MESSAGE);
+  deny(CONFIG_KEY, DENY_MESSAGE);
 }
 
 runGate(

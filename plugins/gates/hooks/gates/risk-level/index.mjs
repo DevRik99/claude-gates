@@ -191,7 +191,7 @@ function denyNoLevelDeclared(prompt) {
   const excerpt = prompt.slice(0, PROMPT_EXCERPT_LENGTH);
   const ellipsis = prompt.length > PROMPT_EXCERPT_LENGTH ? '…' : '';
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This implementation delegation ("${excerpt}${ellipsis}") does not declare its risk LEVEL. Add a ` +
       'line such as "LEVEL: STANDARD" (or QUESTION/MICRO/HIGH-RISK, whichever fits) before relaunching ' +
       'this delegation.',
@@ -200,7 +200,7 @@ function denyNoLevelDeclared(prompt) {
 
 function denyAmbiguousLevel(levels) {
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This delegation declares multiple different risk levels (${[...new Set(levels)].join(', ')}) — ` +
       'it is not clear which one governs this task. Declare a single, unambiguous LEVEL for this ' +
       'delegation (remove any decoy/reference mention of a different level) before relaunching.',
@@ -209,7 +209,7 @@ function denyAmbiguousLevel(levels) {
 
 function denyLevelContradictsSignal(level, signal) {
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This delegation declares LEVEL: ${level}, but the request touches the risk signal "${signal}" near ` +
       'an implementation verb (not quoted, not the topic of a documentary deliverable) — that requires ' +
       `LEVEL: HIGH-RISK, not ${level}. Raise the declaration to HIGH-RISK before relaunching.`,

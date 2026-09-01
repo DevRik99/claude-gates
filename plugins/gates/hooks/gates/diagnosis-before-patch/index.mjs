@@ -41,7 +41,7 @@ runGate(
     if (!touchesTimeout) return;
 
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       'Diagnosis before patch: you are adjusting a timeout/deadline/retry value. Before changing a value to fix a symptom ("X is slow/fails"), confirm you read the evidence that proves the cause (a log line from the failing provider/process, not a hypothesis). A timeout should measure inactivity, not total time: a process that is progressing should not be cut off.',
     );
   },

@@ -45,6 +45,6 @@ runGate(
   },
   ({ toolName }) => {
     if (!toolInGroups(toolName, QUESTION_GROUPS)) return;
-    deny(GATE_ID, DENY_MESSAGE);
+    deny(CONFIG_KEY, DENY_MESSAGE);
   },
 );

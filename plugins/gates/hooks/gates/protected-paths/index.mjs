@@ -87,7 +87,7 @@ function checkWrite(toolInput, protectedPaths) {
   const target = writtenPathOf(toolInput);
   if (target && isProtectedPath(target, protectedPaths)) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Writing to '${target}' is not allowed: it matches a protected path (${protectedPaths.join(', ')}).`,
     );
   }
@@ -110,7 +110,7 @@ function checkShellCommand(toolInput, protectedPaths, mutatingCommands) {
 
   if (targetsProtected) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This command targets a protected path (${protectedPaths.join(', ')}) with a mutating operation. ` +
         'Reading (echo/cat/grep) is fine; modifying it is not.',
     );

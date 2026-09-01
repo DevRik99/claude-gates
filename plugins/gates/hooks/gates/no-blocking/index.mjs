@@ -153,7 +153,7 @@ runGate(
     for (const [source, reason] of blockingPairs) {
       if (compile(source).test(command)) {
         deny(
-          GATE_ID,
+          CONFIG_KEY,
           `${reason} If this wait is genuinely justified, add "${marker} <concrete reason>" ` +
             'to the command and try again. A declared wait is a decision; a silent one is an oversight.',
         );

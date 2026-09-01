@@ -131,9 +131,9 @@ runGate(
     for (const [source, reason] of parameters.publishRules) {
       const pattern = compile(source);
       if (isShell) {
-        if (pattern.test(shellCommand)) deny(GATE_ID, reason);
+        if (pattern.test(shellCommand)) deny(CONFIG_KEY, reason);
       } else if (hasRealPublishIntent(command, pattern)) {
-        deny(GATE_ID, reason);
+        deny(CONFIG_KEY, reason);
       }
     }
   },

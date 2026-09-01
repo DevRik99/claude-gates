@@ -53,7 +53,7 @@ function checkDelegation(toolInput) {
   if (AUDIT_EVIDENCE_PATTERN.test(prompt)) return;
 
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     'Delegating creation of a new script/checker/gate/hook/linter/tool without evidence of a prior audit. State what you searched and why no existing tool covers this (e.g. "audited and no existing tool...").',
   );
 }
@@ -84,7 +84,7 @@ function checkWrite(toolInput, parameters) {
   if (INLINE_JUSTIFICATION_PATTERN.test(content)) return;
 
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `Creating a new executable tool at ${filePath} without a justification comment (e.g. "justification: ..."). Document why no existing tool covers this before building a new one.`,
   );
 }

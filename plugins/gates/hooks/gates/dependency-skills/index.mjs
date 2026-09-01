@@ -112,7 +112,7 @@ runGate(
     if (unmatched.length === 0) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `New dependencies without a matching skill in ${parameters.projectSkillsDir}: ${unmatched.join(', ')}. ` +
         'Add a skill documenting how to use each (directory name matching or containing the ' +
         'package name), OR, if a dependency genuinely needs no skill, declare it in ' +

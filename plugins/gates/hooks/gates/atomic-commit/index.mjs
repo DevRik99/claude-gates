@@ -208,7 +208,7 @@ runGate(
 
     if (countedNatures.size > maxNatures) {
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `This commit mixes ${countedNatures.size} kinds of change ` +
           `(${[...countedNatures].join(', ')}) — a commit should be one cohesive change ` +
           `(max ${maxNatures}). Split it: stage and commit one nature at a time (e.g. the ` +
@@ -219,7 +219,7 @@ runGate(
 
     if (counted.length > maxFiles) {
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `This commit stages ${counted.length} reviewable files (max ${maxFiles}) — too large ` +
           `to review as one unit. Split it into smaller, cohesive commits (docs/assets/` +
           `generated files are not counted). Add "${escapeHatch}" for one deliberately broad commit.`,

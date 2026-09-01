@@ -153,7 +153,7 @@ function denyIfAdvancedFeatureLacksContract(features, treeRoot) {
     if (!feature?.name || !ADVANCED_STATUSES.has(feature.status)) continue;
     if (contractExistsFor(treeRoot, feature.name)) continue;
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Feature '${feature.name}' is set to '${feature.status}' but has no non-empty ` +
         `contract (${CONTRACT_FILES.join(', ')}) under the discovered contract tree.`,
     );
@@ -171,7 +171,7 @@ function checkCatalogWrite(toolInput, catalogPath, treeRoot) {
     // still targets the catalog is suspicious on its own -- a spec_ready/done transition
     // hidden behind a malformed payload must not be silently allowed through.
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `The write to ${CATALOG_FILE_NAME} does not parse as JSON. A catalog write that ` +
         'cannot be verified for the spec-contract invariant is not allowed; fix the JSON ' +
         'or write valid content.',
@@ -213,7 +213,7 @@ function checkDelegation(toolInput, treeRoot, exemptSubagents) {
   );
   if (missing.length === citedFeatures.length) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This implementation delegation cites feature(s) [${missing.join(', ')}] with no ` +
         `non-empty contract (${CONTRACT_FILES.join(', ')}) on disk. Write the contract ` +
         'before implementing.',

@@ -133,7 +133,7 @@ runGate(
       // timeout kill). A commit gate that cannot evaluate must not silently permit — deny
       // with the spawn error so the user can fix the environment, not guess.
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `Could not run the lint command ("${lintCommand}"): ${result.error.message}. Fix ` +
           'the lint setup or set lintCommand/blockCommitWithFailingLint in .ai/config.json.',
       );
@@ -143,7 +143,7 @@ runGate(
       const combinedOutput =
         `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `Lint failed (exit ${result.status}) — commit blocked until it passes:\n` +
           `${tailLines(combinedOutput, OUTPUT_TAIL_LINES)}`,
       );

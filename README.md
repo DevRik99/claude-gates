@@ -55,6 +55,11 @@ If any gate blocks, the tool does not run.
 - **WARN**: the action needs judgment → the gate injects a note and lets it proceed.
 - **Silence**: the common path. A gate never nags when there is nothing to object to.
 
+Every DENY/WARN message is prefixed `[configKey]` — the exact key name to look up (or turn
+off/tune) under `"gates"` in `.ai/config.json`, e.g. `[blockPathsOutsideRootWhitelist] '...'
+is not on the whitelist.` means the setting is `blockPathsOutsideRootWhitelist` in the table
+below, not some other name you'd have to guess or map from a short gate id.
+
 Every gate is **self-contained** (Node built-ins only, no runtime dependencies), so it
 works even if you install one on its own.
 

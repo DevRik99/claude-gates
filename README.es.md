@@ -56,6 +56,12 @@ Si algún gate bloquea, la herramienta no se ejecuta.
 - **WARN**: la acción necesita criterio → el gate inyecta un aviso y deja seguir.
 - **Silencio**: el caso común. Un gate no molesta si no hay nada que objetar.
 
+Todo mensaje DENY/WARN lleva el prefijo `[configKey]` — el nombre exacto de la clave para
+buscar (o apagar/ajustar) bajo `"gates"` en `.ai/config.json`, por ejemplo
+`[blockPathsOutsideRootWhitelist] '...' no está en la whitelist.` significa que la
+configuración es `blockPathsOutsideRootWhitelist` en la tabla de abajo, no otro nombre que
+haya que adivinar o traducir desde un id corto de gate.
+
 Cada gate es **autocontenido** (solo Node built-ins, sin dependencias en tiempo de
 ejecución), así que funciona aunque instales uno suelto por fuera.
 

@@ -209,7 +209,7 @@ function denyTooShort(prompt) {
   const excerpt = prompt.slice(0, PROMPT_EXCERPT_LENGTH);
   const ellipsis = prompt.length > PROMPT_EXCERPT_LENGTH ? '…' : '';
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     `This delegation asks for implementation ("${excerpt}${ellipsis}") in a ${prompt.length}-character ` +
       'prompt — too short to carry a goal, steps and a done-when criterion. State what this aims to ' +
       'achieve, what concretely needs doing (as a list or steps), and how completion is verified, then ' +
@@ -222,7 +222,7 @@ function reportMissingSignals(missing) {
 
   if (missing.length < TOTAL_REQUIRED_SIGNALS) {
     warn(
-      GATE_ID,
+      CONFIG_KEY,
       `This implementation delegation does not recognizably state: ${missing.join('; ')}. ` +
         'If it is already there under different wording, proceed — this is only a warning. ' +
         'Otherwise add it before the subagent starts blind.',
@@ -231,7 +231,7 @@ function reportMissingSignals(missing) {
   }
 
   deny(
-    GATE_ID,
+    CONFIG_KEY,
     'This delegation asks for implementation but states neither as a list nor recognizable prose: ' +
       `${missing.join('; ')}. Add to the prompt: (1) the GOAL — what this aims to achieve; ` +
       '(2) the STEPS — concrete files/actions, as a list; (3) the CRITERION — how completion is ' +

@@ -50,7 +50,6 @@ import { dirname, join } from 'node:path';
 import { isGateEnabled, gateParameters } from '../../lib/config.mjs';
 import { readHookPayload } from '../../lib/hook-io.mjs';
 
-const GATE_ID = 'stop-pending';
 const CONFIG_KEY = 'blockStopWithPendingTasks';
 
 const PROJECT_ROOT_MARKERS = ['.git', '.ai'];
@@ -153,7 +152,7 @@ function main() {
     if (blockingTasks.length === 0) return allow();
 
     return block(
-      `[${GATE_ID}] There are ${blockingTasks.length} pending task(s) still active for this ` +
+      `[${CONFIG_KEY}] There are ${blockingTasks.length} pending task(s) still active for this ` +
         `project:\n${describeTasks(blockingTasks)}\n` +
         'Close each before ending the turn: `task close <id> --evidence "..."` when done, ' +
         'or `task abandon <id> --reason "..."` when it will not be finished. A task left ' +

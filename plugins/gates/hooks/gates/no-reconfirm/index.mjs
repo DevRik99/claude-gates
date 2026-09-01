@@ -197,6 +197,6 @@ runGate(
       parameters.overlapThreshold,
     );
     if (notices.length === 0) return;
-    warn(GATE_ID, notices.join('\n\n'));
+    warn(CONFIG_KEY, notices.join('\n\n'));
   },
 );

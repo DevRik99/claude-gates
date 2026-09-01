@@ -84,7 +84,7 @@ runGate(
 
     const names = openRecurrences.map((entry) => entry.class).join(', ');
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Registered recurring issue classes are still open and at/above threshold: ${names}. Resolve or close them before proceeding.`,
     );
   },

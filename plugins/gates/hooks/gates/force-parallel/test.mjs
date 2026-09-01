@@ -50,7 +50,10 @@ test('3 sequential delegations in the same session: the 3rd warns', () => {
   assert.equal(first, null, 'first delegation should not warn');
   assert.equal(second, null, 'second delegation should not warn');
   assert.ok(isWarn(third), 'third consecutive delegation should warn');
-  assert.match(third.hookSpecificOutput.additionalContext, /force-parallel/);
+  assert.match(
+    third.hookSpecificOutput.additionalContext,
+    /warnSequentialDelegations/,
+  );
 
   rmSync(join(STATE_ROOT, sessionId), { recursive: true, force: true });
 });

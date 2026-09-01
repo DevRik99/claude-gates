@@ -54,7 +54,7 @@ test('planted violation: git push is DENIED when the gate is on (default)', () =
   );
   assert.match(
     result.hookSpecificOutput.permissionDecisionReason,
-    /block-remote-publish/,
+    /blockRemotePublish/,
   );
 });
 

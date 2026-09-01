@@ -94,7 +94,7 @@ runGate(
 
     const unique = [...new Set(hits)].slice(0, MAX_REPORTED_MARKERS);
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `Text being written contains regional Spanish markers: ${unique.join(', ')}. ` +
         'Rewrite in neutral Spanish before writing. If the regional wording is intentional ' +
         `(a literal quote, a test fixture, a captured log, a data sample), add the marker ` +

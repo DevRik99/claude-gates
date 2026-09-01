@@ -116,7 +116,7 @@ runGate(
     if (!match) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This commit message carries an AI/agent attribution trailer (matched "${match}"). ` +
         'Remove it — no Co-Authored-By, no "Generated with", no session trailer. If this ' +
         `commit legitimately must keep a co-author (e.g. importing external history), add ` +

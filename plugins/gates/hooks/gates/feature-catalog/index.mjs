@@ -61,7 +61,7 @@ runGate(
     // Base, non-negotiable: `done` is never written directly to the catalog.
     if (DONE_STATUS_PATTERN.test(content)) {
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `Writing 'status: done' directly to ${catalogFileName} is not allowed. ` +
           'Only a review/QA subagent or a validated automated process may close a feature.',
       );
@@ -74,7 +74,7 @@ runGate(
       .length;
     if (inProgressCount > maxInProgress) {
       deny(
-        GATE_ID,
+        CONFIG_KEY,
         `${catalogFileName} would have ${inProgressCount} features 'in_progress'; ` +
           `the maximum allowed is ${maxInProgress}.`,
       );

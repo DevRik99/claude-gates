@@ -173,7 +173,7 @@ runGate(
     if (!offender) return;
 
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This write silences the linter/type-checker instead of fixing the code: "${offender}". ` +
         'Fix the underlying issue rather than turning the check off. If this is a genuine, ' +
         `documented false positive, put "${escapeHatch} <reason>" on the same line so the ` +

@@ -125,7 +125,7 @@ function readSlug(pointerPath) {
 function checkLiveTask(pointerPath) {
   if (!existsSync(pointerPath)) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `This delegation is going to implement, but there is no live task: ${pointerPath} ` +
         'does not exist. Start a task pointing to it before delegating, or declare ' +
         'LEVEL: QUESTION/MICRO if this is not implementation.',
@@ -135,7 +135,7 @@ function checkLiveTask(pointerPath) {
   const slug = readSlug(pointerPath);
   if (!slug) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `${pointerPath} exists but is empty. An active-task pointer with no slug is not ` +
         'a live task. Write the task slug into it before delegating.',
     );
@@ -144,7 +144,7 @@ function checkLiveTask(pointerPath) {
   const taskDirectory = join(process.cwd(), '.ai', 'pipeline', slug);
   if (!hasTaskContract(taskDirectory)) {
     deny(
-      GATE_ID,
+      CONFIG_KEY,
       `The active task '${slug}' has no contract on disk: none of ` +
         `${TASK_CONTRACT_FILES.join(', ')} exists under ${taskDirectory}. ` +
         'Write the contract before implementing.',
