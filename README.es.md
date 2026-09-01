@@ -30,7 +30,7 @@ npx @devrik-tools/claude-gates init
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
 
-> **¿Por qué dos cosas?** El plugin **siempre trae los 40 gates**; la configuración decide
+> **¿Por qué dos cosas?** El plugin **siempre trae los 41 gates**; la configuración decide
 > **cuáles se ejecutan**. Así puedes prender uno sin reinstalar: es una línea en un JSON.
 
 ---
@@ -88,6 +88,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 |---|---|---|
 | `feature-catalog` | on | Una sola feature en progreso; cerrar exige asserts y revisión. |
 | `sdd-specs` | off | Exige requirements/design/tasks no vacíos antes de implementar. |
+| `brief-approved` | off | Exige una aprobación del usuario registrada (`status: approved` + cita) en el brief de la feature citada antes de implementar. |
 | `implementation-pipeline` | off | Exige declarar definición → escritura → validación → QA → cierre. |
 | `mandatory-flow` | off | Exige una tarea activa con contrato antes de implementar. |
 | `test-matrix` | off | Exige una matriz de tests (los tipos que el requerimiento vuelve obligatorios). |

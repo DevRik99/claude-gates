@@ -294,6 +294,27 @@
           ]
         },
         {
+          "id": "brief-approved",
+          "configKey": "requireApprovedBriefBeforeImplementing",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["delegation"],
+          "description": "Denies implementing a cited feature whose brief has no recorded user approval (status: approved + approval_quote frontmatter).",
+          "script": "gates/brief-approved/index.mjs",
+          "params": [
+            {
+              "name": "catalogLocations",
+              "type": "string[]",
+              "description": "Paths searched for the feature catalog."
+            },
+            {
+              "name": "exemptSubagents",
+              "type": "string[]",
+              "description": "Subagent types exempt from the approval requirement."
+            }
+          ]
+        },
+        {
           "id": "implementation-pipeline",
           "configKey": "requireImplementationPipeline",
           "default": false,

@@ -126,6 +126,16 @@
         "hooks": [
           {
             "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/brief-approved/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/implementation-pipeline/index.mjs\"",
             "timeout": 30
           }

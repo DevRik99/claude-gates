@@ -158,6 +158,20 @@
       "note": "auto-off unless a features tree exists; needs seeded .ai/feature_list.json + features dir."
     },
     {
+      "id": "brief-approved",
+      "configKey": "requireApprovedBriefBeforeImplementing",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Agent",
+        "tool_input": {
+          "prompt": "Nivel: STANDARD\nImplementa .ai/features/checkout/brief.md."
+        }
+      },
+      "needsState": true,
+      "note": "auto-off unless a features tree exists; needs a seeded .ai/features/<name>/brief.md with no approved frontmatter."
+    },
+    {
       "id": "implementation-pipeline",
       "configKey": "requireImplementationPipeline",
       "enabledByDefault": false,

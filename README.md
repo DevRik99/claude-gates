@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 40 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 41 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -90,6 +90,7 @@ works even if you install one on its own.
 | ------------------------- | --- | -------------------------------------------------------------------- |
 | `feature-catalog`         | on  | A single feature in progress; closing requires asserts and review.   |
 | `sdd-specs`               | off | Requires non-empty requirements/design/tasks before implementing.    |
+| `brief-approved`          | off | Requires a recorded user approval (`status: approved` + quote) on the cited feature's brief before implementing. |
 | `implementation-pipeline` | off | Requires declaring definition → writing → validation → QA → closure. |
 | `mandatory-flow`          | off | Requires an active task with a contract before implementing.         |
 | `test-matrix`             | off | Requires a test matrix (the types the requirement makes mandatory).  |
