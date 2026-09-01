@@ -1,11 +1,13 @@
 // capability-map — UserPromptSubmit hook. Surfaces the REAL, current catalog of the project's
 // AI capabilities — skills, agents/subagents, and commands — as compact data ("caveman"
-// format: `name — first clause`, one line each, grouped by kind), read fresh from disk on
-// every message. It also PERSISTS that catalog to .ai/capability-map.json so the map is easy
-// to follow and read the same way the tool map (.ai/tool-map.json) is, and so another tool or
-// a human can consult it without re-scanning. Autosynced by construction: add or remove a
-// skill/agent/command file and the next message reflects it, because the map IS the directory
-// listing, never a hardcoded copy.
+// format: `name — first clause`, one line each, grouped by kind). It also PERSISTS that
+// catalog to .ai/capability-map.json so the map is easy to follow and read the same way the
+// tool map (.ai/tool-map.json) is, and so another tool or a human can consult it without
+// re-scanning. Autosynced by construction: add or remove a skill/agent/command file and the
+// next message reflects it (a removed capability's entry disappears with it — the catalog is
+// derived from what is on disk NOW, never a stale copy of what used to be there), because the
+// catalog IS the directory listing. Re-deriving blurbs (the only non-trivial per-entry work)
+// is skipped when disk is provably unchanged since the last scan — see fingerprintOf below.
 //
 // It does NOT tell the model to obey a reminder — that would be prose the model may ignore,
 // the exact antipattern guard-no-model-reliance forbids. It injects a fact (which capabilities
@@ -29,6 +31,25 @@
 // Each injected line is `name — first clause` (up to the first '. ' or a hard char cap), so
 // the whole catalog stays cheap even at dozens of entries.
 //
+// ── Blurb overrides for descriptions that don't fit ─────────────────────────────────────
+// When a description's first clause is longer than `maxClauseChars`, mechanical truncation
+// (even at a word boundary) loses the point of a dense one-liner (e.g. "Referencia normativa
+// completa de accesibilidad web (WCAG 2.2, ARIA, teclado, lectores de…" tells you nothing).
+// Writing an actual summary needs judgment a Node hook does not have — so instead this gate
+// reads a human/assistant-authored override by capability name from `~/.claude/blurb-
+// overrides.json` and `<project>/<blurbOverridesFile>` (project wins per-key) and uses it
+// verbatim (still capped at maxClauseChars, in case an override itself runs long). A
+// capability with no override falls back to the mechanical truncation — never blocked on
+// someone writing every override up front.
+//
+// ── Throttled injection, not every message ──────────────────────────────────────────────
+// Injecting the full catalog on every UserPromptSubmit burns context on every turn for a
+// catalog that rarely changes turn-to-turn. `injectEveryMessages` (default 10, same shape as
+// tasks' remindEveryMessages) counts messages via a small persisted counter next to the map
+// file and only injects on the Nth. The persisted .ai/capability-map.json is still refreshed
+// from disk on EVERY message regardless of the counter — persistence is cheap (a file write,
+// not context) and staying accurate matters even between injections.
+//
 // ── Skills also scanned outside the .claude layout, unconditionally ────────────────────
 // `~/.agents/skills`, `<project>/.agents/skills`, `~/.ai/skills`, `<project>/.ai/skills` are
 // scanned as skill roots by default (no config needed) alongside `.claude/skills` — these
@@ -38,14 +59,18 @@
 // roots — only `.claude` is known to lay those out as siblings of `skills`.
 //
 // ── What a project can configure (params) — everything is customizable ───────────────
-//   kinds            which capability kinds to include, e.g. ["skills","agents","commands"].
-//                    Drop one to stop scanning it entirely.
-//   maxClauseChars   hard cap on each entry's one-line blurb (default 90).
+//   kinds              which capability kinds to include, e.g. ["skills","agents","commands"].
+//                      Drop one to stop scanning it entirely.
+//   maxClauseChars     hard cap on each entry's one-line blurb (default 120).
 //   extraSkillsDirs / extraAgentsDirs / extraCommandsDirs   additional roots per kind
-//                    (relative to project or absolute), added on top of the built-in ones.
-//   persist          whether to write .ai/capability-map.json (default true).
-//   mapFile          path to the persisted map, relative to project root. Default
-//                    .ai/capability-map.json.
+//                      (relative to project or absolute), added on top of the built-in ones.
+//   persist            whether to write .ai/capability-map.json (default true).
+//   mapFile            path to the persisted map, relative to project root. Default
+//                      .ai/capability-map.json.
+//   injectEveryMessages   inject the rendered catalog only every Nth message (default 10);
+//                      the persisted map file still refreshes every message regardless.
+//   blurbOverridesFile   path to the overrides JSON, relative to project root. Default
+//                      .ai/blurb-overrides.json.
 //
 // ── Fail-safe shape ──────────────────────────────────────────────────────────────────
 // Nothing found anywhere, gate disabled, or unreadable input: inject nothing (silent, no
@@ -53,11 +78,13 @@
 // swallowed: the injection is the job, the file is a convenience. Never blocks —
 // UserPromptSubmit cannot deny; it only adds context.
 
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -66,9 +93,11 @@ import { basename, dirname, extname, isAbsolute, join } from 'node:path';
 const STDIN_FILE_DESCRIPTOR = 0;
 const CONFIG_KEY = 'injectCapabilityMap';
 const DUMP_ENV = 'CLAUDE_GATES_DUMP_DEFAULTS';
-const DEFAULT_MAX_CLAUSE_CHARS = 90;
+const DEFAULT_MAX_CLAUSE_CHARS = 120;
 const DEFAULT_KINDS = ['skills', 'agents', 'commands'];
 const DEFAULT_MAP_FILE = join('.ai', 'capability-map.json');
+const DEFAULT_BLURB_OVERRIDES_FILE = join('.ai', 'blurb-overrides.json');
+const DEFAULT_INJECT_EVERY_MESSAGES = 10;
 const JSON_INDENT = 2;
 
 // Config lookup mirrors config.mjs (project → global), kept local so a gate stays runnable on
@@ -175,15 +204,25 @@ function parseFrontMatter(fileText) {
   return { name, description };
 }
 
+/** Truncates text to at most maxChars, breaking at the last whitespace boundary before
+ * the limit rather than mid-word — a hard char-index cut turns "lectores de pantalla"
+ * into "lectores de…", losing the word instead of just the tail of the sentence. Falls
+ * back to a hard cut only when there is no whitespace to break on (one very long word). */
+function truncateAtWordBoundary(text, maxChars) {
+  if (text.length <= maxChars) return text;
+  const budget = text.slice(0, maxChars - 1);
+  const lastSpace = budget.lastIndexOf(' ');
+  const cut = lastSpace > 0 ? budget.slice(0, lastSpace) : budget;
+  return `${cut.trimEnd()}…`;
+}
+
 /** The description's first clause, capped — the caveman blurb. */
 function firstClause(description, maxClauseChars) {
   if (!description) return '';
   const sentenceEnd = description.indexOf('. ');
   const clause =
     sentenceEnd > 0 ? description.slice(0, sentenceEnd) : description;
-  return clause.length > maxClauseChars
-    ? `${clause.slice(0, maxClauseChars - 1).trimEnd()}…`
-    : clause;
+  return truncateAtWordBoundary(clause, maxClauseChars);
 }
 
 /** Recursively lists files under a directory whose extension is in `extensions`. */
@@ -207,7 +246,21 @@ function filesUnder(directory, extensions) {
   return files;
 }
 
-/** Skill capabilities under one root: <root>/skills/<name>/SKILL.md. */
+/** The file's mtime in ms, or null when it cannot be stat'd (broken junction, race). A
+ * source this gate cannot stat contributes nothing stable to the fingerprint — treated as
+ * absent so a dangling link does not poison every future comparison with a NaN/undefined. */
+function mtimeMsOf(path) {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+/** Skill capabilities under one root: <root>/skills/<name>/SKILL.md. Each entry carries
+ * `stamp: "<path>:<mtimeMs>"`, the unit the disk fingerprint is built from (see
+ * fingerprintOf) — cheap because it reuses the stat already needed to read the file, no
+ * second filesystem pass. */
 function skillEntriesUnder(skillsRoot, maxClauseChars) {
   if (!existsSync(skillsRoot)) return [];
   let skillDirectories;
@@ -220,7 +273,8 @@ function skillEntriesUnder(skillsRoot, maxClauseChars) {
   for (const skillDirectory of skillDirectories) {
     if (!skillDirectory.isDirectory()) continue;
     const skillFile = join(skillsRoot, skillDirectory.name, 'SKILL.md');
-    if (!existsSync(skillFile)) continue;
+    const mtimeMs = mtimeMsOf(skillFile);
+    if (mtimeMs === null) continue; // missing or a dangling link: not a real source
     let content;
     try {
       content = readFileSync(skillFile, 'utf8');
@@ -230,16 +284,21 @@ function skillEntriesUnder(skillsRoot, maxClauseChars) {
     const { name, description } = parseFrontMatter(content);
     entries.push({
       name: name || skillDirectory.name,
-      blurb: firstClause(description, maxClauseChars),
+      description,
+      maxClauseChars,
+      stamp: `${skillFile}:${mtimeMs}`,
     });
   }
   return entries;
 }
 
-/** Agent/command capabilities: flat or nested files whose front matter carries a description. */
+/** Agent/command capabilities: flat or nested files whose front matter carries a description.
+ * Same stamp shape as skillEntriesUnder, for the same reason. */
 function fileEntriesUnder(directory, extensions, maxClauseChars) {
   const entries = [];
   for (const file of filesUnder(directory, extensions)) {
+    const mtimeMs = mtimeMsOf(file);
+    if (mtimeMs === null) continue;
     let content;
     try {
       content = readFileSync(file, 'utf8');
@@ -249,7 +308,9 @@ function fileEntriesUnder(directory, extensions, maxClauseChars) {
     const { name, description } = parseFrontMatter(content);
     entries.push({
       name: name || basename(file, extname(file)),
-      blurb: firstClause(description, maxClauseChars),
+      description,
+      maxClauseChars,
+      stamp: `${file}:${mtimeMs}`,
     });
   }
   return entries;
@@ -284,7 +345,9 @@ function resolveExtra(cwd, directory) {
   return isAbsolute(directory) ? directory : join(cwd, directory);
 }
 
-/** Every entry for one kind across all roots, de-duplicated by name. */
+/** Every entry for one kind across all roots, de-duplicated by name (each entry still
+ * carries description/maxClauseChars/stamp — blurb overrides and truncation are applied
+ * later, once, in applyBlurbs, not per-root). */
 function entriesForKind(kind, cwd, config, maxClauseChars) {
   const perKind = {
     skills: {
@@ -338,14 +401,86 @@ function entriesForKind(kind, cwd, config, maxClauseChars) {
   return unique;
 }
 
+/** The overrides map (skill name -> hand-written blurb), read fresh every run — it is a
+ * small JSON file, not worth fingerprinting. Project file wins over the global one entry-
+ * by-entry (Object.assign, global first) so a project can override a single global entry
+ * without having to repeat the rest. */
+function blurbOverridesFor(cwd, blurbOverridesFile) {
+  const globalPath = join(homedir(), '.claude', 'blurb-overrides.json');
+  const root = projectRootOf(cwd);
+  const projectPath = root ? join(root, blurbOverridesFile) : null;
+  return {
+    ...(readJson(globalPath) ?? {}),
+    ...(projectPath ? (readJson(projectPath) ?? {}) : {}),
+  };
+}
+
+/** Turns a raw entry (description/maxClauseChars/stamp) into the rendered shape
+ * (name/blurb/stamp) — an override is used verbatim (still capped, in case it runs long
+ * itself); with no override, falls back to the mechanical first-clause truncation. */
+function applyBlurbs(entries, overrides) {
+  return entries.map((entry) => {
+    const override = overrides[entry.name];
+    const blurb = override
+      ? truncateAtWordBoundary(override, entry.maxClauseChars)
+      : firstClause(entry.description, entry.maxClauseChars);
+    return { name: entry.name, blurb, stamp: entry.stamp };
+  });
+}
+
+/** A stable, order-independent fingerprint of every source file's path+mtime across the
+ * whole catalog. Two scans of an unchanged disk produce the same fingerprint; adding,
+ * removing, or touching any skill/agent/command file changes it. Sorted before hashing so
+ * filesystem enumeration order (which readdirSync does not guarantee) never causes a false
+ * "changed" reading. sha256 not for any security property (this is a change-detection
+ * checksum, nothing here is adversarial) — plain sha1 just trips the linter's blanket
+ * weak-hash rule, and sha256 is just as cheap at this size. */
+function fingerprintOf(catalog) {
+  const stamps = Object.values(catalog)
+    .flat()
+    .map((entry) => entry.stamp)
+    .sort();
+  return createHash('sha256').update(stamps.join('\n')).digest('hex');
+}
+
+/** Strips `stamp` before persisting/rendering — it is scan-time-only plumbing for the
+ * fingerprint, not part of the public map shape. */
+function withoutStamps(catalog) {
+  const stripped = {};
+  for (const [kind, entries] of Object.entries(catalog)) {
+    stripped[kind] = entries.map(({ name, blurb }) => ({ name, blurb }));
+  }
+  return stripped;
+}
+
+/** Reads the persisted map's catalog + fingerprint + injection counter, or nulls when
+ * absent/corrupt. Used to decide whether a rescan is needed and to track injectEveryMessages
+ * without a second store file. */
+function readPersistedState(mapPath) {
+  const data = readJson(mapPath);
+  if (!data || typeof data !== 'object') {
+    return { catalog: null, fingerprint: null, messageCount: 0 };
+  }
+  return {
+    catalog:
+      data.capabilities && typeof data.capabilities === 'object'
+        ? data.capabilities
+        : null,
+    fingerprint: typeof data.fingerprint === 'string' ? data.fingerprint : null,
+    messageCount: Number.isInteger(data.messageCount) ? data.messageCount : 0,
+  };
+}
+
 /** Persists the map to .ai/capability-map.json, best-effort — never throws, never blocks. */
-function persistMap(cwd, mapFile, catalog) {
+function persistMap(cwd, mapFile, catalog, fingerprint, messageCount) {
   const root = projectRootOf(cwd);
   if (!root) return;
   const mapPath = join(root, mapFile);
   const payload = {
     generatedAt: new Date().toISOString(),
-    capabilities: catalog,
+    fingerprint,
+    messageCount,
+    capabilities: withoutStamps(catalog),
   };
   try {
     mkdirSync(dirname(mapPath), { recursive: true });
@@ -380,13 +515,16 @@ function dumpDefaults() {
         extraCommandsDirs: [],
         persist: true,
         mapFile: DEFAULT_MAP_FILE,
+        blurbOverridesFile: DEFAULT_BLURB_OVERRIDES_FILE,
+        injectEveryMessages: DEFAULT_INJECT_EVERY_MESSAGES,
       },
     }),
   );
 }
 
-/** The non-empty catalog keyed by kind, in the order `kinds` lists them. */
-function buildCatalog(kinds, cwd, config, maxClauseChars) {
+/** The non-empty raw catalog (description/maxClauseChars/stamp per entry — no blurbs yet),
+ * keyed by kind, in the order `kinds` lists them. */
+function buildRawCatalog(kinds, cwd, config, maxClauseChars) {
   const catalog = {};
   for (const kind of kinds) {
     const entries = entriesForKind(kind, cwd, config, maxClauseChars);
@@ -410,6 +548,55 @@ function renderCatalog(catalog, kinds) {
   return `[capabilities] available (check before improvising something one of these covers):\n${sections.join('\n')}\n`;
 }
 
+/** Every tunable read out of the raw config object, with its default applied — keeps main()
+ * a single flat read instead of five inline `config.x || DEFAULT_X` expressions. */
+function resolvedConfig(config) {
+  return {
+    maxClauseChars: Number(config.maxClauseChars) || DEFAULT_MAX_CLAUSE_CHARS,
+    kinds: Array.isArray(config.kinds) ? config.kinds : DEFAULT_KINDS,
+    mapFile: config.mapFile || DEFAULT_MAP_FILE,
+    blurbOverridesFile:
+      config.blurbOverridesFile || DEFAULT_BLURB_OVERRIDES_FILE,
+    injectEveryMessages:
+      Number(config.injectEveryMessages) || DEFAULT_INJECT_EVERY_MESSAGES,
+    persist: config.persist !== false,
+  };
+}
+
+/** The rendered { name, blurb } catalog for this run: reused verbatim from the persisted
+ * map when disk is provably unchanged since the last scan (same fingerprint), or freshly
+ * derived (overrides applied, then mechanical truncation for the rest) otherwise. Re-
+ * deriving is the only per-entry work worth skipping — everything downstream only ever
+ * sees { name, blurb }, never `stamp`/`description`/`maxClauseChars`. */
+function resolveCatalog(rawCatalog, persisted, fingerprint, cwd, settings) {
+  if (persisted.fingerprint === fingerprint && persisted.catalog) {
+    return persisted.catalog;
+  }
+  const overrides = blurbOverridesFor(cwd, settings.blurbOverridesFile);
+  const rendered = Object.fromEntries(
+    Object.entries(rawCatalog).map(([kind, entries]) => [
+      kind,
+      applyBlurbs(entries, overrides),
+    ]),
+  );
+  return withoutStamps(rendered);
+}
+
+/** Whether this run should inject the rendered catalog, and the counter value to persist
+ * either way. A fingerprint change forces immediate injection: either this is the very
+ * first run for this project (persisted.fingerprint is null — nothing has ever been
+ * injected, and waiting up to injectEveryMessages turns before the model learns these
+ * capabilities exist is the wrong default) or the disk catalog changed since the last scan
+ * (a capability was added/removed — worth surfacing right away, not on whatever the counter
+ * happens to be). Both reset the counter, same as a normal throttled trigger. */
+function injectionDecision(persisted, fingerprint, injectEveryMessages) {
+  const catalogChanged = persisted.fingerprint !== fingerprint;
+  const nextMessageCount = persisted.messageCount + 1;
+  const shouldInject =
+    catalogChanged || nextMessageCount >= injectEveryMessages;
+  return { shouldInject, messageCount: shouldInject ? 0 : nextMessageCount };
+}
+
 function main() {
   if (process.env[DUMP_ENV]) {
     dumpDefaults();
@@ -422,18 +609,43 @@ function main() {
   const config = gateConfig(cwd);
   if (!config || config.enabled !== true) return; // opt-in: off unless explicitly enabled
 
-  const maxClauseChars =
-    Number(config.maxClauseChars) || DEFAULT_MAX_CLAUSE_CHARS;
-  const kinds = Array.isArray(config.kinds) ? config.kinds : DEFAULT_KINDS;
+  const settings = resolvedConfig(config);
+  const rawCatalog = buildRawCatalog(
+    settings.kinds,
+    cwd,
+    config,
+    settings.maxClauseChars,
+  );
+  if (Object.keys(rawCatalog).length === 0) return; // nothing to surface: never overwrite a good map
 
-  const catalog = buildCatalog(kinds, cwd, config, maxClauseChars);
-  if (Object.keys(catalog).length === 0) return; // nothing to surface: never overwrite a good map
+  const fingerprint = fingerprintOf(rawCatalog);
+  const root = projectRootOf(cwd);
+  const mapPath = root ? join(root, settings.mapFile) : null;
+  const persisted = mapPath
+    ? readPersistedState(mapPath)
+    : { catalog: null, fingerprint: null, messageCount: 0 };
 
-  if (config.persist !== false) {
-    persistMap(cwd, config.mapFile || DEFAULT_MAP_FILE, catalog);
+  const catalog = resolveCatalog(
+    rawCatalog,
+    persisted,
+    fingerprint,
+    cwd,
+    settings,
+  );
+
+  const { shouldInject, messageCount } = injectionDecision(
+    persisted,
+    fingerprint,
+    settings.injectEveryMessages,
+  );
+
+  if (settings.persist && mapPath) {
+    persistMap(cwd, settings.mapFile, catalog, fingerprint, messageCount);
   }
 
-  process.stdout.write(renderCatalog(catalog, kinds));
+  if (shouldInject) {
+    process.stdout.write(renderCatalog(catalog, settings.kinds));
+  }
 }
 
 main();

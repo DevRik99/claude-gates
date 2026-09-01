@@ -135,7 +135,7 @@ works even if you install one on its own.
 | `doctor`         | on  | On session start, runs the environment validator and only speaks on failure.                                                                                                                        |
 | `ask-adoption`   | on  | In a project that never answered, makes the assistant ask what to adopt.                                                                                                                            |
 | `wiring-check`   | on  | Warns when a registered hook is missing or a script is orphaned.                                                                                                                                     |
-| `capability-map` | off | On every message, injects the project's capability catalog — skills, agents/subagents, commands — as compact data, and persists it to `.ai/capability-map.json` (like the tool map). Autosynced from disk. Never blocks. |
+| `capability-map` | off | Every `injectEveryMessages` messages (default 10; always on the first run and whenever a capability is added/removed), injects the project's capability catalog — skills, agents/subagents, commands — as compact data, and persists it to `.ai/capability-map.json` (like the tool map). Autosynced from disk. Never blocks. |
 
 ---
 
@@ -186,11 +186,20 @@ see and edit every knob:
   non-atomic commit). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
 - **Capability injection:** `capability-map` (off by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
-  (`maxClauseChars`), add extra roots per kind, or turn off persistence (`"persist": false`)
-  and point the map file elsewhere (`mapFile`). Skills are also scanned by default under
-  `~/.agents/skills`, `<project>/.agents/skills`, `~/.ai/skills` and `<project>/.ai/skills`
-  (skill-only roots some installers use besides `.claude/skills` — no config needed), in
-  addition to any `extraSkillsDirs` the project declares.
+  (`maxClauseChars`, default 120), add extra roots per kind, throttle how often the full
+  catalog is re-injected (`injectEveryMessages`, default 10 — the persisted map file itself
+  still refreshes every message), or turn off persistence (`"persist": false`) and point the
+  map file elsewhere (`mapFile`). Skills are also scanned by default under `~/.agents/skills`,
+  `<project>/.agents/skills`, `~/.ai/skills` and `<project>/.ai/skills` (skill-only roots some
+  installers use besides `.claude/skills` — no config needed), in addition to any
+  `extraSkillsDirs` the project declares. A description too long to fit `maxClauseChars`
+  falls back to mechanical word-boundary truncation, but you can hand-write a better one-line
+  summary per capability in `~/.claude/blurb-overrides.json` (global) or
+  `<project>/<blurbOverridesFile>` (default `.ai/blurb-overrides.json`, project wins per
+  key) — a `{ "skill-name": "short summary" }` map, used verbatim instead of the mechanical
+  cut. A capability's re-scan is skipped (its blurb reused verbatim) whenever disk is
+  unchanged since the last scan (same set of source files, same mtimes); removing a
+  skill/agent/command drops its entry from the map on the very next run.
 
 ---
 

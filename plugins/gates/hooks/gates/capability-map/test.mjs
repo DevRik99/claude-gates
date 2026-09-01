@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -63,6 +64,21 @@ function runGate({ config, skills = [], agents = [], commands = [] } = {}) {
 }
 
 const ENABLED = { gates: { injectCapabilityMap: true } };
+
+/** Runs the gate against an already-set-up project directory, under a fresh empty fake
+ * home (so the real machine's ~/.claude never leaks in). Returns a `run()` closure so a
+ * test can invoke the gate multiple times against the same project/home to observe
+ * throttling or fingerprint-change behavior across runs. */
+function runnerFor(project) {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'capability-map-home-'));
+  return () =>
+    execFileSync(process.execPath, [GATE], {
+      input: JSON.stringify({ cwd: project }),
+      encoding: 'utf8',
+      cwd: project,
+      env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome },
+    });
+}
 
 test('opt-in: silent when config does not enable the gate', () => {
   assert.equal(
@@ -173,4 +189,108 @@ test('caveman cap: a long single-clause blurb is truncated', () => {
   const line = out.split('\n').find((l) => l.includes('big —'));
   assert.ok(line.trim().length < 40, `line should be capped, got "${line}"`);
   assert.match(line, /…$/);
+});
+
+test('truncation breaks at a word boundary, not mid-word', () => {
+  const { out } = runGate({
+    config: {
+      gates: { injectCapabilityMap: { enabled: true, maxClauseChars: 30 } },
+    },
+    skills: [
+      {
+        name: 'a11y',
+        description: 'Referencia normativa de accesibilidad web completa',
+      },
+    ],
+  });
+  const line = out.split('\n').find((l) => l.includes('a11y —'));
+  // "accesibilidad" does not fit whole at 30 chars: a mid-word cut would produce
+  // something like "…accesibi…"; the word-boundary cut instead stops at the last whole
+  // word that fits ("de") and never splits a word in half.
+  assert.doesNotMatch(line, /accesibi…$/);
+  assert.match(line, /\bde…$/);
+});
+
+test('a blurb override is used verbatim instead of mechanical truncation', () => {
+  const project = mkdtempSync(join(tmpdir(), 'capability-map-'));
+  mkdirSync(join(project, '.git'));
+  mkdirSync(join(project, '.ai'));
+  writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(ENABLED));
+  writeFileSync(
+    join(project, '.ai', 'blurb-overrides.json'),
+    JSON.stringify({ a11y: 'Doctrina WCAG 2.2 corta y con esencia' }),
+  );
+  const skillDirectory = join(project, '.claude', 'skills', 'a11y');
+  mkdirSync(skillDirectory, { recursive: true });
+  writeFileSync(
+    join(skillDirectory, 'SKILL.md'),
+    '---\nname: a11y\ndescription: Referencia normativa completa de accesibilidad web con mucho detalle que no entra\n---\n',
+  );
+  const out = runnerFor(project)();
+  assert.match(out, /a11y — Doctrina WCAG 2\.2 corta y con esencia/);
+});
+
+test('throttling: only the Nth message injects; disk-unchanged runs in between are silent', () => {
+  const project = mkdtempSync(join(tmpdir(), 'capability-map-'));
+  mkdirSync(join(project, '.git'));
+  mkdirSync(join(project, '.ai'));
+  writeFileSync(
+    join(project, '.ai', 'config.json'),
+    JSON.stringify({
+      gates: {
+        injectCapabilityMap: { enabled: true, injectEveryMessages: 3 },
+      },
+    }),
+  );
+  const skillDirectory = join(project, '.claude', 'skills', 'deploy');
+  mkdirSync(skillDirectory, { recursive: true });
+  writeFileSync(
+    join(skillDirectory, 'SKILL.md'),
+    '---\nname: deploy\ndescription: Deploys.\n---\n',
+  );
+  const run = runnerFor(project);
+
+  const first = run(); // first run ever: always injects (nothing has been shown yet)
+  assert.match(first, /deploy — Deploys/);
+  const second = run(); // disk unchanged, counter at 1 of 3: silent
+  assert.equal(second, '');
+  const third = run(); // counter at 2 of 3: still silent
+  assert.equal(third, '');
+  const fourth = run(); // counter reaches 3: injects again, resets
+  assert.match(fourth, /deploy — Deploys/);
+});
+
+test('a removed skill disappears from the persisted map on the next run (fingerprint changed)', () => {
+  const project = mkdtempSync(join(tmpdir(), 'capability-map-'));
+  mkdirSync(join(project, '.git'));
+  mkdirSync(join(project, '.ai'));
+  writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(ENABLED));
+  const skillsRoot = join(project, '.claude', 'skills');
+  const keepDirectory = join(skillsRoot, 'keep');
+  const dropDirectory = join(skillsRoot, 'drop');
+  mkdirSync(keepDirectory, { recursive: true });
+  mkdirSync(dropDirectory, { recursive: true });
+  writeFileSync(
+    join(keepDirectory, 'SKILL.md'),
+    '---\nname: keep\ndescription: Keeps.\n---\n',
+  );
+  writeFileSync(
+    join(dropDirectory, 'SKILL.md'),
+    '---\nname: drop\ndescription: Drops.\n---\n',
+  );
+  const run = runnerFor(project);
+
+  const first = run();
+  assert.match(first, /keep — Keeps/);
+  assert.match(first, /drop — Drops/);
+
+  rmSync(dropDirectory, { recursive: true, force: true });
+  const second = run(); // fingerprint changed (a source file disappeared): forces injection
+  assert.match(second, /keep — Keeps/);
+  assert.doesNotMatch(second, /drop/);
+
+  const mapPath = join(project, '.ai', 'capability-map.json');
+  const map = JSON.parse(readFileSync(mapPath, 'utf8'));
+  assert.equal(map.capabilities.skills.length, 1);
+  assert.equal(map.capabilities.skills[0].name, 'keep');
 });

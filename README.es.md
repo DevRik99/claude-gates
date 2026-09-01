@@ -129,7 +129,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `doctor` | on | Al iniciar la sesión, corre el validador de entorno y solo habla si algo falla. |
 | `ask-adoption` | on | En un proyecto que nunca respondió, hace que el asistente pregunte qué adoptar. |
 | `wiring-check` | on | Avisa cuando un hook registrado falta o un script quedó huérfano. |
-| `capability-map` | off | En cada mensaje, inyecta el catálogo de capacidades del proyecto — skills, agents/subagents, comandos — como dato compacto, y lo persiste en `.ai/capability-map.json` (como el mapa de herramientas). Autosincronizado desde el disco. Nunca bloquea. |
+| `capability-map` | off | Cada `injectEveryMessages` mensajes (default 10; siempre en la primera corrida y cuando se agrega/borra una capacidad), inyecta el catálogo de capacidades del proyecto — skills, agents/subagents, comandos — como dato compacto, y lo persiste en `.ai/capability-map.json` (como el mapa de herramientas). Autosincronizado desde el disco. Nunca bloquea. |
 
 ---
 
@@ -173,12 +173,21 @@ ves y editas cada perilla:
   `depsWithoutOwnApi`.
 - **Inyección de capacidades:** `capability-map` (off por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
-  (`maxClauseChars`), agregá raíces extra por tipo, o apagá la persistencia
-  (`"persist": false`) y apuntá el mapa a otro archivo (`mapFile`). Las skills también se
-  escanean por defecto en `~/.agents/skills`, `<proyecto>/.agents/skills`, `~/.ai/skills` y
-  `<proyecto>/.ai/skills` (raíces exclusivas de skills que usan otros instaladores además de
-  `.claude/skills` — sin necesidad de configurar nada), sumadas a cualquier
-  `extraSkillsDirs` que el proyecto declare.
+  (`maxClauseChars`, default 120), agregá raíces extra por tipo, regulá cada cuánto se
+  re-inyecta el catálogo completo (`injectEveryMessages`, default 10 — el archivo persistido
+  se refresca igual en cada mensaje), o apagá la persistencia (`"persist": false`) y apuntá
+  el mapa a otro archivo (`mapFile`). Las skills también se escanean por defecto en
+  `~/.agents/skills`, `<proyecto>/.agents/skills`, `~/.ai/skills` y `<proyecto>/.ai/skills`
+  (raíces exclusivas de skills que usan otros instaladores además de `.claude/skills` — sin
+  necesidad de configurar nada), sumadas a cualquier `extraSkillsDirs` que el proyecto
+  declare. Una descripción que no entra en `maxClauseChars` cae al truncado mecánico por
+  palabra completa, pero podés escribir a mano un resumen mejor por capacidad en
+  `~/.claude/blurb-overrides.json` (global) o `<proyecto>/<blurbOverridesFile>` (default
+  `.ai/blurb-overrides.json`, el proyecto gana por clave) — un mapa
+  `{ "nombre-skill": "resumen corto" }`, usado tal cual en vez del corte mecánico. El
+  re-escaneo de una capacidad se saltea (se reusa su blurb tal cual) cuando el disco no
+  cambió desde el último escaneo (mismos archivos fuente, mismos mtimes); borrar una
+  skill/agente/comando saca su entrada del mapa en la corrida siguiente.
 
 ---
 
