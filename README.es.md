@@ -174,7 +174,11 @@ ves y editas cada perilla:
 - **Inyección de capacidades:** `capability-map` (off por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
   (`maxClauseChars`), agregá raíces extra por tipo, o apagá la persistencia
-  (`"persist": false`) y apuntá el mapa a otro archivo (`mapFile`).
+  (`"persist": false`) y apuntá el mapa a otro archivo (`mapFile`). Las skills también se
+  escanean por defecto en `~/.agents/skills`, `<proyecto>/.agents/skills`, `~/.ai/skills` y
+  `<proyecto>/.ai/skills` (raíces exclusivas de skills que usan otros instaladores además de
+  `.claude/skills` — sin necesidad de configurar nada), sumadas a cualquier
+  `extraSkillsDirs` que el proyecto declare.
 
 ---
 

@@ -187,7 +187,10 @@ see and edit every knob:
 - **Capability injection:** `capability-map` (off by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
   (`maxClauseChars`), add extra roots per kind, or turn off persistence (`"persist": false`)
-  and point the map file elsewhere (`mapFile`).
+  and point the map file elsewhere (`mapFile`). Skills are also scanned by default under
+  `~/.agents/skills`, `<project>/.agents/skills`, `~/.ai/skills` and `<project>/.ai/skills`
+  (skill-only roots some installers use besides `.claude/skills` — no config needed), in
+  addition to any `extraSkillsDirs` the project declares.
 
 ---
 

@@ -29,6 +29,14 @@
 // Each injected line is `name — first clause` (up to the first '. ' or a hard char cap), so
 // the whole catalog stays cheap even at dozens of entries.
 //
+// ── Skills also scanned outside the .claude layout, unconditionally ────────────────────
+// `~/.agents/skills`, `<project>/.agents/skills`, `~/.ai/skills`, `<project>/.ai/skills` are
+// scanned as skill roots by default (no config needed) alongside `.claude/skills` — these
+// are skill directories other installers are known to use (`.agents/skills` is what the
+// `skills` CLI several installers shell out to writes when run without its `-g` flag: a
+// project-local skill tree, not `~/.claude`). Agents/commands are NOT looked for under these
+// roots — only `.claude` is known to lay those out as siblings of `skills`.
+//
 // ── What a project can configure (params) — everything is customizable ───────────────
 //   kinds            which capability kinds to include, e.g. ["skills","agents","commands"].
 //                    Drop one to stop scanning it entirely.
@@ -111,11 +119,36 @@ function readPayload() {
   }
 }
 
+// A YAML folded/literal block scalar indicator with nothing else on the line
+// (`description: >`, `description: >-`, `description: |`, `description: |-`): the real
+// value is every following indented line, not this one. Seen across `.agents/skills`
+// SKILL.md files (e.g. api-architect, babysit, branch-pr) — without this, the parser took
+// the bare indicator itself as the description, rendering blurbs like `">"` or `">-"`.
+const BLOCK_SCALAR_INDICATOR_PATTERN = /^[|>][+-]?\d*$/;
+
+/** Every following line indented relative to the block's own indentation, joined with a
+ * single space (folded-scalar semantics — good enough for a one-line blurb; literal `|`
+ * blocks are folded too, which only affects a display detail this gate strips anyway via
+ * firstClause). Stops at the first line that is blank or not indented (front matter end,
+ * or a sibling key). */
+function readBlockScalarValue(lines, startIndex) {
+  const parts = [];
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === '---') break;
+    if (!/^[ \t]+\S/.test(line)) break; // not indented: block scalar ended
+    parts.push(line.trim());
+  }
+  return parts.join(' ');
+}
+
 /**
  * The `name` and `description` from a markdown-style front matter block (skills, agents,
  * commands all use `---`-fenced YAML-ish front matter). Parsed line-by-line (no multi-line
- * regex) so a large file body can never trigger catastrophic backtracking. Returns
- * { name, description } with either possibly ''.
+ * regex) so a large file body can never trigger catastrophic backtracking. Handles a plain
+ * scalar value on the `key:` line itself, and a YAML folded/literal block scalar (`>`, `>-`,
+ * `|`, `|-`) whose value lives on the following indented lines. Returns { name, description }
+ * with either possibly ''.
  */
 function parseFrontMatter(fileText) {
   const lines = fileText.split(/\r?\n/);
@@ -129,10 +162,13 @@ function parseFrontMatter(fileText) {
     const separator = line.indexOf(':');
     if (separator < 0) continue;
     const key = line.slice(0, separator).trim();
-    const value = line
+    let value = line
       .slice(separator + 1)
       .trim()
       .replace(/^["']|["']$/g, ''); // toml/yaml quoting around the value
+    if (BLOCK_SCALAR_INDICATOR_PATTERN.test(value)) {
+      value = readBlockScalarValue(lines, index + 1);
+    }
     if (key === 'name') name = value;
     else if (key === 'description') description = value;
   }
@@ -223,6 +259,27 @@ function baseRoots(cwd) {
   return [join(homedir(), '.claude'), join(cwd, '.claude')];
 }
 
+// Skill directories seen in the wild outside the `.claude/skills` layout: the `skills`
+// upstream CLI (invoked by installers like caveman) writes to a project-local
+// `./.agents/skills` when run without its `-g` flag (see caveman/bin/install.js's own
+// comment on issue #836 — the exact bug that produced 65 dangling junctions under
+// `~/.claude/skills` in one real incident: they pointed at a `.agents/skills` that only
+// ever existed relative to the project the installer ran from). `.ai/skills` is included
+// per explicit user instruction, without independent verification of a specific installer
+// using it — kept here rather than as a project-declared default so every project gets it
+// without having to know the installer's quirk. These are SKILL roots only (the directory
+// IS the skills folder, unlike `.claude` where `skills/agents/commands` are siblings under
+// one root) — they never gain agents/commands lookup, which would be inventing a layout
+// this repo has no evidence for.
+function defaultSkillOnlyRoots(cwd) {
+  return [
+    join(homedir(), '.agents', 'skills'),
+    join(cwd, '.agents', 'skills'),
+    join(homedir(), '.ai', 'skills'),
+    join(cwd, '.ai', 'skills'),
+  ];
+}
+
 function resolveExtra(cwd, directory) {
   return isAbsolute(directory) ? directory : join(cwd, directory);
 }
@@ -260,6 +317,11 @@ function entriesForKind(kind, cwd, config, maxClauseChars) {
 
   const collected = [];
   for (const root of baseRoots(cwd)) collected.push(...perKind.collect(root));
+  if (kind === 'skills') {
+    for (const root of defaultSkillOnlyRoots(cwd)) {
+      collected.push(...skillEntriesUnder(root, maxClauseChars));
+    }
+  }
   const extra = Array.isArray(perKind.extra) ? perKind.extra : [];
   for (const directory of extra) {
     collected.push(...perKind.collectExtra(resolveExtra(cwd, directory)));
