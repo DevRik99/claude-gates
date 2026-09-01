@@ -1,6 +1,6 @@
 {
   "name": "tasks",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Deterministic task tracking for Claude Code: persists tasks the model registers via the CLI, reminds of open tasks on a message counter, and lists active tasks on session start.",
   "author": {
     "name": "Devrik"
