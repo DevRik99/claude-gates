@@ -227,3 +227,24 @@ test('shellWrittenPaths extracts paths a shell command creates', () => {
   // a dynamically built path is NOT extracted (documented limitation)
   assert.deepEqual(shellWrittenPaths('printf x > "$f"'), []);
 });
+
+test('shellWrittenPaths still catches a real cp/mv/install at the start of a command', () => {
+  assert.deepEqual(shellWrittenPaths('cp a.txt b.txt'), ['a.txt']);
+  assert.deepEqual(shellWrittenPaths('mv old.js new.js'), ['old.js']);
+  assert.deepEqual(shellWrittenPaths('install script.sh /usr/local/bin/'), [
+    'script.sh',
+  ]);
+  // still caught after a command separator, not only at the very start of the string
+  assert.deepEqual(shellWrittenPaths('cd repo && cp a.txt b.txt'), ['a.txt']);
+});
+
+test('shellWrittenPaths does NOT mistake a package manager subcommand for the "install" utility (regression: npm install <pkg> was misread as creating a root file named <pkg>)', () => {
+  assert.deepEqual(shellWrittenPaths('npm install -D daisyui'), []);
+  assert.deepEqual(
+    shellWrittenPaths('npm install --save-dev daisyui tailwindcss'),
+    [],
+  );
+  assert.deepEqual(shellWrittenPaths('pip install requests'), []);
+  assert.deepEqual(shellWrittenPaths('yarn install'), []);
+  assert.deepEqual(shellWrittenPaths('pnpm install'), []);
+});

@@ -178,7 +178,15 @@ const SHELL_WRITE_PATTERNS = [
   /\b(?:touch|tee)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
   // cp / mv / install destination is the LAST path; capture the first arg after the command
   // as a cheap proxy (over-detects the source too, which is acceptable — a gate re-checks).
-  /\b(?:cp|mv|install)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
+  // Anchored to the START of a command (start of string, or right after a separator like
+  // `;`/`&&`/`||`/`|`), NOT `\b`, which matched "install" as a bare word anywhere — including
+  // as npm/pip/yarn's SUBCOMMAND (`npm install -D daisyui` was misread as the Unix `install`
+  // utility, capturing the package name "daisyui" as a phantom root-level file target and
+  // tripping root-whitelist on a plain dependency install). `npm install`/`pip install`/
+  // `yarn install` never start a shell command with the bare word "install" as argv[0], so
+  // anchoring at the command boundary excludes them while still catching a real `install ...`
+  // invocation (the coreutils/BSD command) at the start of a command.
+  /(?:^|[;&|])\s*(?:cp|mv|install)\s+(?:-\S+\s+)*(['"]?)([^\s'"|;&<>]+)\1/g,
 ];
 
 /**
