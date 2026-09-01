@@ -54,7 +54,11 @@ function checkDelegation(toolInput) {
 
   deny(
     CONFIG_KEY,
-    'Delegating creation of a new script/checker/gate/hook/linter/tool without evidence of a prior audit. State what you searched and why no existing tool covers this (e.g. "audited and no existing tool...").',
+    'Blocked: this delegation prompt asks to create a new script/checker/gate/hook/linter/' +
+      'tool, and nothing in the prompt shows a prior audit. No filesystem exploration is ' +
+      'needed to fix this — add ONE phrase to the prompt matching ' +
+      `/${AUDIT_EVIDENCE_PATTERN.source}/i, e.g.: "audited and no existing tool covers this" ` +
+      '(this exact phrase is guaranteed to match). Then relaunch the same delegation.',
   );
 }
 
@@ -85,7 +89,11 @@ function checkWrite(toolInput, parameters) {
 
   deny(
     CONFIG_KEY,
-    `Creating a new executable tool at ${filePath} without a justification comment (e.g. "justification: ..."). Document why no existing tool covers this before building a new one.`,
+    `Blocked: '${filePath}' is a new executable tool with no justification comment in its ` +
+      'content. No filesystem exploration is needed to fix this — add ONE line to the ' +
+      `file's content matching /${INLINE_JUSTIFICATION_PATTERN.source}/i, e.g.: ` +
+      '"// justification: no existing tool covers this" (this exact phrase is guaranteed ' +
+      'to match). Then retry the exact same write.',
   );
 }
 

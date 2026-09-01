@@ -46,6 +46,24 @@ test('denies when a discovered rule script fails', () => {
   assert.ok(isDeny(runGateIn(project, exec())));
 });
 
+test('the deny message includes the failing script path, exit code, and its stderr output — not a bare "Sub-gate failed"', () => {
+  // Regression: stdio was 'ignore' for the sub-gate's stderr, so a genuinely useful error
+  // message from the script itself (e.g. "Error: X is not configured") was thrown away and
+  // the deny said nothing more than "Sub-gate failed: rules/gate.mjs. Fix it." — leaving no
+  // way to know WHAT was wrong without opening and re-running the script by hand.
+  const project = newProject({ config: ENABLE });
+  mkdirSync(join(project, 'rules'));
+  writeFileSync(
+    join(project, 'rules', 'gate.mjs'),
+    'console.error("Error: X is not configured"); process.exit(1);',
+  );
+  const result = runGateIn(project, exec());
+  assert.ok(isDeny(result));
+  const reason = result.hookSpecificOutput.permissionDecisionReason;
+  assert.match(reason, /rules[\\/]gate\.mjs/);
+  assert.match(reason, /Error: X is not configured/);
+});
+
 test('allows when discovered rule scripts succeed', () => {
   const project = newProject({ config: ENABLE });
   mkdirSync(join(project, 'rules'));

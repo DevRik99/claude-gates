@@ -147,15 +147,31 @@ function parseJsonOrNull(text) {
 }
 
 /** Denies the single first advanced-status feature in the new catalog content that has
- * no contract on disk, or does nothing when every advanced feature has one. */
+ * no contract on disk, or does nothing when every advanced feature has one. A feature
+ * object missing its `name` field is denied too (not silently skipped) — it is malformed
+ * catalog data, not a feature this gate has decided has no obligations. */
 function denyIfAdvancedFeatureLacksContract(features, treeRoot) {
   for (const feature of features) {
-    if (!feature?.name || !ADVANCED_STATUSES.has(feature.status)) continue;
+    if (!ADVANCED_STATUSES.has(feature?.status)) continue;
+    if (!feature?.name) {
+      deny(
+        CONFIG_KEY,
+        `A feature entry has status '${feature.status}' but no 'name' field: ` +
+          `${JSON.stringify(feature)}. Every feature needs a 'name' so its contract tree ` +
+          '(.ai/features/<name>/) can be located — add it before writing this status.',
+      );
+      continue;
+    }
     if (contractExistsFor(treeRoot, feature.name)) continue;
+    const featureDirectory = join(
+      treeRoot ?? join(process.cwd(), '.ai', 'features'),
+      feature.name,
+    );
     deny(
       CONFIG_KEY,
       `Feature '${feature.name}' is set to '${feature.status}' but has no non-empty ` +
-        `contract (${CONTRACT_FILES.join(', ')}) under the discovered contract tree.`,
+        `contract on disk. Write ONE of these files under ${featureDirectory}/ (any one ` +
+        `is enough): ${CONTRACT_FILES.join(', ')}.`,
     );
   }
 }
@@ -172,9 +188,10 @@ function checkCatalogWrite(toolInput, catalogPath, treeRoot) {
     // hidden behind a malformed payload must not be silently allowed through.
     deny(
       CONFIG_KEY,
-      `The write to ${CATALOG_FILE_NAME} does not parse as JSON. A catalog write that ` +
-        'cannot be verified for the spec-contract invariant is not allowed; fix the JSON ' +
-        'or write valid content.',
+      `The write to ${CATALOG_FILE_NAME} does not parse as JSON (JSON.parse threw). This ` +
+        'is a syntax problem in the content being written, not a missing-field one — check ' +
+        'for a trailing comma, unquoted key, or unclosed bracket in what you are about to ' +
+        'write. No filesystem exploration needed; the payload itself is the thing to fix.',
     );
   }
   const features = Array.isArray(parsed?.features) ? parsed.features : [];
@@ -212,11 +229,15 @@ function checkDelegation(toolInput, treeRoot, exemptSubagents) {
     (feature) => !contractExistsFor(treeRoot, feature),
   );
   if (missing.length === citedFeatures.length) {
+    const root = treeRoot ?? join(process.cwd(), '.ai', 'features');
+    const fileList = missing
+      .map((feature) => `${feature} -> ${join(root, feature)}/`)
+      .join('\n  ');
     deny(
       CONFIG_KEY,
-      `This implementation delegation cites feature(s) [${missing.join(', ')}] with no ` +
-        `non-empty contract (${CONTRACT_FILES.join(', ')}) on disk. Write the contract ` +
-        'before implementing.',
+      `This implementation delegation cites feature(s) with no contract on disk:\n  ${fileList}\n` +
+        `Write ONE of these files in each directory above (any one is enough): ` +
+        `${CONTRACT_FILES.join(', ')}. Then relaunch.`,
     );
   }
 }

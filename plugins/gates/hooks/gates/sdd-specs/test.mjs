@@ -161,3 +161,35 @@ test('a catalog write moving a feature to spec_ready without contract is denied'
   };
   assert.ok(isDeny(runGate(project, write)));
 });
+
+test('a feature entry with an advanced status but no name field is denied, not silently skipped', () => {
+  // Regression: the old code short-circuited on `!feature?.name || !ADVANCED_STATUSES.has(...)`
+  // in one condition, so a malformed entry with no `name` was treated the same as one whose
+  // status simply doesn't require a contract — it was silently allowed through instead of
+  // denied for the real reason (missing name, contract tree cannot be located).
+  const project = makeProject();
+  enableGate(project);
+  mkdirSync(join(project, '.ai', 'features'), { recursive: true });
+  writeFileSync(
+    join(project, '.ai', 'feature_list.json'),
+    JSON.stringify({ features: [] }),
+  );
+  const write = {
+    tool_name: 'Write',
+    tool_input: {
+      file_path: join(project, '.ai', 'feature_list.json'),
+      content: JSON.stringify({
+        features: [{ status: 'spec_ready' }], // no `name`
+      }),
+    },
+  };
+  const result = runGate(project, write);
+  assert.ok(
+    isDeny(result),
+    'a status-advanced feature missing `name` must be denied',
+  );
+  assert.match(
+    result.hookSpecificOutput.permissionDecisionReason,
+    /no 'name' field/,
+  );
+});

@@ -196,14 +196,50 @@ function isToolLikePath(filePath, parameters) {
   );
 }
 
-const DENY_MESSAGE =
-  'Do not reinvent the wheel. Before building this, confirm nothing already covers it, ' +
-  'auditing in this order: (1) LOCAL — the repo and installed deps (search by name and ' +
-  'usage, read the manifest); (2) CONTEXT7 — resolve the candidate library and read its ' +
-  'docs to confirm whether it truly covers the need; (3) WEB — search npm and plugin ' +
-  'marketplaces for a maintained package. If it is genuinely absent, record the finding ' +
-  '(e.g. `claude-gates tool-map add`) and state the audit in the text, so the exploration ' +
-  'is not repeated next time.';
+// The exact phrase AUDIT_DONE_PATTERN matches — quoted verbatim in the deny message so the
+// model can copy it instead of guessing a paraphrase the regex might not recognize (a vague
+// "I checked" or "no lo encontré" does NOT match AUDIT_DONE_PATTERN and the gate fires again).
+const AUDIT_DONE_EXAMPLE_PHRASE = 'no existing tool covers this';
+
+/** The concrete deny message for a blocked WRITE: names the exact file and gives the exact
+ * text to add (copy-pasteable, matches AUDIT_DONE_PATTERN verbatim) — no exploration needed
+ * to find any of this, it is the gate's own job to hand it over. Adding the phrase also
+ * satisfies the tool-map gate (maintainToolMap), which records the file + this same line
+ * into .ai/tool-map.json automatically — no separate command to run. */
+function writeDenyMessage(filePath) {
+  return (
+    `Blocked: '${filePath}' looks like a new tool/helper, and nothing shows the wheel was ` +
+    'checked first. Pick ONE, then retry the exact same write:\n' +
+    `  1. It already exists here or in an installed dep — don't create '${filePath}'; ` +
+    'reuse/import the existing one instead.\n' +
+    '  2. It does not exist anywhere you checked (repo, installed deps, npm/marketplaces) — ' +
+    "add ONE line to the file's content stating that, e.g.: " +
+    `"// ${AUDIT_DONE_EXAMPLE_PHRASE}" (any phrase matching /${AUDIT_DONE_PATTERN.source}/i ` +
+    'works, this one is guaranteed to). That line also gets this file auto-recorded into ' +
+    '.ai/tool-map.json — nothing further to run.\n' +
+    'No filesystem exploration is required to satisfy this gate — the audit is a sentence ' +
+    'in the file or a matching package.json dependency, nothing else.'
+  );
+}
+
+/** The concrete deny message for a blocked DELEGATION prompt: same two options, but no file
+ * name exists yet (only a prompt), so both talk about the prompt text, not a file. */
+function delegationDenyMessage() {
+  return (
+    "Blocked: this delegation's prompt asks to build a new tool/helper, and nothing in " +
+    'the prompt shows the wheel was checked first. Pick ONE, then relaunch the same ' +
+    'delegation with the prompt updated:\n' +
+    '  1. It already exists (repo, installed dep) — do not delegate a new build; ' +
+    'reference the existing one in the prompt instead.\n' +
+    '  2. It does not exist anywhere you checked — add ONE line to the prompt stating ' +
+    `that, e.g.: "${AUDIT_DONE_EXAMPLE_PHRASE}" (any phrase matching ` +
+    `/${AUDIT_DONE_PATTERN.source}/i works, this one is guaranteed to). Once the delegate ` +
+    'actually writes the file, include the same phrase in its content so it also gets ' +
+    'auto-recorded into .ai/tool-map.json.\n' +
+    'No filesystem exploration is required to satisfy this gate — the audit is a sentence ' +
+    'in the prompt, or a matching package.json dependency, nothing else.'
+  );
+}
 
 /** A build is cleared when its text declares an audit, its name is already recorded in the
  * map, or an installed dependency covers it. `toolBaseName` is used for the last two. */
@@ -224,7 +260,7 @@ function checkDelegation(toolInput, cwd, parameters) {
   const prompt = delegationPromptOf(toolInput);
   if (!isBuildIntent(prompt)) return;
   if (buildIsCleared(prompt, cwd, parameters, null)) return;
-  deny(CONFIG_KEY, DENY_MESSAGE);
+  deny(CONFIG_KEY, delegationDenyMessage());
 }
 
 /** Write: block a new tool-like file that is not cleared by content, map, or an installed dep. */
@@ -237,7 +273,7 @@ function checkWrite(toolInput, cwd, parameters) {
   const content = writtenContentOf(toolInput);
   const toolBaseName = basename(filePath).replace(/\.[^.]+$/, '');
   if (buildIsCleared(content, cwd, parameters, toolBaseName)) return;
-  deny(CONFIG_KEY, DENY_MESSAGE);
+  deny(CONFIG_KEY, writeDenyMessage(filePath));
 }
 
 runGate(

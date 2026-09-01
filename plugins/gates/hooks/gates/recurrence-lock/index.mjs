@@ -76,6 +76,7 @@ runGate(
   ({ toolName, parameters }) => {
     if (!toolInGroups(toolName, ['execution', 'delegation'])) return;
 
+    const recurrencesFile = join('.ai', 'reincidencias.json');
     const openRecurrences = loadOpenRecurrences(
       process.cwd(),
       parameters.thresholdAppearances,
@@ -85,7 +86,11 @@ runGate(
     const names = openRecurrences.map((entry) => entry.class).join(', ');
     deny(
       CONFIG_KEY,
-      `Registered recurring issue classes are still open and at/above threshold: ${names}. Resolve or close them before proceeding.`,
+      `Registered recurring issue class(es) still open and at/above the ` +
+        `${parameters.thresholdAppearances}-occurrence threshold: ${names}. Fix the root ` +
+        `cause of the class (not this one instance), then in ${recurrencesFile} set that ` +
+        'class\'s "status" to "closed" (or "cerrada") before proceeding — no other file to ' +
+        'find, this is the only source this gate reads.',
     );
   },
 );

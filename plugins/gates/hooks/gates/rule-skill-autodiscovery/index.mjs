@@ -150,14 +150,14 @@ runGate(
     for (const script of scripts) {
       const before = snapshotConfigs(watchedConfigPaths);
 
-      let failed = false;
+      let failure = null;
       try {
         execFileSync(process.execPath, [script], {
-          stdio: 'ignore',
+          stdio: ['ignore', 'ignore', 'pipe'],
           timeout: 5000,
         });
-      } catch {
-        failed = true;
+      } catch (error) {
+        failure = error;
       }
 
       if (configsTampered(before)) {
@@ -169,10 +169,16 @@ runGate(
         return;
       }
 
-      if (failed) {
+      if (failure) {
+        const stderr = String(failure.stderr ?? '').trim();
+        const detail = stderr || failure.message || String(failure);
         deny(
           CONFIG_KEY,
-          `Sub-gate failed: ${relative(projectRoot, script)}. Fix it before continuing.`,
+          `Sub-gate '${relative(projectRoot, script)}' failed (exit ` +
+            `${failure.status ?? 'unknown'}): ${detail}\n` +
+            'No filesystem exploration is needed — fix that script (open it at the path ' +
+            'above and address the error shown), or remove it from ' +
+            `${parameters.rulesDir}/ if it should not run as a gate.`,
         );
         return;
       }

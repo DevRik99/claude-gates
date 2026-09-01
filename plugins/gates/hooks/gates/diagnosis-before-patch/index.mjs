@@ -3,6 +3,7 @@ import {
   warn,
   toolInGroups,
   writtenContentOf,
+  writtenPathOf,
 } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'diagnosis-before-patch';
@@ -37,12 +38,21 @@ runGate(
     const patterns = parameters.timeoutPatterns.map(
       (source) => new RegExp(source, 'i'),
     );
-    const touchesTimeout = patterns.some((pattern) => pattern.test(text));
-    if (!touchesTimeout) return;
+    const matched = patterns
+      .map((pattern) => pattern.exec(text))
+      .find((match) => match !== null);
+    if (!matched) return;
 
+    const filePath = writtenPathOf(toolInput) || '(unknown path)';
     warn(
       CONFIG_KEY,
-      'Diagnosis before patch: you are adjusting a timeout/deadline/retry value. Before changing a value to fix a symptom ("X is slow/fails"), confirm you read the evidence that proves the cause (a log line from the failing provider/process, not a hypothesis). A timeout should measure inactivity, not total time: a process that is progressing should not be cut off.',
+      `You are writing '${matched[0].trim()}' into ${filePath} — a timeout/deadline/retry ` +
+        'value. Before changing a value to fix a symptom ("X is slow/fails"), confirm you ' +
+        'have the evidence that proves the cause: a log line from the failing provider/' +
+        "process, not a hypothesis. If you don't have that log line yet, get it before " +
+        'writing this change — do not guess a new number. A timeout should measure ' +
+        'inactivity, not total time: a process that is still progressing should not be cut ' +
+        'off. This is a warning, not a block — the write proceeds either way.',
     );
   },
 );

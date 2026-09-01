@@ -194,21 +194,26 @@ runGate(
     const treeRoot = contractTreeRootFor(catalogPath);
     if (!treeRoot) return; // no SDD harness adopted: stay silent
 
-    const unapproved = citedFeatures.filter((feature) => {
-      const contractPath = contractFileFor(treeRoot, feature);
-      if (!contractPath) return false; // sdd-specs already denies this case
-      return !isApproved(contractPath);
-    });
+    const unapproved = citedFeatures
+      .map((feature) => ({
+        feature,
+        contractPath: contractFileFor(treeRoot, feature),
+      }))
+      .filter(({ contractPath }) => contractPath) // no contractPath: sdd-specs already denies that case
+      .filter(({ contractPath }) => !isApproved(contractPath));
 
     if (unapproved.length === 0) return;
 
+    const fileList = unapproved
+      .map(({ feature, contractPath }) => `${feature} -> ${contractPath}`)
+      .join('\n  ');
     deny(
       CONFIG_KEY,
-      `This implementation delegation cites feature(s) [${unapproved.join(', ')}] ` +
-        'whose brief/contract has no recorded approval. Paste the FULL brief into the ' +
-        'chat, get an explicit confirmation from the user (not a vague "dale"/"sigamos" ' +
-        '— an actual sentence confirming they read it), then add this frontmatter to ' +
-        'the top of the contract file before relaunching:\n' +
+      `This implementation delegation cites unapproved feature(s):\n  ${fileList}\n` +
+        'Paste the FULL brief into the chat, get an explicit confirmation from the user ' +
+        '(not a vague "dale"/"sigamos" — an actual sentence confirming they read it), ' +
+        'then add this frontmatter to the TOP of that exact contract file before ' +
+        'relaunching (no filesystem exploration needed — the path above is the file to edit):\n' +
         '---\nstatus: approved\napproved_at: <ISO timestamp>\n' +
         'approval_quote: "<the user\'s own confirming words>"\n---',
     );

@@ -147,7 +147,10 @@ function checkLiveTask(pointerPath) {
       CONFIG_KEY,
       `The active task '${slug}' has no contract on disk: none of ` +
         `${TASK_CONTRACT_FILES.join(', ')} exists under ${taskDirectory}. ` +
-        'Write the contract before implementing.',
+        `Write ONE of those files there before implementing (this gate's contract root is ` +
+        `.ai/pipeline/${slug}/ — a brief.md under .ai/features/${slug}/ satisfies a ` +
+        'different gate, sdd-specs, but NOT this one; if you already wrote a brief there, ' +
+        `create a short asserts.md under ${taskDirectory} referencing it).`,
     );
   }
 }
