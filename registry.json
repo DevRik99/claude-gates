@@ -110,6 +110,22 @@
               "description": "Comment marker that authorizes a justified wait as an escape hatch."
             }
           ]
+        },
+        {
+          "id": "require-monitor",
+          "configKey": "requireMonitorForBackground",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["shell", "execution", "monitor"],
+          "description": "Enforces that every background command (run_in_background: true) has an associated Monitor. Phase 1: denies background without MONITOR-PLANNED: marker. Phase 2: denies any execution tool while unmonitored backgrounds exist.",
+          "script": "gates/require-monitor/index.mjs",
+          "params": [
+            {
+              "name": "monitorPlannedMarker",
+              "type": "string",
+              "description": "Marker the command must carry to declare its Monitor plan. Default MONITOR-PLANNED:."
+            }
+          ]
         }
       ]
     },
@@ -187,8 +203,15 @@
           "default": false,
           "event": "PreToolUse",
           "tools": ["delegation"],
-          "description": "Cuts a delegation retried without substantial change: the attempt count is recomputed from stored signatures across the session (Dice >= similarityThreshold); retryThreshold below 2 is treated as 2.",
+          "description": "Cuts a delegation retried without substantial change: the attempt count is recomputed from stored signatures across the session (Dice >= similarityThreshold); retryThreshold below 2 is treated as 2. Only delegations that actually launched (allowed by all gates) count as attempts.",
           "script": "gates/circuit-breaker/index.mjs",
+          "extraScripts": [
+            {
+              "event": "PostToolUse",
+              "script": "gates/circuit-breaker/track.mjs",
+              "tools": ["delegation"]
+            }
+          ],
           "params": [
             {
               "name": "retryThreshold",
@@ -226,10 +249,10 @@
         {
           "id": "force-parallel",
           "configKey": "warnSequentialDelegations",
-          "default": false,
+          "default": true,
           "event": "PreToolUse",
           "tools": ["delegation"],
-          "description": "Warns after N consecutive sequential delegations within a time window, suggesting they be launched together instead.",
+          "description": "Denies the Nth consecutive sequential delegation within a time window, requiring independent delegations to be launched together in one message. Escape hatch: SEQUENTIAL-JUSTIFIED in the prompt declares a genuine dependency.",
           "script": "gates/force-parallel/index.mjs",
           "params": [
             {
@@ -736,6 +759,16 @@
               "description": "Substring inside a comment that allows it once (a documented exception). Default comment-ok:."
             }
           ]
+        },
+        {
+          "id": "no-trivial-scripts",
+          "configKey": "blockTrivialInlineScripts",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["shell"],
+          "description": "Denies inline interpreter scripts (node -e, python -c, sed -i, perl -i, PowerShell Set-Content/Add-Content) when they perform file operations that the Edit or Write tool handles directly. Legitimate computation scripts are not caught.",
+          "script": "gates/no-trivial-scripts/index.mjs",
+          "params": []
         }
       ]
     },
@@ -869,7 +902,7 @@
           "configKey": "requireDocsBeforeUsingNewLibrary",
           "default": true,
           "event": "PreToolUse",
-          "tools": ["write"],
+          "tools": ["write", "shell"],
           "script": "gates/library-docs/index.mjs",
           "extraScripts": [
             {
@@ -878,7 +911,7 @@
               "tools": ["research"]
             }
           ],
-          "description": "Denies a write that imports a package the project does not use anywhere yet unless this session looked it up: an engram hit about it, or context7 docs followed by a mem_save. Never guess a library API.",
+          "description": "Denies a write or shell command that imports a package the project does not use anywhere yet unless this session looked it up: an engram hit about it, or context7 docs followed by a mem_save. Shell heredocs are inspected; opaque redirections to code files are denied outright. Never guess a library API.",
           "params": [
             {
               "name": "codeExtensions",
@@ -964,6 +997,16 @@
               "description": "When true (default), a task with status 'blocked' does not prevent stop; only open/in_forge do."
             }
           ]
+        },
+        {
+          "id": "require-task-split",
+          "configKey": "requireTaskSplitBeforeImplementing",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["write", "execution"],
+          "description": "Denies writes and execution when an active task has size > small/trivial and no sub-tasks registered. Forces splitting into smaller, independently verifiable sub-tasks before implementation begins.",
+          "script": "gates/require-task-split/index.mjs",
+          "params": []
         }
       ]
     },

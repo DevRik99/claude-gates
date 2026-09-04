@@ -45,12 +45,19 @@ function runCli(arguments_, cwd) {
   }
 }
 
-test('task add persists a new open task under .ai/tasks/active.json', () => {
-  const project = makeProject();
-  const result = runCli(
-    ['task', 'add', 'Fix the thing', '--description', 'details'],
+function addTask(project, title, extraArgs = []) {
+  return runCli(
+    ['task', 'add', title, '--verify-command', 'echo ok', ...extraArgs],
     project,
   );
+}
+
+test('task add persists a new open task under .ai/tasks/active.json', () => {
+  const project = makeProject();
+  const result = addTask(project, 'Fix the thing', [
+    '--description',
+    'details',
+  ]);
   assert.equal(result.code, 0, result.stderr);
 
   const activePath = join(project, '.ai', 'tasks', 'active.json');
@@ -63,8 +70,8 @@ test('task add persists a new open task under .ai/tasks/active.json', () => {
 
 test('task list shows the active task, and --all also reaches history', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Task one', '--id', 't1'], project);
-  runCli(['task', 'add', 'Task two', '--id', 't2'], project);
+  addTask(project, 'Task one', ['--id', 't1']);
+  addTask(project, 'Task two', ['--id', 't2']);
   runCli(['task', 'abandon', 't2', '--reason', 'not needed'], project);
 
   const active = runCli(['task', 'list'], project);
@@ -78,7 +85,18 @@ test('task list shows the active task, and --all also reaches history', () => {
 
 test('task close WITHOUT --evidence fails and leaves the task active', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Needs evidence', '--id', 't1'], project);
+  runCli(
+    [
+      'task',
+      'add',
+      'Needs evidence',
+      '--id',
+      't1',
+      '--verify-path',
+      'does-not-exist.txt',
+    ],
+    project,
+  );
 
   const result = runCli(['task', 'close', 't1'], project);
   assert.notEqual(result.code, 0);
@@ -91,7 +109,7 @@ test('task close WITHOUT --evidence fails and leaves the task active', () => {
 
 test('task close with free-text --evidence alone is refused: text is not evidence', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Has text only', '--id', 't1'], project);
+  addTask(project, 'Has text only', ['--id', 't1']);
   const result = runCli(
     ['task', 'close', 't1', '--evidence', 'npm test -> 5 passing'],
     project,
@@ -102,7 +120,7 @@ test('task close with free-text --evidence alone is refused: text is not evidenc
 
 test('task close WITH a passing --check moves the task to history with verified evidence', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Has evidence', '--id', 't1'], project);
+  addTask(project, 'Has evidence', ['--id', 't1']);
 
   const result = runCli(
     [
@@ -131,7 +149,7 @@ test('task close WITH a passing --check moves the task to history with verified 
 
 test('task close with a failing --check keeps the task open', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Fails check', '--id', 't1'], project);
+  addTask(project, 'Fails check', ['--id', 't1']);
   const result = runCli(
     ['task', 'close', 't1', '--check', 'node -e "process.exit(3)"'],
     project,
@@ -146,7 +164,7 @@ test('task close with a failing --check keeps the task open', () => {
 
 test('task close with --exists verifies a path (and --contains its content)', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Has file', '--id', 't1'], project);
+  addTask(project, 'Has file', ['--id', 't1']);
   const missing = runCli(
     ['task', 'close', 't1', '--exists', 'out/report.txt'],
     project,
@@ -176,7 +194,7 @@ test('task close with --exists verifies a path (and --contains its content)', ()
 
 test('task abandon needs no evidence and moves the task to history', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Drop me', '--id', 't1'], project);
+  addTask(project, 'Drop me', ['--id', 't1']);
 
   const result = runCli(
     ['task', 'abandon', 't1', '--reason', 'obsolete'],
@@ -192,7 +210,7 @@ test('task abandon needs no evidence and moves the task to history', () => {
 
 test('task promote links a forge run and keeps the task active as in_forge', () => {
   const project = makeProject();
-  runCli(['task', 'add', 'Promote me', '--id', 't1'], project);
+  addTask(project, 'Promote me', ['--id', 't1']);
 
   const result = runCli(['task', 'promote', 't1', 'run-42'], project);
   assert.equal(result.code, 0, result.stderr);

@@ -52,6 +52,16 @@
         ]
       },
       {
+        "matcher": "Bash|run_command|PowerShell|Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__ide__executeCode|Monitor|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/require-monitor/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
@@ -332,6 +342,16 @@
         ]
       },
       {
+        "matcher": "Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-trivial-scripts/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
@@ -362,7 +382,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -390,9 +410,29 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__ide__executeCode|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/require-task-split/index.mjs\"",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
+      {
+        "matcher": "Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/circuit-breaker/track.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
       {
         "matcher": "WebSearch|WebFetch|mcp__.*",
         "hooks": [

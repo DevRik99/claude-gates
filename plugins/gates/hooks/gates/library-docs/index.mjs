@@ -5,6 +5,8 @@ import { projectRootOf } from '../../lib/config.mjs';
 import {
   deny,
   runGate,
+  shellCommandOf,
+  shellWrittenPaths,
   toolInGroups,
   writtenContentOf,
   writtenPathOf,
@@ -190,6 +192,33 @@ export function knowledgeStatus(state, name) {
   };
 }
 
+const HEREDOC_START_PATTERN = /<<-?\s*['"]?(\w+)['"]?(?:\s*>{1,2}\s*\S+)?$/;
+
+function extractHeredocBodies(command) {
+  const lines = String(command).split(/\r?\n/);
+  const bodies = [];
+  let collecting = null;
+  let body = [];
+  for (const line of lines) {
+    if (collecting) {
+      if (line.trim() === collecting) {
+        bodies.push(body.join('\n'));
+        collecting = null;
+        body = [];
+      } else {
+        body.push(line);
+      }
+      continue;
+    }
+    const match = HEREDOC_START_PATTERN.exec(line.trimEnd());
+    if (match) {
+      collecting = match[1];
+      body = [];
+    }
+  }
+  return bodies;
+}
+
 function remedyFor(name, status) {
   const steps = [];
   if (!status.searched && !status.documentation)
@@ -217,46 +246,93 @@ runGate(
     },
   },
   ({ toolName, toolInput, sessionId, parameters, cwd }) => {
-    if (!toolInGroups(toolName, ['write'])) return;
-    const writtenPath = writtenPathOf(toolInput);
-    if (
-      !writtenPath ||
-      !parameters.codeExtensions.includes(extname(writtenPath).toLowerCase())
-    )
-      return;
+    const isWrite = toolInGroups(toolName, ['write']);
+    const isShell = toolInGroups(toolName, ['shell']);
+    if (!isWrite && !isShell) return;
+
     const root = projectRootOf(cwd) ?? cwd;
-    const absolutePath = isAbsolute(writtenPath)
-      ? writtenPath
-      : join(root, writtenPath);
     const ignored = new Set(
       parameters.ignoredPackages.map((name) => String(name).toLowerCase()),
     );
-    const already = existingImports(absolutePath);
-    const candidates = importedPackagesOf(
-      writtenContentOf(toolInput),
-      writtenPath,
-    ).filter((name) => !already.has(name) && !ignored.has(name.toLowerCase()));
-    if (candidates.length === 0) return;
-    const usedElsewhere = packagesUsedElsewhere(
-      root,
-      absolutePath,
-      parameters.codeExtensions,
-      parameters.maxScanFiles,
-    );
-    const unknown = candidates.filter((name) => !usedElsewhere.has(name));
-    if (unknown.length === 0) return;
+
+    // Collect { path, content } pairs to check.
+    const targets = [];
+
+    if (isWrite) {
+      const writtenPath = writtenPathOf(toolInput);
+      if (
+        writtenPath &&
+        parameters.codeExtensions.includes(extname(writtenPath).toLowerCase())
+      ) {
+        targets.push({
+          path: writtenPath,
+          content: writtenContentOf(toolInput),
+        });
+      }
+    }
+
+    if (isShell) {
+      const command = shellCommandOf(toolInput);
+      const writtenPaths = shellWrittenPaths(command).filter((path) =>
+        parameters.codeExtensions.includes(extname(path).toLowerCase()),
+      );
+      if (writtenPaths.length > 0) {
+        const heredocBodies = extractHeredocBodies(command);
+        const allContent = heredocBodies.join('\n');
+        for (const path of writtenPaths) {
+          targets.push({ path, content: allContent || null });
+        }
+      }
+    }
+
+    if (targets.length === 0) return;
+
+    const allBlocked = [];
     const state = readSessionState(GATE_ID, sessionId, {}, { cwd });
-    const blocked = unknown
-      .map((name) => ({ name, status: knowledgeStatus(state, name) }))
-      .filter((entry) => !entry.status.known);
-    if (blocked.length === 0) return;
-    const lines = blocked.map(
+
+    for (const { path, content } of targets) {
+      const absolutePath = isAbsolute(path) ? path : join(root, path);
+
+      if (content === null) {
+        // Shell command writes a code file but content cannot be inspected (no heredoc).
+        deny(
+          CONFIG_KEY,
+          `This shell command writes to ${path} (a code file) via redirection. Use the Write ` +
+            'tool for code files so library usage can be verified. Heredocs are extractable ' +
+            'but plain redirections are opaque to this gate.',
+        );
+      }
+
+      const already = existingImports(absolutePath);
+      const candidates = importedPackagesOf(content, path).filter(
+        (name) => !already.has(name) && !ignored.has(name.toLowerCase()),
+      );
+      if (candidates.length === 0) continue;
+
+      const usedElsewhere = packagesUsedElsewhere(
+        root,
+        absolutePath,
+        parameters.codeExtensions,
+        parameters.maxScanFiles,
+      );
+      const unknown = candidates.filter((name) => !usedElsewhere.has(name));
+      if (unknown.length === 0) continue;
+
+      const blocked = unknown
+        .map((name) => ({ name, status: knowledgeStatus(state, name) }))
+        .filter((entry) => !entry.status.known);
+      allBlocked.push(...blocked);
+    }
+
+    if (allBlocked.length === 0) return;
+    const lines = allBlocked.map(
       (entry) => `${entry.name}: ${remedyFor(entry.name, entry.status)}`,
     );
     deny(
       CONFIG_KEY,
-      `This write introduces ${blocked.length} package(s) this project does not use anywhere yet, and nothing ` +
-        `in this session shows how to use them. Do not guess an API. ${lines.join(' | ')}. Then retry the write.`,
+      `This ${isShell ? 'shell command' : 'write'} introduces ${allBlocked.length} package(s) this project does not use ` +
+        `anywhere yet, and nothing in this session shows how to use them. Do not guess an API. ` +
+        `${lines.join(' | ')}. Then retry${isShell ? ' using the Write tool' : ''}.`,
     );
   },
 );

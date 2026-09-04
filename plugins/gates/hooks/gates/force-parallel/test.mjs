@@ -10,7 +10,7 @@ import {
   writeSessionState,
 } from '../../lib/session-state.mjs';
 import {
-  isWarn,
+  isDeny,
   makeProject,
   messageOf,
   runGateProcess,
@@ -49,7 +49,7 @@ function session(config = { gates: { warnSequentialDelegations: true } }) {
   };
 }
 
-test('3 sequential delegations in the same session: the 3rd warns', () => {
+test('3 sequential delegations in the same session: the 3rd is denied', () => {
   const { sessionId, run, age, cleanup } = session();
   try {
     const first = run(delegationPayload(sessionId));
@@ -58,9 +58,9 @@ test('3 sequential delegations in the same session: the 3rd warns', () => {
     age();
     const third = run(delegationPayload(sessionId));
 
-    assert.equal(first, null, 'first delegation should not warn');
-    assert.equal(second, null, 'second delegation should not warn');
-    assert.ok(isWarn(third), 'third consecutive delegation should warn');
+    assert.equal(first, null, 'first delegation should not deny');
+    assert.equal(second, null, 'second delegation should not deny');
+    assert.ok(isDeny(third), 'third consecutive delegation should deny');
     assert.match(messageOf(third), /warnSequentialDelegations/);
     assert.match(messageOf(third), /3rd delegation/);
   } finally {
@@ -120,7 +120,7 @@ test('a batch counts once: two batches plus one lone delegation reach the thresh
     run(delegationPayload(sessionId));
     run(delegationPayload(sessionId));
     age();
-    assert.ok(isWarn(run(delegationPayload(sessionId))));
+    assert.ok(isDeny(run(delegationPayload(sessionId))));
   } finally {
     cleanup();
   }
@@ -154,7 +154,7 @@ test('a non-numeric sequentialThreshold falls back to the default of 3', () => {
     age();
     run(delegationPayload(sessionId));
     age();
-    assert.ok(isWarn(run(delegationPayload(sessionId))));
+    assert.ok(isDeny(run(delegationPayload(sessionId))));
   } finally {
     cleanup();
   }
@@ -174,7 +174,7 @@ test('a numeric sequentialJustifiedMarker falls back to the default marker', () 
     age();
     run(delegationPayload(sessionId));
     age();
-    assert.ok(isWarn(run(delegationPayload(sessionId, 'needs 123'))));
+    assert.ok(isDeny(run(delegationPayload(sessionId, 'needs 123'))));
   } finally {
     cleanup();
   }
@@ -204,7 +204,7 @@ test('without a session id the count is keyed by project, not shared globally', 
     );
   try {
     age(projectA);
-    assert.ok(isWarn(run(projectA)));
+    assert.ok(isDeny(run(projectA)));
     assert.equal(run(projectB), null);
   } finally {
     for (const project of [projectA, projectB]) {

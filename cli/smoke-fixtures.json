@@ -136,8 +136,8 @@
     {
       "id": "force-parallel",
       "configKey": "warnSequentialDelegations",
-      "enabledByDefault": false,
-      "type": "warn",
+      "enabledByDefault": true,
+      "type": "deny",
       "payload": {
         "tool_name": "Task",
         "tool_input": {
@@ -145,7 +145,7 @@
         }
       },
       "needsState": true,
-      "note": "stateful: warns only on the 3rd consecutive delegation under one session."
+      "note": "stateful: denies only on the 3rd consecutive delegation under one session."
     },
     {
       "id": "feature-catalog",
@@ -539,6 +539,35 @@
         "tool_input": {
           "file_path": "src/a.mjs",
           "content": "// reads the config and returns it\nexport const x = 1;\n"
+        }
+      },
+      "needsState": false
+    },
+    {
+      "id": "require-task-split",
+      "configKey": "requireTaskSplitBeforeImplementing",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/x.js",
+          "content": "x"
+        }
+      },
+      "needsState": true,
+      "note": "needs an .ai/tasks/active.json with a medium+ task that has no children."
+    },
+    {
+      "id": "require-monitor",
+      "configKey": "requireMonitorForBackground",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "npm run build",
+          "run_in_background": true
         }
       },
       "needsState": false

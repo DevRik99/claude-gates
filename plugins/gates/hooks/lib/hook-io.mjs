@@ -58,6 +58,8 @@ export const TOOL_GROUPS = Object.freeze({
   ],
   // Research surfaces: the web and documentation lookups the research gates sequence.
   research: ['WebSearch', 'WebFetch'],
+  // Observation tool for background processes.
+  monitor: ['Monitor'],
 });
 
 /** Every concrete tool name a set of groups expands to, de-duplicated. */
@@ -91,6 +93,7 @@ const MCP_GROUP_SIGNALS = Object.freeze({
   execution:
     /(?:write|edit|create|append|patch|replace|insert|modify|save|update|shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
   research: /(?:search|fetch|browse|docs|documentation|library|lookup|query)/i,
+  monitor: /(?:monitor|observe|watch|stream|tail|follow|subscribe)/i,
 });
 
 const MCP_TOOL_PREFIX = 'mcp__';
@@ -560,10 +563,10 @@ export function allow() {
 /** A Stop-hook block: makes the agent continue instead of ending the turn. */
 export function block(label, reason) {
   record(DECISIONS.BLOCK, reason);
-  process.stdout.write(
+  process.stderr.write(
     JSON.stringify({ decision: 'block', reason: `[${label}] ${reason}` }),
   );
-  process.exit(0);
+  process.exit(2);
 }
 
 export const SEVERITY = Object.freeze({ DENY: 'deny', WARN: 'warn' });

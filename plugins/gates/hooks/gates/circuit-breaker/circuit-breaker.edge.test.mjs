@@ -16,6 +16,7 @@ import {
 } from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
+const TRACKER = join(dirname(fileURLToPath(import.meta.url)), 'track.mjs');
 const GATE_ID = 'circuit-breaker';
 
 function delegate(prompt, sessionId, extra = {}) {
@@ -39,6 +40,7 @@ function session(config = ENABLED) {
     project,
     sessionId,
     run: (payload) => runGateProcess(GATE, payload, { project }),
+    track: (payload) => runGateProcess(TRACKER, payload, { project }),
     cleanup: (id = sessionId) =>
       rmSync(dirname(stateFileFor(GATE_ID, id, { cwd: project })), {
         recursive: true,
@@ -55,12 +57,13 @@ const SAME_TASK_PROMPT = [
 ].join('\n');
 
 test('FIXED: varying subagent_type per retry no longer resets the counter — the key is derived from task identity', () => {
-  const { sessionId, run, cleanup } = session();
+  const { sessionId, run, track, cleanup } = session();
   try {
     assert.equal(
       run(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' })),
       null,
     );
+    track(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' }));
     assert.equal(
       run(
         delegate(SAME_TASK_PROMPT, sessionId, {
@@ -68,6 +71,11 @@ test('FIXED: varying subagent_type per retry no longer resets the counter — th
         }),
       ),
       null,
+    );
+    track(
+      delegate(SAME_TASK_PROMPT, sessionId, {
+        subagent_type: 'worker-senior',
+      }),
     );
     assert.ok(
       isDeny(
@@ -82,10 +90,11 @@ test('FIXED: varying subagent_type per retry no longer resets the counter — th
 });
 
 test('FIXED: forging a count field on disk no longer has any effect — there is no count field to forge', () => {
-  const { project, sessionId, run, cleanup } = session();
+  const { project, sessionId, run, track, cleanup } = session();
   const statePath = stateFileFor(GATE_ID, sessionId, { cwd: project });
   try {
     run(delegate(SAME_TASK_PROMPT, sessionId));
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     assert.ok(existsSync(statePath));
 
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
@@ -102,12 +111,14 @@ test('FIXED: forging a count field on disk no longer has any effect — there is
 });
 
 test('FIXED: no session_id no longer disables the breaker — it falls back to a project-keyed bucket', () => {
-  const { run, cleanup } = session();
+  const { run, track, cleanup } = session();
   const prompt =
     'Objetivo: fix a one-off no-session edge case.\n\nQUE SI: update src/edge/no-session.js.';
   try {
     assert.equal(run(delegate(prompt)), null);
+    track(delegate(prompt));
     assert.equal(run(delegate(prompt)), null);
+    track(delegate(prompt));
     assert.ok(isDeny(run(delegate(prompt))));
   } finally {
     cleanup(null);
@@ -115,7 +126,7 @@ test('FIXED: no session_id no longer disables the breaker — it falls back to a
 });
 
 test('FIXED: OVERRIDE_PATTERN no longer matches the plain word "retry" inside ordinary task vocabulary', () => {
-  const { sessionId, run, cleanup } = session();
+  const { sessionId, run, track, cleanup } = session();
   try {
     const retryWordingPrompt = [
       'Objetivo: fix the retry loop in the payment worker.',
@@ -123,7 +134,9 @@ test('FIXED: OVERRIDE_PATTERN no longer matches the plain word "retry" inside or
       'QUE SI: update src/workers/payment.js to cap retries.',
     ].join('\n');
     assert.equal(run(delegate(retryWordingPrompt, sessionId)), null);
+    track(delegate(retryWordingPrompt, sessionId));
     assert.equal(run(delegate(retryWordingPrompt, sessionId)), null);
+    track(delegate(retryWordingPrompt, sessionId));
     assert.ok(isDeny(run(delegate(retryWordingPrompt, sessionId))));
   } finally {
     cleanup();
@@ -131,14 +144,17 @@ test('FIXED: OVERRIDE_PATTERN no longer matches the plain word "retry" inside or
 });
 
 test('OK: a genuine override imperative ("retry anyway") still allows and resets the counter', () => {
-  const { sessionId, run, cleanup } = session();
+  const { sessionId, run, track, cleanup } = session();
   try {
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     assert.equal(
       run(delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId)),
       null,
     );
+    track(delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId));
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
   } finally {
     cleanup();
@@ -146,10 +162,12 @@ test('OK: a genuine override imperative ("retry anyway") still allows and resets
 });
 
 test('OK: identical prompt+subagent_type is tripped at a configured retry threshold of 3', () => {
-  const { sessionId, run, cleanup } = session();
+  const { sessionId, run, track, cleanup } = session();
   try {
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     assert.ok(isDeny(run(delegate(SAME_TASK_PROMPT, sessionId))));
   } finally {
     cleanup();
@@ -157,11 +175,12 @@ test('OK: identical prompt+subagent_type is tripped at a configured retry thresh
 });
 
 test('DEFAULT threshold is 2: the first attempt passes, the second identical one denies and asks for help', () => {
-  const { sessionId, run, cleanup } = session({
+  const { sessionId, run, track, cleanup } = session({
     gates: { requireCircuitBreakerOnDelegation: true },
   });
   try {
     assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    track(delegate(SAME_TASK_PROMPT, sessionId));
     const second = run(delegate(SAME_TASK_PROMPT, sessionId));
     assert.ok(isDeny(second));
     assert.match(messageOf(second), /ASK THE USER/);

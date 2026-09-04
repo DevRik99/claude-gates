@@ -30,7 +30,6 @@ const CONFIG_KEY = 'requireCircuitBreakerOnDelegation';
 const DEFAULT_RETRY_THRESHOLD = 2;
 const MIN_RETRY_THRESHOLD = 2;
 const DEFAULT_SIMILARITY_THRESHOLD = 0.6;
-const MAX_ENTRIES_PER_KEY = 12;
 const MAX_OVERRIDE_SENTENCE_WORDS = 8;
 const MIN_TOKEN_LENGTH = 2;
 
@@ -391,18 +390,12 @@ runGate(
       return;
     }
 
+    // Count includes the current attempt (+1) against stored occurrences.
+    // Recording happens in the PostToolUse tracker (track.mjs), not here: a
+    // delegation rejected by ANOTHER gate (running in parallel) must not inflate
+    // the counter — only delegations that actually launched count as attempts.
     const count =
       1 + similarOccurrenceCount(state, signature, similarityThreshold);
-    const occurrences = [
-      ...occurrencesFor(state, key),
-      { signature, seenAt: Date.now() },
-    ].slice(-MAX_ENTRIES_PER_KEY);
-    writeSessionState(
-      GATE_ID,
-      sessionId,
-      { ...state, [key]: occurrences },
-      stateOptions,
-    );
 
     const retryThreshold = Math.max(
       MIN_RETRY_THRESHOLD,

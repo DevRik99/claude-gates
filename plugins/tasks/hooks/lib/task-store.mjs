@@ -170,6 +170,12 @@ export function openTaskStore(startDirectory) {
       writeCollection(activePath, collection);
       return task;
     },
+    /** Active sub-tasks whose parentId equals the given id. */
+    childrenOf(id) {
+      return readCollection(activePath).tasks.filter(
+        (task) => task.parentId === id,
+      );
+    },
     /** Merges fields into the active task with matching id. Null if not found. */
     update(id, fields) {
       const collection = readCollection(activePath);

@@ -53,7 +53,7 @@ export function runGateProcess(
   } = {},
 ) {
   const root = project ?? makeProject({ config, files });
-  const out = execFileSync(process.execPath, [gatePath], {
+  const opts = {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     encoding: 'utf8',
     cwd: cwd ?? root,
@@ -65,9 +65,20 @@ export function runGateProcess(
       ...environment,
     },
     timeout,
-  });
-  const trimmed = out.trim();
-  return trimmed ? JSON.parse(trimmed) : null;
+  };
+  try {
+    const out = execFileSync(process.execPath, [gatePath], opts);
+    const trimmed = out.trim();
+    return trimmed ? JSON.parse(trimmed) : null;
+  } catch (error) {
+    if (error.status === 2) {
+      const stderr = String(error.stderr ?? '').trim();
+      const stdout = String(error.stdout ?? '').trim();
+      const source = stderr || stdout;
+      return source ? JSON.parse(source) : null;
+    }
+    throw error;
+  }
 }
 
 /** 'deny' | 'warn' | 'block' | null from a gate's parsed output. */

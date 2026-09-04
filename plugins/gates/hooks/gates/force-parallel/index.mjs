@@ -1,6 +1,6 @@
-// force-parallel — warns when delegations keep arriving one turn at a time instead of as a
-// batch. Advisory only: a PreToolUse hook sees one call at a time and cannot prove the
-// delegations were independent, so it nudges the NEXT delegation and never denies.
+// force-parallel — denies delegations that keep arriving one turn at a time instead of as a
+// batch. Deterministic: when the sequential count hits the threshold, the delegation is
+// blocked outright — the agent must collect independent delegations and send them together.
 //
 // Decisions: delegations landing within BATCH_GAP_MS of each other are ONE batch (a parallel
 // launch in a single message) and do not raise the sequential count; only a gap between the
@@ -10,7 +10,7 @@
 
 import {
   runGate,
-  warn,
+  deny,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
@@ -51,8 +51,7 @@ runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
-    enabledByDefault: false,
-    severity: 'warn',
+    enabledByDefault: true,
     defaultParams: {
       sequentialThreshold: DEFAULT_SEQUENTIAL_THRESHOLD,
       sequentialWindowMs: DEFAULT_SEQUENTIAL_WINDOW_MS,
@@ -81,13 +80,13 @@ runGate(
     const windowSeconds = Math.round(
       parameters.sequentialWindowMs / MS_PER_SECOND,
     );
-    warn(
+    deny(
       CONFIG_KEY,
-      `This is the ${ordinal(count)} delegation sent one-by-one within ${windowSeconds}s. If the ` +
-        'remaining work is independent, launch the next batch together in a single message ' +
-        '(multiple tool calls) instead of one delegation per turn. If this delegation ' +
-        'genuinely depends on a prior result, ignore this and mark the prompt with ' +
-        `"${marker || DEFAULT_JUSTIFIED_MARKER}" to skip the warning next time.`,
+      `This is the ${ordinal(count)} delegation sent one-by-one within ${windowSeconds}s. ` +
+        'Independent delegations MUST be launched together in a single message (multiple tool ' +
+        'calls in one response). Collect the remaining independent delegations and send them as ' +
+        'a batch. If this delegation genuinely depends on a prior result, add ' +
+        `"${marker || DEFAULT_JUSTIFIED_MARKER}" to the prompt to declare the dependency.`,
     );
   },
 );

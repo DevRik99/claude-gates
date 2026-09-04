@@ -77,17 +77,44 @@ function readPayload() {
 
 // Asked on every message. The hook does not classify — it asks the model to, and the
 // model is the one that persists (via the CLI, which enforces the store's own rules,
-// e.g. evidence on close). This is legitimate: the hook is not depending on the model to
-// make something OCCUR deterministically; it is depending on the model's judgment for a
-// judgment call (whether this message describes a new task), same shape as ask-adoption.
+// e.g. evidence on close). Default to registering: the USER defines what is a task, not
+// the model. The model must not use judgment to skip what the user considers actionable.
 const CLASSIFY_PROMPT =
-  '[tasks] MANDATORY before you respond: judge whether the message you just received describes ' +
-  'a new actionable task (not a question, not small talk, not a follow-up on an already-registered ' +
-  'task). If it does, you MUST register it now, before writing your reply — run ' +
-  '`claude-gates task add "<title>" [--description <text>] [--size <size>]` from the project root ' +
-  "(or the CLI's absolute path if `claude-gates` is not on PATH). Do not defer this, do not decide " +
-  'to register it "later", do not silently skip it because the answer seems obvious. If it is not a ' +
-  'new task, skip registration — do not fabricate one.';
+  "[tasks] MANDATORY — before writing your reply, you MUST register the user's message as a " +
+  'task unless it is UNAMBIGUOUSLY one of these: (a) pure small talk with no request ("hello", ' +
+  '"thanks"), (b) a yes/no answer to a question YOU asked, (c) a message that says only "continue" ' +
+  'or "go ahead". Everything else is a task — including questions that require research, review ' +
+  'requests, error reports, follow-ups that add scope, corrections, and messages with multiple ' +
+  'requests (register one task per distinct request). DEFAULT TO REGISTERING: when in doubt, ' +
+  'register.\n\n' +
+  'VERIFICATION REQUIRED: every task MUST include a deterministic verification criterion. Use ' +
+  'one of these:\n' +
+  '  --verify-command "<shell command>" [--verify-expect <text>]  (command must exit 0 when done)\n' +
+  '  --verify-path <file-or-dir> [--verify-contains <text>]       (must exist when done)\n' +
+  'Examples:\n' +
+  '  claude-gates task add "Fix login bug" --verify-command "npm test -- --grep login" --verify-expect "passing"\n' +
+  '  claude-gates task add "Add config file" --verify-path "src/config.ts" --verify-contains "export"\n' +
+  'Pick the criterion that a machine can check: a test that passes, a file that exists, a grep ' +
+  'that matches. If the task is a question/research, use --verify-path for the file where the ' +
+  'answer will be written, or --verify-command "claude-gates task list" --verify-expect "done".\n\n' +
+  'SPLITTING (Depth Tree): tasks with size medium or larger MUST be split into sub-tasks before ' +
+  'implementation. SCOPE FIRST: if the task description is vague or you are unsure what files or ' +
+  'modules are affected, ASK THE USER to clarify the scope before splitting — do not guess. ' +
+  'Once scope is clear:\n' +
+  '  1. Each sub-task OWNS specific files (state in --description "OWNS: <paths>") — no overlap\n' +
+  '  2. Each sub-task is --size small and independently verifiable\n' +
+  '  3. Split at natural boundaries: one module, one function, one test file\n' +
+  '  4. Register parent first, then sub-tasks with --parent <parent-id>\n' +
+  'Example:\n' +
+  '  claude-gates task add "Refactor auth" --size large --verify-command "npm test" --verify-expect "passing"\n' +
+  '  claude-gates task add "Extract token validation" --parent <id> --size small ' +
+  '--verify-path "src/auth/validate.ts" --description "OWNS: src/auth/validate.ts"\n' +
+  '  claude-gates task add "Add token refresh" --parent <id> --size small ' +
+  '--verify-command "npm test -- --grep refresh" --description "OWNS: src/auth/refresh.ts"\n\n' +
+  'Run `claude-gates task add "<title>" [--description <text>] [--size <size>] --verify-command|--verify-path ...` ' +
+  "from the project root (or the CLI's absolute path if `claude-gates` is not on PATH). Do not defer " +
+  'this, do not decide to register it "later", do not silently skip it because the answer seems ' +
+  "obvious. The user's flow takes priority over your judgment of what deserves tracking.";
 
 function formatReminder(tasks) {
   const shown = tasks.slice(0, MAX_TASKS_SHOWN);

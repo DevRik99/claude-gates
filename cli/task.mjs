@@ -16,6 +16,12 @@ import { verifyCommand, verifyPath } from './evidence.mjs';
 
 const DEFAULT_SIZE = 'unspecified';
 
+const VERIFY_USAGE =
+  'task add requires a deterministic verification criterion: ' +
+  '--verify-command "<command>" [--verify-expect <text>] (command that must exit 0 when done) ' +
+  'or --verify-path <path> [--verify-contains <text>] (file/dir that must exist when done). ' +
+  'This defines HOW the task will be verified as complete — free text is not enough.';
+
 function fail(message) {
   process.stderr.write(`${message}\n`);
   process.exit(EXIT_CODE.FAILURE);
@@ -31,18 +37,41 @@ function openStoreOrFail(cwd) {
   return store;
 }
 
+function buildVerifyCriteria(options) {
+  if (options.verifyCommand) {
+    return {
+      kind: 'command',
+      command: options.verifyCommand,
+      expect: options.verifyExpect ?? null,
+    };
+  }
+  if (options.verifyPath) {
+    return {
+      kind: 'path',
+      path: options.verifyPath,
+      contains: options.verifyContains ?? null,
+    };
+  }
+  return null;
+}
+
 function taskAdd(title, options, { cwd = process.cwd() } = {}) {
   if (!title || !title.trim()) fail('task add requires a non-empty title.');
+  const verify = buildVerifyCriteria(options);
+  if (!verify) fail(VERIFY_USAGE);
   const store = openStoreOrFail(cwd);
-  const task = store.add({
+  const task = {
     id: options.id || randomUUID(),
     title: title.trim(),
     description: options.description ?? '',
     status: STATUS.OPEN,
     size: options.size ?? DEFAULT_SIZE,
+    verify,
     createdAt: new Date().toISOString(),
     messages: [],
-  });
+  };
+  if (options.parent) task.parentId = options.parent;
+  store.add(task);
   process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
 }
 
@@ -80,9 +109,26 @@ function collectEvidence(options, cwd) {
   return null;
 }
 
+function autoVerifyFromTask(task, cwd) {
+  if (!task?.verify) return null;
+  const { kind, command, expect, path, contains } = task.verify;
+  if (kind === 'command' && command) {
+    return verifyCommand(command, { cwd, expect: expect ?? undefined });
+  }
+  if (kind === 'path' && path) {
+    return verifyPath(path, { cwd, contains: contains ?? undefined });
+  }
+  return null;
+}
+
 function taskClose(id, options, { cwd = process.cwd() } = {}) {
   const store = openStoreOrFail(cwd);
-  const evidence = collectEvidence(options, store.root);
+  let evidence = collectEvidence(options, store.root);
+  if (!evidence && options.evidence !== undefined) fail(EVIDENCE_USAGE);
+  if (!evidence) {
+    const task = store.active().find((entry) => entry.id === id);
+    evidence = autoVerifyFromTask(task, store.root);
+  }
   if (!evidence) fail(EVIDENCE_USAGE);
   if (!evidence.verified) {
     const output = evidence.outputTail ? `\n${evidence.outputTail}` : '';
@@ -121,10 +167,29 @@ export function registerTaskCommand(program) {
 
   task
     .command('add <title>')
-    .description('Register a new open task.')
+    .description(
+      'Register a new open task (requires a verification criterion).',
+    )
     .option('--id <id>', 'explicit task id (default: a generated uuid)')
     .option('--description <text>', 'longer description of the task')
     .option('--size <size>', 'rough size estimate (e.g. trivial, small, large)')
+    .option(
+      '--verify-command <command>',
+      'shell command that must exit 0 when the task is done',
+    )
+    .option(
+      '--verify-expect <text>',
+      'text the --verify-command output must contain',
+    )
+    .option(
+      '--verify-path <path>',
+      'file or directory that must exist when the task is done',
+    )
+    .option(
+      '--verify-contains <text>',
+      'text the --verify-path file must contain',
+    )
+    .option('--parent <id>', 'parent task id (makes this a sub-task)')
     .action((title, options) => taskAdd(title, options));
 
   task
