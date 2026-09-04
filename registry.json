@@ -1,5 +1,5 @@
 {
-  "gateVersion": "3.0.0",
+  "gateVersion": "3.1.0",
   "families": [
     {
       "id": "security",
@@ -13,12 +13,12 @@
           "event": "PreToolUse",
           "tools": ["shell", "delegation"],
           "script": "gates/bash-commands/index.mjs",
-          "description": "Denies git reset --hard, rm -rf over protected areas, force push, and taskkill by image.",
+          "description": "Denies git reset --hard, recursive force deletes over protected areas, force push, git clean -f, and killing processes by name (Unix and Windows).",
           "params": [
             {
               "name": "denyPatterns",
               "type": "string[]",
-              "description": "Regex sources of destructive commands to deny. Replaces the built-in list."
+              "description": "Destructive-command rules: regex sources, or [regex, reason] pairs (a bare source gets a generic reason). Replaces the built-in list."
             },
             {
               "name": "rmRfProtectedAreas",
@@ -44,7 +44,7 @@
             {
               "name": "publishRules",
               "type": "string[]",
-              "description": "Regex sources of remote-publish commands to deny. Replaces the built-in list."
+              "description": "Remote-publish rules: regex sources, or [regex, reason] pairs. Replaces the built-in list."
             }
           ]
         },
@@ -54,18 +54,18 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["write", "shell"],
-          "description": "Denies writes to .env, lockfiles and the harness itself.",
+          "description": "Denies writes and mutating commands (Unix and PowerShell) to .env files, lockfiles and the Claude harness.",
           "script": "gates/protected-paths/index.mjs",
           "params": [
             {
               "name": "protectedPaths",
               "type": "string[]",
-              "description": "Path fragments no write or mutating command may target."
+              "description": "Path fragments: a bare name matches the file's basename exactly (.env is not .env.example); a fragment ending in / matches that directory sequence (.claude/hooks/)."
             },
             {
               "name": "mutatingCommands",
               "type": "string[]",
-              "description": "Shell command names treated as mutating (touch, rm, cp, mv, sed -i, tee, chmod...)."
+              "description": "Regex sources matched at the start of a command segment whose arguments name a protected path; [] turns that rule off (redirections are always checked)."
             }
           ]
         },
@@ -74,7 +74,7 @@
           "configKey": "blockPathsOutsideRootWhitelist",
           "default": true,
           "event": "PreToolUse",
-          "tools": ["write"],
+          "tools": ["write", "shell"],
           "description": "Denies new root-level files/folders outside the project's whitelist.",
           "script": "gates/root-whitelist/index.mjs",
           "params": [
@@ -102,7 +102,7 @@
             {
               "name": "blockingPatterns",
               "type": "string[]",
-              "description": "Regex sources of blocking/waiting forms to deny."
+              "description": "Blocking/waiting rules: regex sources, or [regex, reason] pairs, matched per command segment. Replaces the built-in list."
             },
             {
               "name": "waitJustifiedMarker",
@@ -187,7 +187,7 @@
           "default": false,
           "event": "PreToolUse",
           "tools": ["delegation"],
-          "description": "Cuts the same delegation retried without substantial changes.",
+          "description": "Cuts a delegation retried without substantial change: the attempt count is recomputed from stored signatures across the session (Dice >= similarityThreshold); retryThreshold below 2 is treated as 2.",
           "script": "gates/circuit-breaker/index.mjs",
           "params": [
             {
@@ -214,7 +214,12 @@
             {
               "name": "memoryDependencyPatterns",
               "type": "string[]",
-              "description": "Regex sources for phrases that lean on the subagent's memory."
+              "description": "Regex sources for phrases that refer the subagent to prior conversation."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Marker in the prompt that states no recalled data is needed (default memory-not-needed)."
             }
           ]
         },
@@ -256,8 +261,8 @@
           "configKey": "requireFeatureCatalog",
           "default": true,
           "event": "PreToolUse",
-          "tools": ["write"],
-          "description": "Single in_progress; done requires asserts and review.",
+          "tools": ["write", "shell"],
+          "description": "Judges the change to the feature catalog: at most maxInProgress features in_progress, and no feature moved to done by a direct write (shell redirects onto the catalog are denied).",
           "script": "gates/feature-catalog/index.mjs",
           "params": [
             {
@@ -320,13 +325,13 @@
           "default": false,
           "event": "PreToolUse",
           "tools": ["delegation"],
-          "description": "Definition, writing, validation, QA and closure declared before building.",
+          "description": "Definition, writing (verification) and a separate reviewer declared before building.",
           "script": "gates/implementation-pipeline/index.mjs",
           "params": [
             {
               "name": "builderSubagents",
               "type": "string[]",
-              "description": "Subagent types that count as builders (subject to the pipeline)."
+              "description": "Kept for compatibility: every subagent type not in exemptSubagents is held to the pipeline."
             },
             {
               "name": "exemptSubagents",
@@ -347,7 +352,7 @@
             {
               "name": "activePointerPath",
               "type": "string",
-              "description": "Path to the active-pipeline pointer file."
+              "description": "Path to the active-task pointer file (relative to the project root, or absolute). The task contract is looked up under <pointer directory>/<slug>/."
             },
             {
               "name": "exemptSubagents",
@@ -368,12 +373,12 @@
             {
               "name": "e2eSignals",
               "type": "string[]",
-              "description": "Regex sources that make an E2E row mandatory (money, auth, data...)."
+              "description": "Regex sources that make an E2E row mandatory (money, auth, persistence, data loss). An empty list means never."
             },
             {
               "name": "visualSignals",
               "type": "string[]",
-              "description": "Regex sources that make a visual/QA row mandatory (UI signals)."
+              "description": "Regex sources that make a visual/QA row mandatory; a source starting with an escaped dot matches a file extension inside a path."
             },
             {
               "name": "exemptSubagents",
@@ -394,8 +399,8 @@
           "configKey": "requireSkillForNewDependency",
           "default": true,
           "event": "PreToolUse",
-          "tools": ["write"],
-          "description": "A new direct dependency requires a current skill.",
+          "tools": ["write", "shell"],
+          "description": "A dependency new to the project (package.json write or npm/pnpm/yarn/bun install) requires a current skill.",
           "script": "gates/dependency-skills/index.mjs",
           "params": [
             {
@@ -469,7 +474,7 @@
           "default": false,
           "event": "PreToolUse",
           "tools": ["execution", "delegation"],
-          "description": "Loads gates declared by the project's rules/*.mjs and skills/*/gate.mjs.",
+          "description": "Runs the project's own rules/*.mjs and .claude/skills/*/gate.mjs as sub-gates (payload on stdin; deny via JSON or exit 2). Only when enabled in the project's own .ai/config.json, never from the global config.",
           "script": "gates/rule-skill-autodiscovery/index.mjs",
           "params": [
             {
@@ -490,7 +495,7 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["execution", "delegation"],
-          "description": "A second occurrence of a defect class requires its deterministic block.",
+          "description": "A second occurrence of a defect class requires its deterministic block. Read-only commands, read-only delegations and the write to .ai/reincidencias.json itself stay allowed.",
           "script": "gates/recurrence-lock/index.mjs",
           "params": [
             {
@@ -513,6 +518,11 @@
               "name": "implementationExtensions",
               "type": "string[]",
               "description": "Source extensions whose paired test is checked."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Marker that, present in the test content, allows a regression test written after reproducing a bug (default test-after-impl:allow)."
             }
           ]
         },
@@ -538,13 +548,23 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["write"],
-          "description": "Denies writing voseo or regional lexicon in text (escape hatch marker allows a deliberate quote/fixture/log).",
+          "description": "Denies voseo or regional lexicon in Spanish prose (text files, or content that reads as Spanish); code and English text are not scanned. Escape hatch marker allows a deliberate quote/fixture/log.",
           "script": "gates/neutral-spanish/index.mjs",
           "params": [
             {
               "name": "regionalMarkers",
               "type": "string[]",
               "description": "Regional words to warn about. Replaces the built-in list."
+            },
+            {
+              "name": "textExtensions",
+              "type": "string[]",
+              "description": "File extensions always scanned as prose (default .md, .mdx, .txt, .rst, .html, .htm, .adoc, .json, .yml, .yaml); other files are scanned only when their content reads as Spanish prose."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Marker that, present in the content, allows deliberate regional text (default neutral-spanish:allow)."
             }
           ]
         },
@@ -554,7 +574,7 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["write"],
-          "description": "Warns when timeouts/retries change without evidence.",
+          "description": "Warns when a timeout/deadline/retry VALUE changes (Edit old vs new, or Write vs disk) without evidence; a new file never warns.",
           "script": "gates/diagnosis-before-patch/index.mjs",
           "params": [
             {
@@ -583,7 +603,8 @@
               "type": "number",
               "description": "Milliseconds allowed for the lint run before it counts as a failure."
             }
-          ]
+          ],
+          "timeoutSeconds": 65
         },
         {
           "id": "staged-lint",
@@ -614,7 +635,8 @@
               "type": "string",
               "description": "Substring in the commit command that skips the check once. Default [skip-lint]."
             }
-          ]
+          ],
+          "timeoutSeconds": 65
         },
         {
           "id": "atomic-commit",
@@ -643,7 +665,7 @@
             {
               "name": "natures",
               "type": "string[]",
-              "description": "Classification table ({name, source, counts}) mapping a path to a nature. Replaces the built-in list."
+              "description": "Classification table of {name, source, counts?} objects, first match wins; entries without name and source are skipped. Replaces the built-in list."
             }
           ]
         },
@@ -653,7 +675,7 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["shell", "delegation"],
-          "description": "Denies a git commit whose message carries an AI/agent attribution trailer (Co-Authored-By, Generated with, session trailer). Escape hatch marker allows one legitimate co-author.",
+          "description": "Denies a git commit whose message carries an AI/agent attribution trailer (Co-Authored-By, Generated with Claude/AI, session trailer), and a delegation prompt that orders one. Escape hatch marker allows one legitimate co-author.",
           "script": "gates/no-coauthor/index.mjs",
           "params": [
             {
@@ -685,12 +707,33 @@
             {
               "name": "watchedConfigFiles",
               "type": "string[]",
-              "description": "Config file basenames whose edits are scanned for rule-weakening. Replaces the built-in list."
+              "description": "Config file basenames (a * matches within a name, e.g. tsconfig.*.json) whose edits are scanned for rule-weakening. package.json counts only when it has an eslintConfig. Replaces the built-in list."
             },
             {
               "name": "escapeHatch",
               "type": "string",
               "description": "Substring on the same line as a suppression that allows it (a documented false positive). Default lint-ok:."
+            }
+          ]
+        },
+        {
+          "id": "no-explanatory-comments",
+          "configKey": "blockExplanatoryComments",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["write"],
+          "script": "gates/no-explanatory-comments/index.mjs",
+          "description": "Denies a code write that adds comments narrating what the code does. Only decision comments (why, trade-off, limitation), tool directives, TODO/FIXME and typed JSDoc tags are allowed. Judges only NEW comments (diff against the file on disk). Escape hatch: comment-ok: <reason>.",
+          "params": [
+            {
+              "name": "decisionMarkers",
+              "type": "string[]",
+              "description": "Regex sources (ES+EN) that mark a comment as a decision and therefore allowed. Replaces the built-in list."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Substring inside a comment that allows it once (a documented exception). Default comment-ok:."
             }
           ]
         }
@@ -745,6 +788,112 @@
               "name": "toolMapFile",
               "type": "string",
               "description": "Path to the per-project tool map (default .ai/tool-map.json)."
+            },
+            {
+              "name": "toolFolders",
+              "type": "string[]",
+              "description": "Folder names (path segments) marking a file as a tool/helper. Same defaults as reuse-before-build."
+            },
+            {
+              "name": "toolExtensions",
+              "type": "string[]",
+              "description": "File extensions considered code that can reinvent a wheel."
+            },
+            {
+              "name": "toolNamePatterns",
+              "type": "string[]",
+              "description": "Regex sources; a file whose basename matches any is a helper regardless of folder."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research flow",
+      "description": "Engram persistent memory is the first source and the mandatory sink of research; library APIs are looked up (context7) instead of guessed, then saved.",
+      "gates": [
+        {
+          "id": "engram-first",
+          "configKey": "requireEngramBeforeResearch",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["research"],
+          "script": "gates/engram-first/index.mjs",
+          "extraScripts": [
+            {
+              "event": "PostToolUse",
+              "script": "gates/engram-first/track.mjs",
+              "tools": ["research"]
+            },
+            {
+              "event": "Stop",
+              "script": "gates/engram-first/stop.mjs"
+            },
+            {
+              "event": "SessionStart",
+              "script": "gates/engram-first/session-start.mjs"
+            }
+          ],
+          "description": "Denies WebSearch/WebFetch/context7 (and MCP research tools) until a mem_search ran in the session; blocks Stop while research happened with no later mem_save; at session start warns once when engram cloud is configured but the project is not enrolled.",
+          "params": [
+            {
+              "name": "engramServers",
+              "type": "string[]",
+              "description": "MCP server names that are engram (mcp__<server>__mem_*)."
+            },
+            {
+              "name": "context7Servers",
+              "type": "string[]",
+              "description": "MCP server names that are context7."
+            },
+            {
+              "name": "researchTools",
+              "type": "string[]",
+              "description": "Native tool names that count as research."
+            },
+            {
+              "name": "engramUrl",
+              "type": "string",
+              "description": "Local engram daemon URL used for the cloud enrollment check."
+            },
+            {
+              "name": "requireSaveBeforeStop",
+              "type": "boolean",
+              "description": "Block the Stop event when research happened and nothing was saved to engram afterwards."
+            }
+          ]
+        },
+        {
+          "id": "library-docs",
+          "configKey": "requireDocsBeforeUsingNewLibrary",
+          "default": true,
+          "event": "PreToolUse",
+          "tools": ["write"],
+          "script": "gates/library-docs/index.mjs",
+          "extraScripts": [
+            {
+              "event": "PostToolUse",
+              "script": "gates/library-docs/track.mjs",
+              "tools": ["research"]
+            }
+          ],
+          "description": "Denies a write that imports a package the project does not use anywhere yet unless this session looked it up: an engram hit about it, or context7 docs followed by a mem_save. Never guess a library API.",
+          "params": [
+            {
+              "name": "codeExtensions",
+              "type": "string[]",
+              "description": "File extensions whose imports are inspected."
+            },
+            {
+              "name": "ignoredPackages",
+              "type": "string[]",
+              "description": "Package names that never require a lookup."
+            },
+            {
+              "name": "maxScanFiles",
+              "type": "number",
+              "description": "How many project files are scanned to see whether a package is already in use."
             }
           ]
         }
@@ -767,7 +916,7 @@
             {
               "name": "forgeDbPath",
               "type": "string",
-              "description": "Path to forge's global SQLite DB (default ~/.forge/forge-mcp.db)."
+              "description": "Path to forge's global SQLite DB (default ~/.forge/forge-mcp.db). forgeDatabasePath is accepted as a legacy alias."
             }
           ]
         }
@@ -785,7 +934,13 @@
           "event": "PreToolUse",
           "tools": ["question"],
           "description": "When autonomous mode is on, denies AskUserQuestion so the assistant decides instead of asking. Also blocks a turn from ending to wait (via gates/autonomous-mode/stop.mjs, a Stop hook sharing this flag): it re-injects, once per cycle, an instruction to decide and proceed, leaving pending only what needs the user's own explicit decision.",
-          "script": "gates/autonomous-mode/index.mjs"
+          "script": "gates/autonomous-mode/index.mjs",
+          "extraScripts": [
+            {
+              "event": "Stop",
+              "script": "gates/autonomous-mode/stop.mjs"
+            }
+          ]
         }
       ]
     },
@@ -800,7 +955,7 @@
           "default": true,
           "event": "Stop",
           "tools": [],
-          "description": "Blocks the Stop event while the task store has active (open/in_forge) tasks for this project; lists them and how to close them. Respects stop_hook_active to avoid an infinite loop.",
+          "description": "Blocks the Stop event while the task store has active (open/in_forge) tasks for this project; lists them and how to close them with verified evidence (task close --check/--exists) or abandon them. Respects stop_hook_active.",
           "script": "gates/stop-pending/index.mjs",
           "params": [
             {
@@ -861,7 +1016,7 @@
             {
               "name": "maxClauseChars",
               "type": "number",
-              "description": "Hard cap on each entry's one-line blurb length. Default 90."
+              "description": "Hard cap on each entry's one-line blurb length. Default 120."
             },
             {
               "name": "extraSkillsDirs",
@@ -887,8 +1042,19 @@
               "name": "mapFile",
               "type": "string",
               "description": "Path to the persisted capability map, relative to project root. Default .ai/capability-map.json."
+            },
+            {
+              "name": "injectEveryMessages",
+              "type": "number",
+              "description": "Inject the catalog only every Nth message of a session (default 10); a changed catalog injects immediately."
+            },
+            {
+              "name": "blurbOverridesFile",
+              "type": "string",
+              "description": "Path, relative to the project root, of a JSON map name -> hand-written blurb (default .ai/blurb-overrides.json)."
             }
-          ]
+          ],
+          "timeoutSeconds": 10
         }
       ]
     },
@@ -912,7 +1078,8 @@
               "type": "number",
               "description": "How many user messages between full recitations of active tasks."
             }
-          ]
+          ],
+          "timeoutSeconds": 10
         },
         {
           "id": "list-tasks-on-session-start",
@@ -921,7 +1088,8 @@
           "event": "SessionStart",
           "tools": [],
           "description": "Lists this project's active tasks when a session opens. Silent when none are active.",
-          "script": "session-tasks.mjs"
+          "script": "session-tasks.mjs",
+          "timeoutSeconds": 10
         }
       ]
     }

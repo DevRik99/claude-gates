@@ -2,7 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Bash|run_command|PowerShell|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -12,7 +12,7 @@
         ]
       },
       {
-        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Bash|run_command|PowerShell|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -22,7 +22,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -32,7 +32,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -42,7 +42,7 @@
         ]
       },
       {
-        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Bash|run_command|PowerShell|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -102,7 +102,17 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/force-parallel/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -112,7 +122,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -162,7 +172,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -172,7 +182,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -182,7 +192,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -192,7 +202,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -202,7 +212,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__ide__executeCode|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__ide__executeCode|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -212,7 +222,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__ide__executeCode|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__ide__executeCode|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -222,7 +232,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -242,7 +252,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -252,7 +262,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -262,7 +272,67 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
+        "matcher": "Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/lint-commit/index.mjs\"",
+            "timeout": 65
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/staged-lint/index.mjs\"",
+            "timeout": 65
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/atomic-commit/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|run_command|PowerShell|Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-coauthor/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-lint-suppression/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-explanatory-comments/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -272,7 +342,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -282,7 +352,27 @@
         ]
       },
       {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|mcp__.*",
+        "matcher": "WebSearch|WebFetch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/engram-first/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/library-docs/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -300,75 +390,26 @@
             "timeout": 30
           }
         ]
-      },
-      {
-        "matcher": "Bash|run_command|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/lint-commit/index.mjs\"",
-            "timeout": 65
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|run_command|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/staged-lint/index.mjs\"",
-            "timeout": 65
-          }
-        ]
-      },
-      {
-        "matcher": "Agent|Task|invoke_subagent|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/force-parallel/index.mjs\"",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|run_command|Agent|Task|invoke_subagent|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-coauthor/index.mjs\"",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|run_command|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/atomic-commit/index.mjs\"",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|NotebookEdit|write_to_file|replace_file_content|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/no-lint-suppression/index.mjs\"",
-            "timeout": 30
-          }
-        ]
       }
     ],
-    "UserPromptSubmit": [
+    "PostToolUse": [
       {
+        "matcher": "WebSearch|WebFetch|mcp__.*",
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/capability-map/index.mjs\"",
-            "timeout": 10
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/engram-first/track.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch|WebFetch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/library-docs/track.mjs\"",
+            "timeout": 30
           }
         ]
       }
@@ -378,7 +419,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/stop-pending/index.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/engram-first/stop.mjs\"",
             "timeout": 30
           }
         ]
@@ -391,9 +432,27 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/stop-pending/index.mjs\"",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/engram-first/session-start.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -418,6 +477,17 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/wiring-check.mjs\"",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/capability-map/index.mjs\"",
+            "timeout": 10
           }
         ]
       }

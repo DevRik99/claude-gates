@@ -15,7 +15,7 @@
 // Fail-safe: every check is wrapped so a doctor bug never blocks a session from
 // starting — worst case it silently skips a check rather than throwing.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,6 +29,14 @@ const HOOKS_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = join(HOOKS_DIRECTORY, '..', '..', '..');
 const PACKAGE_JSON_PATH = join(REPOSITORY_ROOT, 'package.json');
 const REGISTRY_PATH = join(REPOSITORY_ROOT, 'registry.json');
+const PLUGIN_MANIFEST_PATH = join(
+  HOOKS_DIRECTORY,
+  '..',
+  '.claude-plugin',
+  'plugin.json',
+);
+const PLUGIN_CACHE = join(homedir(), '.claude', 'plugins', 'cache');
+const PLUGIN_NAME = 'gates';
 
 // Same config lookup as the other session hooks (see session-tasks.mjs / register-requests.mjs):
 // kept local and dependency-free so this plugin works standalone.
@@ -126,6 +134,41 @@ function minNodeVersionRequired(configuredMin) {
   return token ?? DEFAULT_MIN_NODE_VERSION;
 }
 
+function directoriesIn(path) {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/** A newer gates version sitting in Claude Code's plugin cache means this session runs a
+ * stale install (the marketplace still points at an old package path). */
+function staleInstallProblem() {
+  const running = readJson(PLUGIN_MANIFEST_PATH)?.version;
+  if (!parseVersion(running)) return null;
+  let newest = running;
+  let marketplace = null;
+  for (const marketplaceName of directoriesIn(PLUGIN_CACHE)) {
+    for (const version of directoriesIn(
+      join(PLUGIN_CACHE, marketplaceName, PLUGIN_NAME),
+    )) {
+      if (parseVersion(version) && !versionAtLeast(newest, version)) {
+        newest = version;
+        marketplace = marketplaceName;
+      }
+    }
+  }
+  if (newest === running) return null;
+  return (
+    `the gates plugin running in this session is ${running} but ${newest} is installed in the ` +
+    `plugin cache (${marketplace}). Run \`claude plugin update ${PLUGIN_NAME}@${marketplace}\` or ` +
+    '`claude-gates init --global --defaults --yes` from the newer package, then restart the session.'
+  );
+}
+
 function checkNodeVersion(minVersion) {
   if (versionAtLeast(process.version, minVersion)) return null;
   return (
@@ -183,6 +226,9 @@ function main() {
   const minVersion = minNodeVersionRequired(config?.minNodeVersion);
   const versionProblem = checkNodeVersion(minVersion);
   if (versionProblem) problems.push(versionProblem);
+
+  const staleInstall = staleInstallProblem();
+  if (staleInstall) problems.push(staleInstall);
 
   const missingScripts = missingFolderGateScripts();
   if (missingScripts.length > 0) {
