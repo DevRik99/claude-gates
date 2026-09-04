@@ -85,7 +85,7 @@ export const RISK_SIGNAL_SOURCES = [
 // unsafe to trust this label/verb at all?").
 const MUTATION_RISK_TERMS =
   `${MONEY_TERMS}|${AUTH_TERMS}|credencial|credential|data|datos|borrar|delete|drop|` +
-  `write|escrib|${DESTRUCTIVE_DEPLOY_TERMS}`;
+  `write|escrib\\p{L}*|${DESTRUCTIVE_DEPLOY_TERMS}`;
 
 export const MUTATION_RISK_SIGNAL =
   withUnicodeWordBoundary(MUTATION_RISK_TERMS);
@@ -120,15 +120,14 @@ export const CONJECTURE = withUnicodeWordBoundary(CONJECTURE_SOURCES.join('|'));
 // to <file>" nearby is not flagged as depending on model memory.
 
 export const PERSISTENCE_VERB_SOURCES = [
-  'save|persist|store',
-  'guarda(?:l[oa])?|guard[aá]|persist[eií]|persistir|persistido|almacena|almacenar',
-  'escrib(?:e|í|i) .{0,20}en|escribir .{0,20}en|write .{0,20}(?:to|in)',
-  'anota|anotar|registra|registrar',
+  'sav(?:e|es|ed|ing)|persist\\p{L}*|stor(?:e|es|ed|ing)',
+  'guard\\p{L}*|almacen\\p{L}*',
+  'escrib\\p{L}* .{0,20}en|writ(?:e|es|ing) .{0,20}(?:to|in)',
+  'anot(?:a|á|ar|alo|en)|registr(?:a|á|ar|alo|en)',
 ];
 
-export const PERSISTENCE_VERB = new RegExp(
+export const PERSISTENCE_VERB = withUnicodeWordBoundary(
   PERSISTENCE_VERB_SOURCES.join('|'),
-  'iu',
 );
 
 // ── BUILD_INTENT: a request to CREATE a tool/helper (reuse-before-build) ─────────────
@@ -162,11 +161,17 @@ const BUILD_INTENT_MAX_GAP = 24;
  * followed by a tool noun), in Spanish or English. A method, not a bare regex, so each side
  * stays a small pattern and the "verb → noun proximity" rule is explicit. */
 export function isBuildIntent(text) {
-  const verbMatch = BUILD_VERB.exec(text);
-  if (!verbMatch) return false;
-  const after = text.slice(
-    verbMatch.index + verbMatch[0].length,
-    verbMatch.index + verbMatch[0].length + BUILD_INTENT_MAX_GAP,
+  const source = String(text ?? '');
+  const verbs = source.matchAll(
+    new RegExp(BUILD_VERB.source, `${BUILD_VERB.flags}g`),
   );
-  return BUILDABLE_NOUN.test(after);
+  for (const verbMatch of verbs) {
+    const start = verbMatch.index + verbMatch[0].length;
+    // Extend the window to the end of the word it lands in, so a noun is never cut in half
+    // ("components" must not match as "component" merely because the window ended there).
+    let end = start + BUILD_INTENT_MAX_GAP;
+    while (end < source.length && /[\p{L}\p{N}_]/u.test(source[end])) end += 1;
+    if (BUILDABLE_NOUN.test(source.slice(start, end))) return true;
+  }
+  return false;
 }

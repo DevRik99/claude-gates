@@ -45,7 +45,7 @@ test('matcherFor joins native tool names with a pipe and always appends the mcp_
   // gate can classify it at runtime with toolInGroups. Without it, the hook is never even
   // invoked for an MCP tool — the deepest layer of the MCP blind spot.
   assert.equal(matcherFor(['question']), 'AskUserQuestion|mcp__.*');
-  assert.equal(matcherFor(['shell']), 'Bash|run_command|mcp__.*');
+  assert.equal(matcherFor(['shell']), 'Bash|run_command|PowerShell|mcp__.*');
 });
 
 test('matcherFor still matches MCP tools even for an empty native group set', () => {
@@ -228,14 +228,43 @@ test('shellWrittenPaths extracts paths a shell command creates', () => {
   assert.deepEqual(shellWrittenPaths('printf x > "$f"'), []);
 });
 
-test('shellWrittenPaths still catches a real cp/mv/install at the start of a command', () => {
-  assert.deepEqual(shellWrittenPaths('cp a.txt b.txt'), ['a.txt']);
-  assert.deepEqual(shellWrittenPaths('mv old.js new.js'), ['old.js']);
+test('shellWrittenPaths captures the DESTINATION of cp/mv/install, not the source', () => {
+  // The old proxy captured the first argument (the source), so `cp registry.json /tmp/x`
+  // was judged as a write to registry.json. The destination is what gets created.
+  assert.deepEqual(shellWrittenPaths('cp a.txt b.txt'), ['b.txt']);
+  assert.deepEqual(shellWrittenPaths('mv old.js new.js'), ['new.js']);
   assert.deepEqual(shellWrittenPaths('install script.sh /usr/local/bin/'), [
-    'script.sh',
+    '/usr/local/bin/',
   ]);
   // still caught after a command separator, not only at the very start of the string
-  assert.deepEqual(shellWrittenPaths('cd repo && cp a.txt b.txt'), ['a.txt']);
+  assert.deepEqual(shellWrittenPaths('cd repo && cp a.txt b.txt'), ['b.txt']);
+});
+
+test('shellWrittenPaths sees no-space redirects, quoted targets with spaces, mkdir, clone, curl and PowerShell writers', () => {
+  assert.deepEqual(shellWrittenPaths('echo hi>orphan.txt'), ['orphan.txt']);
+  assert.deepEqual(shellWrittenPaths('echo x > "my file.txt"'), [
+    'my file.txt',
+  ]);
+  assert.deepEqual(shellWrittenPaths('mkdir newdir other'), [
+    'newdir',
+    'other',
+  ]);
+  assert.deepEqual(shellWrittenPaths('git clone https://x/y/repo.git'), [
+    'repo',
+  ]);
+  assert.deepEqual(shellWrittenPaths('git clone https://x/y/repo.git target'), [
+    'target',
+  ]);
+  assert.deepEqual(shellWrittenPaths('curl -s https://x -o dump.json'), [
+    'dump.json',
+  ]);
+  assert.deepEqual(shellWrittenPaths('Set-Content -Path .env "x"'), ['.env']);
+  assert.deepEqual(shellWrittenPaths('"a" | Out-File out.txt'), ['out.txt']);
+  assert.deepEqual(shellWrittenPaths('New-Item -Path repo/new.txt'), [
+    'repo/new.txt',
+  ]);
+  // a dynamic target is still skipped
+  assert.deepEqual(shellWrittenPaths('echo x > "$OUT"'), []);
 });
 
 test('shellWrittenPaths does NOT mistake a package manager subcommand for the "install" utility (regression: npm install <pkg> was misread as creating a root file named <pkg>)', () => {

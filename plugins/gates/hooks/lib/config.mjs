@@ -33,6 +33,9 @@ const CONFIG_FILE = 'config.json';
 // read. Anchoring on `.git` alone silently dropped the project layer in such repos.
 const PROJECT_ROOT_MARKERS = ['.git', PROJECT_STATE_DIRECTORY];
 
+export const PROJECT_ROOT_MARKERS_LIST = PROJECT_ROOT_MARKERS;
+export { PROJECT_STATE_DIRECTORY, CONFIG_FILE };
+
 const BOM_CODE_POINT = 0xfeff;
 
 // Strip a leading UTF-8 BOM (U+FEFF) before parsing. `readFileSync(path,'utf8')` does NOT
@@ -43,11 +46,11 @@ const BOM_CODE_POINT = 0xfeff;
 // symmetric case) means a project can't be trusted to have been read at all. Removing the
 // BOM makes the common Windows round-trip parse correctly. Compared by char code (not a regex
 // literal) so the BOM never appears as literal irregular whitespace in the source.
-function stripBom(text) {
+export function stripBom(text) {
   return text.charCodeAt(0) === BOM_CODE_POINT ? text.slice(1) : text;
 }
 
-function readJsonOrNull(path) {
+export function readJsonOrNull(path) {
   if (!existsSync(path)) return null;
   try {
     return JSON.parse(stripBom(readFileSync(path, 'utf8')));
@@ -59,7 +62,7 @@ function readJsonOrNull(path) {
 }
 
 /** Climbs to the nearest project root (a dir holding `.git` or `.ai/`); null when none. */
-function projectRootOf(startDirectory) {
+export function projectRootOf(startDirectory) {
   let current = startDirectory;
   while (true) {
     if (
