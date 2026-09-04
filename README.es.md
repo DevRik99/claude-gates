@@ -30,7 +30,7 @@ npx @devrik-tools/claude-gates init
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
 
-> **¿Por qué dos cosas?** El plugin **siempre trae los 41 gates**; la configuración decide
+> **¿Por qué dos cosas?** El plugin **siempre trae los 44 gates**; la configuración decide
 > **cuáles se ejecutan**. Así puedes prender uno sin reinstalar: es una línea en un JSON.
 
 ---
@@ -67,7 +67,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 
 ---
 
-## Los gates (30, en 7 familias)
+## Los gates (44, en 10 familias)
 
 `[on]` = encendidos por defecto; `[off]` = los prendes si los quieres.
 
@@ -117,12 +117,20 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `atomic-commit` | off | Bloquea un `git commit` que no es atómico — que mezcla más de N naturalezas de cambio (código/tests/deps/config…) o stagea más archivos revisables de los que un commit debería llevar. Docs/imágenes/generados no cuentan. Marcador `[wip]` para un commit deliberadamente amplio. |
 | `no-coauthor` | on | Bloquea un `git commit` que lleve un trailer de atribución de IA (`Co-Authored-By`, `Generated with`, un trailer de sesión). Marcador `[allow-coauthor]` para un co-autor legítimo. |
 | `no-lint-suppression` | on | Bloquea una escritura que silencia el linter/type-checker (`eslint-disable`, `@ts-ignore`, una regla en `off`) en vez de arreglar el código. Marcador `lint-ok: <razón>` en la misma línea para un falso positivo documentado. |
+| `no-explanatory-comments`   | on  | Bloquea una escritura de código que agrega comentarios que narran qué hace el código. Solo pasan comentarios de decisión (el porqué, un trade-off, una limitación), directivas de herramientas, `TODO`/`FIXME` y etiquetas JSDoc con tipo. Juzga solo comentarios nuevos (diff contra disco). `comment-ok: <razón>` para una excepción documentada. |
 
 ### 🔎 Tool discovery — no reinventar la rueda
 | Gate | | Qué hace |
 |---|---|---|
 | `reuse-before-build` | off | Antes de construir una herramienta, consulta el mapa de herramientas del proyecto; bloquea si no auditaste (local → Context7 → web). |
 | `tool-map` | off | Registra las herramientas descubiertas en `.ai/tool-map.json` para no volver a explorar. |
+
+### 🧠 Research flow — la memoria primero, nunca adivinar una librería
+
+| Gate           |     | Qué hace                                                                                                                                                                                                                                                                                              |
+| -------------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engram-first` | on  | Bloquea `WebSearch`, `WebFetch` y context7 hasta que en la sesión haya corrido un `mem_search` ([engram](https://github.com/Gentleman-Programming/engram) es la primera fuente); bloquea el Stop mientras hubo investigación sin un `mem_save` posterior; al arrancar avisa una vez si engram cloud está configurado y el proyecto no está enrolado. |
+| `library-docs` | on  | Bloquea una escritura que importa un paquete que el proyecto no usa en ningún lado, salvo que en esta sesión se haya consultado: un hit de engram sobre él, o docs de context7 seguidas de un `mem_save`. Nunca adivinar la API de una librería.                                                       |
 
 ### 🏭 Forge pipeline — obliga a seguir el flujo de forge
 | Gate | | Qué hace |
@@ -164,7 +172,17 @@ ves y editas cada perilla:
 }
 ```
 
-- **Apagar un gate:** `"enabled": false`. Se apaga al instante, sin reinstalar.
+- **Apagar un gate:** `"enabled": false`. Se apaga al instante, sin reinstalar. O desde el CLI:
+  `claude-gates disable <gate>` / `claude-gates enable <gate>` (ids de gate, claves de
+  configuración, ids de familia o `all`; `--project` o `--global`), y `claude-gates status`
+  para ver qué está prendido en el directorio actual y de dónde sale cada valor.
+- **Volver a correr `init` mergea, nunca pisa.** Un gate que ya está en el archivo solo cambia
+  si lo nombras (`--gates`, `--families`, `--all`, `--none`) y, cuando su `enabled` cambiaría,
+  lo confirmas gate por gate. Con `--yes` (sin TTY) se conservan los valores existentes y se
+  reportan; con `--force` se aplican sin preguntar.
+- **Un parámetro con el tipo equivocado nunca rompe un gate.** Un string donde se espera una
+  lista, o un regex mal escrito, cae al default incorporado y se reporta una vez por sesión
+  en el propio mensaje del gate (y en el log de decisiones).
 - **Ajustar su comportamiento:** editas sus parámetros (la lista blanca, los patrones, los
   umbrales). Lo que declara el proyecto **reemplaza** el default del gate.
 - Un gate que no aparece en la configuración usa su default del catálogo. Las claves que ya
@@ -175,8 +193,8 @@ ves y editas cada perilla:
   (una frase que no depende de memoria), `[allow-coauthor]` (un co-autor legítimo en un
   commit), `lint-ok: <razón>` (un falso positivo documentado del linter), `[skip-lint]`
   (saltea el chequeo de staged-lint por un commit), `[wip]` (permite un commit
-  deliberadamente amplio, no atómico). `dependency-skills` se exime vía su lista
-  `depsWithoutOwnApi`.
+  deliberadamente amplio, no atómico), `comment-ok: <razón>` (un comentario explicativo que
+  debe quedarse). `dependency-skills` se exime vía su lista `depsWithoutOwnApi`.
 - **Inyección de capacidades:** `capability-map` (on por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
   (`maxClauseChars`, default 120), agregá raíces extra por tipo, regulá cada cuánto se
@@ -197,6 +215,36 @@ ves y editas cada perilla:
 
 ---
 
+## Log de decisiones
+
+Cada deny, warn y bloqueo de Stop se agrega como una línea JSON a
+`<raíz>/.ai/gates-log.jsonl` (fecha, gate, clave de configuración, herramienta, un resumen de
+una línea de la acción, el motivo, la sesión). Se lee con:
+
+```bash
+claude-gates log                      # últimas 30 decisiones de este proyecto
+claude-gates log --deny --gate bash-commands --tail 100
+claude-gates log --since 2026-09-01T00:00:00Z --json
+```
+
+El archivo rota una vez a los 5 MB (`gates-log.1.jsonl`). `CLAUDE_GATES_LOG=0` lo desactiva.
+
+---
+
+## Tareas: cerrar exige evidencia verificada
+
+`task close` rechaza texto libre. Una tarea está hecha solo cuando una verificación pasa:
+
+```bash
+claude-gates task close <id> --check "npm test" --expect "fail 0" --note "suite en verde"
+claude-gates task close <id> --exists dist/report.html --contains "All green"
+claude-gates task abandon <id> --reason "obsoleta"
+```
+
+El resultado verificado (comando, código de salida, cola de la salida, fecha) queda guardado con la tarea.
+
+---
+
 ## Comandos del CLI
 
 ```bash
@@ -206,10 +254,19 @@ npx @devrik-tools/claude-gates init
 # Sin menú (para CI o scripts):
 claude-gates init --project|--global  --defaults|--all|--none|--families a,b|--gates x,y  --yes  --dry-run
 claude-gates init --no-install        # escribe la configuración pero no instala el plugin
+claude-gates init --force             # aplica cambios a gates ya presentes sin preguntar
+
+# Prender, apagar e inspeccionar lo que corre aquí:
+claude-gates enable <gate|familia|all> [--project|--global]
+claude-gates disable <gate|familia|all> [--project|--global]
+claude-gates status                   # on/off efectivo por gate y su origen (project/global/default)
+claude-gates log [--tail N] [--deny] [--gate id] [--since iso] [--json]
+claude-gates doctor                   # ¿Claude Code corre ESTA versión del paquete?
 
 # Inspeccionar el catálogo:
 claude-gates registry --list          # lista familias y gates
-claude-gates registry --check         # valida registry.json
+claude-gates registry --check         # valida registry.json y que hooks.json esté sincronizado
+claude-gates registry --sync-hooks    # regenera el hooks.json de cada plugin desde el registry
 ```
 
 ---
@@ -225,7 +282,7 @@ cli/                              El CLI de npm (commander + @clack/prompts + zo
   init.mjs · install.mjs          Flujo interactivo + instalar el plugin.
 plugins/gates/                    El plugin de gates.
   .claude-plugin/plugin.json
-  hooks/hooks.json                Una entrada por gate (matcher + comando). Lo carga Claude Code.
+  hooks/hooks.json                Generado desde registry.json (`registry --sync-hooks`). Lo carga Claude Code.
   hooks/lib/                      Código compartido de los hooks (Node built-ins only).
   hooks/gates/<id>/               Un gate por carpeta: index.mjs (la regla) + test.mjs (su test).
 plugins/tasks/                    El plugin de tareas (en construcción): persiste tareas por proyecto.
@@ -233,7 +290,9 @@ plugins/tasks/                    El plugin de tareas (en construcción): persis
 ```
 
 **Agregar un gate** = una carpeta en `plugins/gates/hooks/gates/<id>/` (con `index.mjs` y
-`test.mjs`) + una entrada en `registry.json`. El resto se deriva solo.
+`test.mjs`) + una entrada en `registry.json`, y luego `claude-gates registry --sync-hooks`.
+Los gates comparten `hooks/lib/` (lectura del payload, normalización de git, estado por
+sesión, vocabulario de delegación, el log de decisiones, el harness de tests): un gate es solo su regla.
 
 ---
 
@@ -245,7 +304,8 @@ npm run registry:check    # valida el catálogo
 npm run lint              # eslint (boundaries, no-magic-numbers, sonarjs, cspell…)
 ```
 
-Cada gate se testea aislado: `node --test plugins/gates/hooks/gates/<id>/test.mjs`.
+Cada gate se testea aislado: `node --test plugins/gates/hooks/gates/<id>/test.mjs`
+(nombra los archivos de test: un glob que también matchee `index.mjs` se cuelga, porque un gate espera stdin).
 
 > Este repositorio trae su propio `.ai/config.json` que apaga localmente los gates que
 > darían falso positivo al **editar los gates mismos** (por ejemplo, `audit-before-build`

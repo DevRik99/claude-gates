@@ -1,6 +1,6 @@
 {
   "name": "@devrik-tools/claude-gates",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Installable, deterministic gates (hooks) for Claude Code: block destructive commands, protected paths, and enforce delegation/spec/quality rules. Configurable per project.",
   "keywords": [
     "claude-code",

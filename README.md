@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 41 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 44 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -119,6 +119,7 @@ works even if you install one on its own.
 | `atomic-commit`             | off | Blocks a `git commit` that is not atomic — one mixing more than N natures of change (code/tests/deps/config…) or staging more reviewable files than a commit should carry. Docs/assets/generated aren't counted. Add `[wip]` for a deliberately broad commit. |
 | `no-coauthor`               | on  | Blocks a `git commit` carrying an AI/agent attribution trailer (`Co-Authored-By`, `Generated with`, a session trailer). Add `[allow-coauthor]` for one legitimate co-author. |
 | `no-lint-suppression`       | on  | Blocks a write that silences the linter/type-checker (`eslint-disable`, `@ts-ignore`, a rule set to `off`) instead of fixing the code. Add `lint-ok: <reason>` on the same line for a documented false positive. |
+| `no-explanatory-comments`   | on  | Blocks a code write that adds comments narrating what the code does. Only decision comments (why, trade-off, limitation), tool directives, `TODO`/`FIXME` and typed JSDoc tags pass. Judges only new comments (diff against disk). Add `comment-ok: <reason>` for a documented exception. |
 
 ### 🔎 Tool discovery — don't reinvent the wheel
 
@@ -126,6 +127,13 @@ works even if you install one on its own.
 | -------------------- | --- | ------------------------------------------------------------------------------------------------------------ |
 | `reuse-before-build` | off | Before building a tool, consults the project tool map; blocks if you did not audit (local → Context7 → web). |
 | `tool-map`           | off | Records discovered tools in `.ai/tool-map.json` so exploration is not repeated.                              |
+
+### 🧠 Research flow — memory first, never guess a library
+
+| Gate           |     | What it does                                                                                                                                                                                                                                                         |
+| -------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `engram-first` | on  | Blocks `WebSearch`, `WebFetch` and context7 until a `mem_search` ran in the session ([engram](https://github.com/Gentleman-Programming/engram) is the first source); blocks the Stop event while research happened with no later `mem_save`; at session start warns once when engram cloud is configured but the project is not enrolled. |
+| `library-docs` | on  | Blocks a write that imports a package the project does not use anywhere yet unless this session looked it up: an engram hit about it, or context7 docs followed by a `mem_save`. Never guess a library API.                                                             |
 
 ### 🏭 Forge pipeline — enforces the forge workflow
 
@@ -175,7 +183,17 @@ see and edit every knob:
 }
 ```
 
-- **Turn a gate off:** `"enabled": false`. Off instantly, no reinstall.
+- **Turn a gate off:** `"enabled": false`. Off instantly, no reinstall. Or from the CLI:
+  `claude-gates disable <gate>` / `claude-gates enable <gate>` (gate ids, config keys,
+  family ids or `all`; `--project` or `--global`), and `claude-gates status` to see what is
+  on for the current directory and where each value comes from.
+- **Re-running `init` merges, never overwrites.** A gate already in the file only changes
+  when you name it (`--gates`, `--families`, `--all`, `--none`) and, when its `enabled`
+  would flip, you confirm it gate by gate. With `--yes` (no TTY) the existing values are
+  kept and reported; pass `--force` to apply them without asking.
+- **A wrong-typed param never breaks a gate.** A string where a list is expected, or a
+  malformed regex, falls back to the built-in default and is reported once per session in
+  the gate's own message (and in the decision log).
 - **Tune its behavior:** edit its parameters (the whitelist, the patterns, the thresholds).
   What the project declares **replaces** the gate's default.
 - A gate absent from the config uses its catalog default. Keys you already had in the file
@@ -188,7 +206,8 @@ see and edit every knob:
   non-memory phrase), `[allow-coauthor]` (one legitimate co-author on a commit),
   `lint-ok: <reason>` (a documented linter false positive), `[skip-lint]` (skip the
   staged-lint check for one commit), `[wip]` (allow one deliberately broad,
-  non-atomic commit). `dependency-skills` opts out via its `depsWithoutOwnApi` list.
+  non-atomic commit), `comment-ok: <reason>` (one explanatory comment that must stay).
+  `dependency-skills` opts out via its `depsWithoutOwnApi` list.
 - **Capability injection:** `capability-map` (on by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
   (`maxClauseChars`, default 120), add extra roots per kind, throttle how often the full
@@ -208,6 +227,36 @@ see and edit every knob:
 
 ---
 
+## Decision log
+
+Every deny, warn and Stop-block is appended as one JSON line to
+`<root>/.ai/gates-log.jsonl` (timestamp, gate, config key, tool, a one-line summary of the
+action, the reason, the session). Read it with:
+
+```bash
+claude-gates log                      # last 30 decisions for this project
+claude-gates log --deny --gate bash-commands --tail 100
+claude-gates log --since 2026-09-01T00:00:00Z --json
+```
+
+The file rotates once at 5 MB (`gates-log.1.jsonl`). Set `CLAUDE_GATES_LOG=0` to disable it.
+
+---
+
+## Tasks: closing needs verified evidence
+
+`task close` refuses free text. A task is done only when a check passes:
+
+```bash
+claude-gates task close <id> --check "npm test" --expect "fail 0" --note "suite green"
+claude-gates task close <id> --exists dist/report.html --contains "All green"
+claude-gates task abandon <id> --reason "obsolete"
+```
+
+The verified result (command, exit code, output tail, timestamp) is stored with the task.
+
+---
+
 ## CLI commands
 
 ```bash
@@ -217,10 +266,19 @@ npx @devrik-tools/claude-gates init
 # Non-interactive (for CI or scripts):
 claude-gates init --project|--global  --defaults|--all|--none|--families a,b|--gates x,y  --yes  --dry-run
 claude-gates init --no-install        # write the config but do not install the plugin
+claude-gates init --force             # apply changes to gates already in the file without asking
+
+# Toggle and inspect what runs here:
+claude-gates enable <gate|family|all> [--project|--global]
+claude-gates disable <gate|family|all> [--project|--global]
+claude-gates status                   # effective on/off per gate and its source (project/global/default)
+claude-gates log [--tail N] [--deny] [--gate id] [--since iso] [--json]
+claude-gates doctor                   # is Claude Code running THIS package version of the plugins?
 
 # Inspect the catalog:
 claude-gates registry --list          # list families and gates
-claude-gates registry --check         # validate registry.json
+claude-gates registry --check         # validate registry.json and that hooks.json is in sync
+claude-gates registry --sync-hooks    # regenerate each plugin's hooks.json from the registry
 
 # Verify the gates actually react (not just that they are wired):
 claude-gates smoke                    # feed each gate a known violation; exits non-zero if any does not block/warn
@@ -245,7 +303,7 @@ cli/                              The npm CLI (commander + @clack/prompts + zod)
   init.mjs · install.mjs          Interactive flow + install the plugin.
 plugins/gates/                    The gates plugin.
   .claude-plugin/plugin.json
-  hooks/hooks.json                One entry per gate (matcher + command). Loaded by Claude Code.
+  hooks/hooks.json                Generated from registry.json (`registry --sync-hooks`). Loaded by Claude Code.
   hooks/lib/                      Shared hook code (Node built-ins only).
   hooks/gates/<id>/               One gate per folder: index.mjs (the rule) + test.mjs (its test).
 plugins/tasks/                    The tasks plugin (work in progress): persists per-project tasks.
@@ -253,7 +311,9 @@ plugins/tasks/                    The tasks plugin (work in progress): persists 
 ```
 
 **Adding a gate** = one folder in `plugins/gates/hooks/gates/<id>/` (with `index.mjs` and
-`test.mjs`) + one entry in `registry.json`. Everything else derives automatically.
+`test.mjs`) + one entry in `registry.json`, then `claude-gates registry --sync-hooks`.
+Gates share `hooks/lib/` (payload readers, git normalization, session state, delegation
+vocabulary, the decision log, the test harness): a gate file is only its rule.
 
 ---
 
@@ -265,7 +325,8 @@ npm run registry:check    # validate the catalog
 npm run lint              # eslint (boundaries, no-magic-numbers, sonarjs, cspell…)
 ```
 
-Each gate is tested in isolation: `node --test plugins/gates/hooks/gates/<id>/test.mjs`.
+Each gate is tested in isolation: `node --test plugins/gates/hooks/gates/<id>/test.mjs`
+(name the test files: a glob that also matches `index.mjs` hangs, because a gate waits on stdin).
 
 > This repo ships its own `.ai/config.json` that locally disables the gates that would
 > false-positive when **editing the gates themselves** (e.g. `audit-before-build` thinks
