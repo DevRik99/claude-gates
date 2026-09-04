@@ -1,33 +1,29 @@
-// no-memory-dependency — denies when a delegation prompt leans on the subagent
-// "remembering" something said earlier in conversation instead of carrying the data itself.
-// A fresh subagent has no access to the delegator's conversation history: if the data
-// matters, it must travel IN the prompt, in a file the subagent reads, or in an
-// already-persisted decision. The dependency on unavailable memory is a complete, objective
-// fact once stage 2 has ruled out a real persistence instruction — so this blocks.
+// no-memory-dependency — denies a delegation whose prompt refers the subagent to something
+// said earlier in the conversation ("como te dije", "as we discussed") instead of carrying
+// the data itself: a fresh subagent has none of the delegator's history.
 //
-// ── Two stages, same pattern as intent-flow ─────────────────────────────────────────
-// Stage 1 (cheap): does any memory-dependency phrase appear anywhere? If not, allow.
-// Stage 2 (confirmation, only on candidates): strip quoted text, then discard a phrase
-// that has a REAL deterministic persistence INSTRUCTION nearby (not just a noun/verb
-// mentioned in passing) — "no te olvides de guardar la decision en .ai/decision.md"
-// genuinely depends on a file, not on model memory. A persistence noun/verb that merely
-// co-occurs in the window without forming an instruction TO persist THIS remembered
-// thing (e.g. an unrelated file named elsewhere in the same sentence) does not suppress
-// the deny.
-//
-// ── Escape hatch ─────────────────────────────────────────────────────────────────────
-// A memory phrase can be a false positive: "no te olvides de cerrar el server al final"
-// directs the SUBAGENT'S own future action, not data it must recall from the delegator. For
-// that case the author adds the escapeHatch marker to the prompt to state, explicitly, that
-// no cross-conversation memory is actually required.
+// Decisions: the default phrases are references to PRIOR CONVERSATION only — "don't forget
+// to X", "keep in mind that <fact>", "remember to run the tests" carry their own content and
+// are allowed. A reference next to a real persistence instruction ("como quedamos, guardá la
+// decisión en .ai/decision.md") depends on a file, not on memory, and is allowed. The escape
+// hatch marker states that no recalled data is actually needed.
 
+import {
+  allMatches,
+  promptExcerpt,
+  stripQuoted,
+} from '../../lib/delegation.mjs';
 import {
   runGate,
   deny,
+  compileRegexList,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
-import { PERSISTENCE_VERB } from '../../lib/signals.mjs';
+import {
+  PERSISTENCE_VERB,
+  withUnicodeWordBoundary,
+} from '../../lib/signals.mjs';
 
 const GATE_ID = 'no-memory-dependency';
 const CONFIG_KEY = 'warnMemoryDependencyInBrief';
@@ -35,64 +31,39 @@ const CONFIG_KEY = 'warnMemoryDependencyInBrief';
 const DEFAULT_ESCAPE_HATCH = 'memory-not-needed';
 
 const DEFAULT_MEMORY_DEPENDENCY_PATTERNS = [
-  'acordate de|acu[eé]rdate de',
-  'no olvides|no te olvides',
-  'record[aá] que|ten[eé] en cuenta que',
-  'como te dije|como ya te dije|ya te dije|te lo dije antes|ya te ped[ií]',
-  "remember to|don'?t forget|keep in mind",
+  'recuerda que|acu[eé]rdate de (?:lo )?que|acordate de (?:lo )?que|como te dije',
+  'como (vimos|hablamos|dijimos|quedamos)|lo de antes',
+  'lo que te (dije|comenté|pasé)|ya sabes cu[aá]l',
+  'el (archivo|cambio|tema) de antes',
+  'remember that we|as (i|we) (said|discussed|mentioned|agreed)|as discussed',
+  'as mentioned (earlier|before|above)|the one from (before|earlier)',
+  'what we (discussed|talked about|decided)|you know which',
+  'like (before|last time)|the previous (one|file|change) i mentioned',
 ];
-
-// A real persistence INSTRUCTION requires an imperative persistence VERB (an actual
-// directive to save/persist/write THIS remembered thing), not merely a persistence-
-// related NOUN mentioned somewhere nearby (a stray "incident.md" in the same sentence
-// names a file without instructing anything be saved to it). Centralized in
-// lib/signals.mjs (ES+EN) so this class of signal is not duplicated per gate.
-const PERSISTENCE_VERB_PATTERN = PERSISTENCE_VERB;
 
 const PERSISTENCE_WINDOW = 80;
 
-function withUnicodeWordBoundary(alternatives) {
-  return new RegExp(
-    `(?<![\\p{L}\\p{N}_])(${alternatives})(?![\\p{L}\\p{N}_])`,
-    'iu',
-  );
-}
-
-function stripQuoted(text) {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/"[^"\n]{0,300}"/g, ' ')
-    .replace(/'[^'\n]{0,300}'/g, ' ');
-}
-
-function allMatches(pattern, text) {
-  const flags = pattern.flags.includes('g')
-    ? pattern.flags
-    : `${pattern.flags}g`;
-  return [...text.matchAll(new RegExp(pattern.source, flags))];
-}
-
-/** True only when the window around a memory phrase carries a real persistence
- * INSTRUCTION — an imperative persistence verb — not merely a persistence-related noun
- * mentioned in passing. A noun alone ("el reporte esta en incident.md") names a file
- * without instructing anything be saved to it, so it must NOT suppress the warning. */
 function hasPersistenceInstructionNearby(text, match) {
   const from = Math.max(0, match.index - PERSISTENCE_WINDOW);
   const to = Math.min(
     text.length,
     match.index + match[0].length + PERSISTENCE_WINDOW,
   );
-  const window = text.slice(from, to);
-  return PERSISTENCE_VERB_PATTERN.test(window);
+  return PERSISTENCE_VERB.test(text.slice(from, to));
+}
+
+function memoryPatternFrom(sources) {
+  const { patterns } = compileRegexList(sources, 'iu');
+  if (patterns.length === 0) return null;
+  return withUnicodeWordBoundary(
+    patterns.map((pattern) => `(?:${pattern.source})`).join('|'),
+  );
 }
 
 function unresolvedMemoryPhrases(prompt, memoryPattern) {
-  if (!memoryPattern.test(prompt)) return []; // stage 1: no candidate, allow cheap
-
-  const text = stripQuoted(prompt); // stage 2(a)
-  const matches = allMatches(memoryPattern, text);
-
-  return matches
+  if (!memoryPattern.test(prompt)) return [];
+  const text = stripQuoted(prompt);
+  return allMatches(memoryPattern, text)
     .filter((match) => !hasPersistenceInstructionNearby(text, match))
     .map((match) => match[0].trim());
 }
@@ -113,15 +84,13 @@ runGate(
     const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
 
-    // Explicit opt-out: the author states no cross-conversation memory is actually required.
-    const escapeHatch = (
-      parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH
-    ).toLowerCase();
+    const escapeHatch = String(parameters.escapeHatch ?? '').toLowerCase();
     if (escapeHatch && prompt.toLowerCase().includes(escapeHatch)) return;
 
-    const memoryPattern = withUnicodeWordBoundary(
-      (parameters.memoryDependencyPatterns ?? []).join('|'),
+    const memoryPattern = memoryPatternFrom(
+      parameters.memoryDependencyPatterns,
     );
+    if (!memoryPattern) return;
 
     const phrases = unresolvedMemoryPhrases(prompt, memoryPattern);
     if (phrases.length === 0) return;
@@ -129,10 +98,10 @@ runGate(
     const quotedPhrases = phrases.map((phrase) => `"${phrase}"`).join(', ');
     deny(
       CONFIG_KEY,
-      `This delegation depends on the subagent remembering something (${quotedPhrases}), but a ` +
-        'fresh subagent has none of this conversation. Put the data IN the prompt, in a file it ' +
-        'reads, a flag, or an already-persisted decision. If the phrase directs the subagent’s ' +
-        `own future action and needs no recalled data, add the marker "${parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH}" to the prompt.`,
+      `This delegation ("${promptExcerpt(prompt)}") depends on the subagent remembering something ` +
+        `(${quotedPhrases}), but a fresh subagent has none of this conversation. Put the data IN the ` +
+        'prompt, in a file it reads, a flag, or an already-persisted decision. If the phrase needs no ' +
+        `recalled data, add the marker "${escapeHatch || DEFAULT_ESCAPE_HATCH}" to the prompt.`,
     );
   },
 );

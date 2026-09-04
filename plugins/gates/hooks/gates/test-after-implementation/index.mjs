@@ -1,6 +1,21 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { basename, dirname, relative } from 'node:path';
+// test-after-implementation — creating a test whose paired implementation is already
+// modified and uncommitted is denied: a test that passes the first time it runs proves
+// nothing about the change. A regression test written after reproducing a bug is the
+// legitimate exception, opted into with the escape-hatch marker. Only creation is judged;
+// editing an existing test is maintenance. Pairing is same directory + same stem, on
+// purpose narrow: a sibling __tests__/ layout is not paired (documented in the tests).
+
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+} from 'node:path';
+import { projectRootOf } from '../../lib/config.mjs';
+import { workingTreeChanges } from '../../lib/git.mjs';
 import {
   runGate,
   deny,
@@ -12,12 +27,7 @@ import {
 const GATE_ID = 'test-after-implementation';
 const CONFIG_KEY = 'warnTestWrittenAfterImplementation';
 
-// Escape hatch: a regression test written AFTER reproducing a bug is a legitimate
-// test-after-implementation case (the project's own rule: reproduce the bug, then write the
-// test that pins it). A deny cannot advise-and-pass, so that legitimate case needs an
-// explicit opt-out — this marker anywhere in the test file's content lets it through.
 const DEFAULT_ESCAPE_HATCH = 'test-after-impl:allow';
-
 const DEFAULT_IMPLEMENTATION_EXTENSIONS = [
   '.ts',
   '.tsx',
@@ -27,27 +37,53 @@ const DEFAULT_IMPLEMENTATION_EXTENSIONS = [
   '.vue',
 ];
 const TEST_FILE_PATTERN = /\.(spec|test)\.[cm]?[jt]sx?$/i;
-// `git status --porcelain` prefixes each line with a 2-character status code plus a space.
-const PORCELAIN_STATUS_PREFIX_LENGTH = 3;
+// An untracked directory is one porcelain entry; expanding it is bounded so a stray huge
+// tree cannot stall the hook.
+const MAX_EXPANDED_FILES = 5000;
 
-function baseNameWithoutTestSuffix(fileName) {
-  return fileName.replace(TEST_FILE_PATTERN, '');
+function filesUnder(root, directory, collected) {
+  let entries;
+  try {
+    entries = readdirSync(join(root, directory));
+  } catch {
+    return collected;
+  }
+  for (const name of entries) {
+    if (collected.length >= MAX_EXPANDED_FILES) break;
+    const relativePath = `${directory}${name}`;
+    let isDirectory;
+    try {
+      isDirectory = statSync(join(root, relativePath)).isDirectory();
+    } catch {
+      continue;
+    }
+    if (isDirectory) filesUnder(root, `${relativePath}/`, collected);
+    else collected.push(relativePath);
+  }
+  return collected;
 }
 
-function gitStatusPorcelain(cwd) {
-  try {
-    const output = execFileSync('git', ['status', '--porcelain'], {
-      cwd,
-      timeout: 5000,
-    }).toString();
-    return output
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch {
-    // Not a git repo, or git unavailable — nothing to cross-check against.
-    return [];
-  }
+function changedPaths(root) {
+  const changes = workingTreeChanges(root);
+  if (changes === null) return [];
+  return changes.flatMap((entry) =>
+    entry.path.endsWith('/') ? filesUnder(root, entry.path, []) : [entry.path],
+  );
+}
+
+function normalizeDirectory(path) {
+  const directory = dirname(path).replace(/\\/g, '/');
+  return directory === '' || directory === '.' ? '.' : directory;
+}
+
+function isPairedImplementation(changedPath, stem, testDirectory, extensions) {
+  if (!extensions.some((extension) => changedPath.endsWith(extension)))
+    return false;
+  if (TEST_FILE_PATTERN.test(changedPath)) return false;
+  const changedStem = basename(changedPath, extname(changedPath));
+  return (
+    changedStem === stem && normalizeDirectory(changedPath) === testDirectory
+  );
 }
 
 runGate(
@@ -60,51 +96,31 @@ runGate(
       escapeHatch: DEFAULT_ESCAPE_HATCH,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
     if (!toolInGroups(toolName, ['write'])) return;
 
-    const filePath = writtenPathOf(toolInput);
-    if (!TEST_FILE_PATTERN.test(filePath)) return;
-    if (existsSync(filePath)) return; // only new test file creation, not edits
+    const rawPath = writtenPathOf(toolInput);
+    if (!TEST_FILE_PATTERN.test(rawPath)) return;
+    const root = projectRootOf(cwd) ?? cwd;
+    const filePath = isAbsolute(rawPath) ? rawPath : join(root, rawPath);
+    if (existsSync(filePath)) return;
 
-    // Explicit opt-out for a legitimate regression test (bug reproduced first, then pinned).
     const escapeHatch = parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH;
     if (escapeHatch && writtenContentOf(toolInput).includes(escapeHatch))
       return;
 
-    const cwd = process.cwd();
-    const statusLines = gitStatusPorcelain(cwd);
-    if (statusLines.length === 0) return;
-
     const testFileName = basename(filePath);
-    const stem = baseNameWithoutTestSuffix(testFileName);
-    // `git status --porcelain` reports paths relative to `cwd`; the test's own
-    // directory (relative to `cwd`) is the fair comparison, not its absolute path.
-    // `relative()` returns '' for the repo root itself, while `dirname()` on a
-    // bare file name returns '.' — normalize both to '.' so root-level files compare equal.
-    const testDirectoryRelativeToRepo = relative(cwd, dirname(filePath)) || '.';
-
-    const pairedImplementationChanged = statusLines.some((line) => {
-      const changedPath = line.slice(PORCELAIN_STATUS_PREFIX_LENGTH).trim();
-      if (
-        !parameters.implementationExtensions.some((extension) =>
-          changedPath.endsWith(extension),
-        )
-      )
-        return false;
-      if (TEST_FILE_PATTERN.test(changedPath)) return false;
-      const lastDot = changedPath.lastIndexOf('.');
-      const changedBase = basename(
+    const stem = testFileName.replace(TEST_FILE_PATTERN, '');
+    const testDirectory = normalizeDirectory(relative(root, filePath));
+    const paired = changedPaths(root).some((changedPath) =>
+      isPairedImplementation(
         changedPath,
-        lastDot >= 0 ? changedPath.slice(lastDot) : '',
-      );
-      return (
-        changedBase === stem &&
-        (dirname(changedPath) || '.') === testDirectoryRelativeToRepo
-      );
-    });
-
-    if (!pairedImplementationChanged) return;
+        stem,
+        testDirectory,
+        parameters.implementationExtensions,
+      ),
+    );
+    if (!paired) return;
 
     deny(
       CONFIG_KEY,
@@ -112,13 +128,7 @@ runGate(
         '(uncommitted). Write the test before or alongside the implementation, not after — a ' +
         'test that passes the first time it runs proves nothing about the change. If this is a ' +
         'regression test for a bug you already reproduced (reproduce first, then pin it), add ' +
-        `the marker "${parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH}" in the test content to allow it.`,
+        `the marker "${escapeHatch}" in the test content to allow it.`,
     );
   },
 );
-
-// Note: this restores the source guard's (guard-test-despues-de-implementar.mjs) original
-// deny severity. It was warn during the config-key migration; the user's directive is that a
-// gate stays warn only when the defect is genuinely invisible to a hook. Here the defect is a
-// complete, git-verifiable fact, so it denies — with an escape hatch for the legitimate
-// regression-test case. The config key still reads warn* for backward compatibility.

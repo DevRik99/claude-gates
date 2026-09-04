@@ -1,81 +1,53 @@
-// Edge-case audit for circuit-breaker. Each test demonstrates a confirmed BUG or an OK.
-// State lives at os.tmpdir()/claude-gates/circuit-breaker/<sessionId>/state.json, keyed by
-// subagent_type. Each test uses a fresh randomUUID session id and cleans up after itself
-// so it cannot contaminate other tests or other gates.
-// Run: node --test circuit-breaker.edge.test.mjs
+// Edge cases for circuit-breaker: identity keyed by task (not subagent_type), no trusted
+// counter on disk, the no-session bucket, and override phrasing.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { stateFileFor } from '../../lib/session-state.mjs';
+import {
+  isDeny,
+  makeProject,
+  messageOf,
+  runGateProcess,
+  withSession,
+} from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
-const STATE_ROOT = join(tmpdir(), 'claude-gates', 'circuit-breaker');
-
-function runGate(payload, { config } = {}) {
-  const project = mkdtempSync(join(tmpdir(), 'circuit-breaker-edge-'));
-  mkdirSync(join(project, '.git'));
-  if (config) {
-    mkdirSync(join(project, '.ai'));
-    writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(config));
-  }
-  const out = execFileSync(process.execPath, [GATE], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: project,
-    env: { ...process.env, HOME: project, USERPROFILE: project },
-  });
-  return out.trim() ? JSON.parse(out.trim()) : null;
-}
+const GATE_ID = 'circuit-breaker';
 
 function delegate(prompt, sessionId, extra = {}) {
-  return {
+  const payload = {
     tool_name: 'Agent',
-    session_id: sessionId,
     tool_input: { prompt, subagent_type: 'worker-senior', ...extra },
   };
-}
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+  return sessionId === undefined ? payload : withSession(payload, sessionId);
 }
 
-// These edge tests were written around a three-attempt scenario (two pass, the third
-// denies). They pin retryThreshold: 3 explicitly so they keep probing that exact shape
-// regardless of the gate's DEFAULT threshold (now 2). The default-threshold behavior has
-// its own dedicated test below.
 const ENABLED = {
-  config: {
-    gates: {
-      requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
-    },
+  gates: {
+    requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
   },
 };
 
-function freshSession() {
-  return `edge-${randomUUID()}`;
-}
-function cleanupSession(sessionId) {
-  try {
-    rmSync(join(STATE_ROOT, sessionId), { recursive: true, force: true });
-  } catch {
-    // best-effort cleanup
-  }
+function session(config = ENABLED) {
+  const project = makeProject({ config });
+  const sessionId = `edge-${randomUUID()}`;
+  return {
+    project,
+    sessionId,
+    run: (payload) => runGateProcess(GATE, payload, { project }),
+    cleanup: (id = sessionId) =>
+      rmSync(dirname(stateFileFor(GATE_ID, id, { cwd: project })), {
+        recursive: true,
+        force: true,
+      }),
+  };
 }
 
-// Deliberately avoids any OVERRIDE_PATTERN word (retry/force/insist/reintenta/forz*) --
-// a prompt describing a legitimate task can innocently contain one of those words (see
-// the dedicated test below), which is itself a confirmed bug, so the other tests here
-// use neutral wording to isolate what they are actually probing.
+// Neutral wording: no override word, so each test probes only what it names.
 const SAME_TASK_PROMPT = [
   'Objetivo: fix the queue backoff cap in the payment worker.',
   '',
@@ -83,193 +55,117 @@ const SAME_TASK_PROMPT = [
 ].join('\n');
 
 test('FIXED: varying subagent_type per retry no longer resets the counter — the key is derived from task identity', () => {
-  // The key is now a hash of the identity signature (identityKey), not subagent_type. The
-  // exact same task retried under a different subagent_type string each time lands on the
-  // same key every time, so the breaker still trips.
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
     assert.equal(
-      runGate(
-        delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' }),
-        ENABLED,
-      ),
+      run(delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker' })),
       null,
     );
     assert.equal(
-      runGate(
+      run(
         delegate(SAME_TASK_PROMPT, sessionId, {
           subagent_type: 'worker-senior',
         }),
-        ENABLED,
       ),
       null,
     );
     assert.ok(
       isDeny(
-        runGate(
+        run(
           delegate(SAME_TASK_PROMPT, sessionId, { subagent_type: 'worker2' }),
-          ENABLED,
         ),
       ),
-      'third identical attempt now denies even though it used yet another subagent_type: the key follows the task, not the label',
     );
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('FIXED: forging a count field on disk no longer has any effect — there is no count field to forge', () => {
-  // The persisted shape is now a list of { signature, seenAt } occurrences with no
-  // `count` field at all. The attempt count is always recomputed by counting how many
-  // stored occurrences are similar to the CURRENT signature, so writing an arbitrary
-  // number onto the state file (there being no such field) cannot manufacture a deny.
-  const sessionId = freshSession();
-  const statePath = join(STATE_ROOT, sessionId, 'state.json');
+  const { project, sessionId, run, cleanup } = session();
+  const statePath = stateFileFor(GATE_ID, sessionId, { cwd: project });
   try {
-    runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED); // one real occurrence recorded
-    assert.ok(
-      existsSync(statePath),
-      'sanity: state file exists after first real attempt',
-    );
+    run(delegate(SAME_TASK_PROMPT, sessionId));
+    assert.ok(existsSync(statePath));
 
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     const [key] = Object.keys(state);
-    assert.ok(key, 'sanity: a key was recorded');
-    assert.equal(
-      state[key][0].count,
-      undefined,
-      'the stored entry carries no count field to forge',
-    );
-    // Attempting to inject a forged count field has no effect: the gate never reads it.
+    assert.ok(key);
+    assert.equal(state[key][0].count, undefined);
     state[key][0].count = 999;
     writeFileSync(statePath, JSON.stringify(state), 'utf8');
 
-    const result = runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED);
-    assert.equal(
-      result,
-      null,
-      'the forged count field is ignored: this is only the 2nd real occurrence, below the configured threshold of 3',
-    );
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
-test('FIXED: no session_id no longer disables the breaker — it falls back to a fixed bucket', () => {
-  // A payload with no session_id lands in the fixed NO_SESSION_BUCKET ("no-session")
-  // directory; identityKey (a hash of the prompt's own identity) still discriminates
-  // this specific task from any other task sharing that bucket.
-  const payload = {
-    tool_name: 'Agent',
-    tool_input: {
-      prompt:
-        'Objetivo: fix a one-off no-session edge case.\n\nQUE SI: update src/edge/no-session.js.',
-      subagent_type: 'worker-senior',
-    },
-  };
+test('FIXED: no session_id no longer disables the breaker — it falls back to a project-keyed bucket', () => {
+  const { run, cleanup } = session();
+  const prompt =
+    'Objetivo: fix a one-off no-session edge case.\n\nQUE SI: update src/edge/no-session.js.';
   try {
-    assert.equal(runGate(payload, ENABLED), null);
-    assert.equal(runGate(payload, ENABLED), null);
-    assert.ok(
-      isDeny(runGate(payload, ENABLED)),
-      'third identical attempt with no session_id now denies: the fallback bucket still tracks it',
-    );
+    assert.equal(run(delegate(prompt)), null);
+    assert.equal(run(delegate(prompt)), null);
+    assert.ok(isDeny(run(delegate(prompt))));
   } finally {
-    cleanupSession('no-session');
+    cleanup(null);
   }
 });
 
 test('FIXED: OVERRIDE_PATTERN no longer matches the plain word "retry" inside ordinary task vocabulary', () => {
-  // OVERRIDE_PATTERN now requires an imperative phrasing (retry anyway/it/again, force
-  // it/this/anyway, reintentalo, insisti, ...), not the bare word "retry"/"force"
-  // appearing as normal task vocabulary. A task genuinely about retry logic no longer
-  // silently defeats the breaker.
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
     const retryWordingPrompt = [
       'Objetivo: fix the retry loop in the payment worker.',
       '',
       'QUE SI: update src/workers/payment.js to cap retries.',
     ].join('\n');
-    assert.equal(
-      runGate(delegate(retryWordingPrompt, sessionId), ENABLED),
-      null,
-    );
-    assert.equal(
-      runGate(delegate(retryWordingPrompt, sessionId), ENABLED),
-      null,
-    );
-    assert.ok(
-      isDeny(runGate(delegate(retryWordingPrompt, sessionId), ENABLED)),
-      'third identical relaunch now denies: "retry" as ordinary task vocabulary is no longer read as an override',
-    );
+    assert.equal(run(delegate(retryWordingPrompt, sessionId)), null);
+    assert.equal(run(delegate(retryWordingPrompt, sessionId)), null);
+    assert.ok(isDeny(run(delegate(retryWordingPrompt, sessionId))));
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('OK: a genuine override imperative ("retry anyway") still allows and resets the counter', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
-    assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
     assert.equal(
-      runGate(
-        delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId),
-        ENABLED,
-      ),
+      run(delegate(`${SAME_TASK_PROMPT}\n\nretry anyway.`, sessionId)),
       null,
-      'genuine override imperative still allows and resets',
     );
-    assert.equal(
-      runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED),
-      null,
-      'counter was reset: the same prompt again does not deny immediately',
-    );
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('OK: identical prompt+subagent_type is tripped at a configured retry threshold of 3', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
-    assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED), null);
-    assert.ok(isDeny(runGate(delegate(SAME_TASK_PROMPT, sessionId), ENABLED)));
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    assert.ok(isDeny(run(delegate(SAME_TASK_PROMPT, sessionId))));
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('DEFAULT threshold is 2: the first attempt passes, the second identical one denies and asks for help', () => {
-  // With no retryThreshold override, the gate's built-in default (2) governs: the second
-  // identical relaunch trips the breaker. This is the behavior the user asked for — two
-  // attempts, then stop and escalate.
-  const sessionId = freshSession();
-  const enabledDefault = {
-    config: { gates: { requireCircuitBreakerOnDelegation: true } },
-  };
+  const { sessionId, run, cleanup } = session({
+    gates: { requireCircuitBreakerOnDelegation: true },
+  });
   try {
-    assert.equal(
-      runGate(delegate(SAME_TASK_PROMPT, sessionId), enabledDefault),
-      null,
-      'first attempt is normal and passes',
-    );
-    const second = runGate(
-      delegate(SAME_TASK_PROMPT, sessionId),
-      enabledDefault,
-    );
-    assert.ok(
-      isDeny(second),
-      'second identical attempt denies at the default threshold of 2',
-    );
-    assert.match(
-      second.hookSpecificOutput.permissionDecisionReason,
-      /ASK THE USER/,
-      'the deny message tells the assistant to ask the user for help',
-    );
+    assert.equal(run(delegate(SAME_TASK_PROMPT, sessionId)), null);
+    const second = run(delegate(SAME_TASK_PROMPT, sessionId));
+    assert.ok(isDeny(second));
+    assert.match(messageOf(second), /ASK THE USER/);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });

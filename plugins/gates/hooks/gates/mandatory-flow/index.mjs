@@ -1,23 +1,24 @@
-// mandatory-flow — denies an implementation delegation when there is no live task
-// pointer on disk backed by a contract file. Declaring pipeline stages in prose (what
-// implementation-pipeline.mjs checks) is not the same as a live task actually existing
-// on disk; this gate checks the disk fact, not the prompt's wording. Migrated from
-// ~/.claude/hooks/guard-flujo-obligatorio.mjs.
+// mandatory-flow — denies a STANDARD/HIGH-RISK implementation delegation when no live task
+// exists on disk: a pointer file naming the active task slug, and a non-empty contract file
+// under that task's directory. Declaring stages in prose (implementation-pipeline) is not
+// the same as a task actually existing; this gate checks the disk fact.
 //
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   activePointerPath   path (relative to the project root) to the file naming the
-//                        active task/pipeline slug.
-//   exemptSubagents      subagent types exempt outright (read-only pipeline stages).
-//                        Replaces the built-in list wholesale.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
-//
-// ── Off by default, and quiet outside its narrow trigger ───────────────────────────
-// Only STANDARD/HIGH-RISK implementation delegations, on non-exempt subagents, not
-// about the harness itself, reach the disk check.
+// Decisions: the contract root follows the pointer — `<dir of activePointerPath>/<slug>/` —
+// so a project that moves the pointer moves its tasks with it; an absolute pointer path is
+// honored as-is. A slug is a directory name, never a path (traversal is rejected). An empty
+// contract file is not a contract. Only the exempt list exempts a subagent type.
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join, normalize, sep } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { projectRootOf } from '../../lib/config.mjs';
+import {
+  DEFAULT_EXEMPT_SUBAGENTS,
+  DEMANDING_LEVELS,
+  isHarnessWork,
+  isImplementationRequest,
+  isSubagentNamedIn,
+  operativeLevelOf,
+} from '../../lib/delegation.mjs';
 import {
   runGate,
   deny,
@@ -30,19 +31,6 @@ const CONFIG_KEY = 'requireLiveTaskWhenImplementing';
 
 const DEFAULT_ACTIVE_POINTER_PATH = join('.ai', 'pipeline', 'ACTIVA');
 
-const DEFAULT_EXEMPT_SUBAGENTS = [
-  'explore',
-  'plan',
-  'scout',
-  'revision',
-  'contraste',
-  'test-planner',
-  'qa',
-  'ui',
-  'ux',
-];
-
-/** Contract files that count as evidence a task's contract exists on disk. */
 const TASK_CONTRACT_FILES = [
   'asserts.md',
   'task.json',
@@ -51,58 +39,27 @@ const TASK_CONTRACT_FILES = [
   'acceptance.md',
 ];
 
-function withWordBoundary(alternation) {
-  return new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])(?:${alternation})(?:[^\\p{L}\\p{N}_]|$)`,
-    'iu',
-  );
+function isExempt(toolInput, prompt, exemptSubagents) {
+  if (isSubagentNamedIn(toolInput, exemptSubagents)) return true;
+  if (!DEMANDING_LEVELS.has(operativeLevelOf(prompt))) return true;
+  if (!isImplementationRequest(prompt)) return true;
+  return isHarnessWork(prompt);
 }
 
-const IMPLEMENTATION_VERBS = withWordBoundary(
-  'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +
-    'arregl(a|á)|arreglar|cambi(a|á)|cambiar|migr(a|á)|migrar|' +
-    'corrige|corregir|correg(í|ir)|constru(ye|í)|construir|modific(a|á)|modificar|' +
-    'refactoriz(a|á)|refactorizar|elimin(a|á)|eliminar|reescrib(e|í)|reescribir|desplieg(a|á)|desplegar|' +
-    'escrib(í|e)|escribir|implement\\w*|writ(?:e|ing)|creat\\w*|fix\\w*|build\\w*|refactor\\w*|migrat\\w*|' +
-    'add\\w*|remov\\w*|delet\\w*|modify|modifies|modifying|rewrit\\w*',
-);
-
-/** Declared LEVEL near the word "level"/"classification" in Spanish or English, matching
- * the plugin-wide convention (see risk-level.mjs). */
-const DEMANDING_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(STANDARD|HIGH-RISK)\b/iu;
-const EXEMPT_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(QUESTION|MICRO)\b/iu;
-
-const HARNESS_PATTERN =
-  /(\.claude[\\/]|hooks[\\/]|plugins[\\/]gates|settings\.json|[\\/]agents[\\/]\w|[\\/]rules[\\/]\w|[\\/]skills[\\/]\w)/i;
-
-function isExempt(toolInput, prompt, exemptSubagents) {
-  const subagentType = String(
-    toolInput.subagent_type ?? toolInput.subagentType ?? '',
-  ).toLowerCase();
-  if (exemptSubagents.includes(subagentType)) return true;
-  if (EXEMPT_LEVEL_PATTERN.test(prompt)) return true;
-  if (!DEMANDING_LEVEL_PATTERN.test(prompt)) return true;
-  if (!IMPLEMENTATION_VERBS.test(prompt)) return true;
-  if (HARNESS_PATTERN.test(prompt)) return true;
-  return false;
+function fileExistsNonEmpty(path) {
+  try {
+    return existsSync(path) && statSync(path).size > 0;
+  } catch {
+    return false;
+  }
 }
 
 function hasTaskContract(taskDirectory) {
-  return TASK_CONTRACT_FILES.some((file) => {
-    try {
-      return existsSync(join(taskDirectory, file));
-    } catch {
-      return false;
-    }
-  });
+  return TASK_CONTRACT_FILES.some((file) =>
+    fileExistsNonEmpty(join(taskDirectory, file)),
+  );
 }
 
-/** The pointer file's trimmed content, or '' when it cannot be read or the slug
- * attempts path traversal. A slug is a directory name, not a path: rejecting any
- * segment separator or '..' closes off `join(cwd, '.ai', 'pipeline', slug)` escaping
- * that directory to accept an unrelated file elsewhere on disk as the task contract. */
 function readSlug(pointerPath) {
   let raw;
   try {
@@ -121,7 +78,6 @@ function readSlug(pointerPath) {
   return normalized;
 }
 
-/** Denies for whichever of the three live-task facts is missing, or does nothing. */
 function checkLiveTask(pointerPath) {
   if (!existsSync(pointerPath)) {
     deny(
@@ -136,20 +92,19 @@ function checkLiveTask(pointerPath) {
   if (!slug) {
     deny(
       CONFIG_KEY,
-      `${pointerPath} exists but is empty. An active-task pointer with no slug is not ` +
-        'a live task. Write the task slug into it before delegating.',
+      `${pointerPath} exists but names no valid task slug (empty, or a path instead of a ` +
+        'directory name). Write the task slug into it before delegating.',
     );
   }
 
-  const taskDirectory = join(process.cwd(), '.ai', 'pipeline', slug);
+  const taskDirectory = join(dirname(pointerPath), slug);
   if (!hasTaskContract(taskDirectory)) {
     deny(
       CONFIG_KEY,
-      `The active task '${slug}' has no contract on disk: none of ` +
-        `${TASK_CONTRACT_FILES.join(', ')} exists under ${taskDirectory}. ` +
-        `Write ONE of those files there before implementing (this gate's contract root is ` +
-        `.ai/pipeline/${slug}/ — a brief.md under .ai/features/${slug}/ satisfies a ` +
-        'different gate, sdd-specs, but NOT this one; if you already wrote a brief there, ' +
+      `The active task '${slug}' has no non-empty contract on disk: none of ` +
+        `${TASK_CONTRACT_FILES.join(', ')} exists (with content) under ${taskDirectory}. ` +
+        'Write ONE of those files there before implementing (a brief.md under ' +
+        `.ai/features/${slug}/ satisfies sdd-specs, not this gate; if you already wrote one, ` +
         `create a short asserts.md under ${taskDirectory} referencing it).`,
     );
   }
@@ -165,19 +120,17 @@ runGate(
       exemptSubagents: DEFAULT_EXEMPT_SUBAGENTS,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
     if (!toolInGroups(toolName, ['delegation'])) return;
 
     const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
+    if (isExempt(toolInput, prompt, parameters.exemptSubagents)) return;
 
-    const exemptSubagents =
-      parameters.exemptSubagents ?? DEFAULT_EXEMPT_SUBAGENTS;
-    if (isExempt(toolInput, prompt, exemptSubagents)) return;
-
-    const activePointerPath = String(
-      parameters.activePointerPath ?? DEFAULT_ACTIVE_POINTER_PATH,
-    );
-    checkLiveTask(join(process.cwd(), activePointerPath));
+    const root = projectRootOf(cwd) ?? cwd;
+    const pointer =
+      String(parameters.activePointerPath ?? '').trim() ||
+      DEFAULT_ACTIVE_POINTER_PATH;
+    checkLiveTask(isAbsolute(pointer) ? pointer : join(root, pointer));
   },
 );

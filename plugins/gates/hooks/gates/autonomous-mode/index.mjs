@@ -28,14 +28,14 @@ const CONFIG_KEY = 'autonomousMode';
 const QUESTION_GROUPS = ['question'];
 
 const DENY_MESSAGE =
-  'Autonomous mode is ON for this project: do not ask the user, decide instead. The question ' +
-  'popup was intercepted and never shown. Now, in your VISIBLE reply, leave a one-line trace ' +
-  'so the user sees what was suppressed and what you chose — e.g. "[autonomous] I was going ' +
-  'to ask <the question>; I decided <choice>, assuming <reversible assumption>." Then take ' +
-  'that best, goal-aligned decision and proceed. Only a genuinely irreversible or dangerous ' +
-  'choice (deleting data, money, production) justifies stopping — and then stop in prose ' +
-  'saying exactly what and why, do not reach for the popup again. To let questions through, ' +
-  'set "autonomousMode": false in .ai/config.json.';
+  'Autonomous mode is ON. Do not ask the user. Decide and proceed. ' +
+  'Use this order: existing project decisions > existing patterns > requirements > project goals > your judgment. ' +
+  'Keep decisions consistent with the project. Do not invent new patterns or technologies unless needed. ' +
+  'When several choices work, pick the one best for the project. Make reasonable reversible assumptions instead of asking. ' +
+  'In your visible reply, leave one line: "[autonomous] I was going to ask <question>; I chose <decision>, assuming <assumption>." ' +
+  'Only stop for genuinely irreversible or dangerous actions (data deletion, money, destructive production changes). ' +
+  'If stopping, explain what and why. Never ask the popup again. ' +
+  'To enable questions, set "autonomousMode": false in .ai/config.json.';
 
 runGate(
   {

@@ -1,23 +1,42 @@
+// root-cause-first — a "patch it later" marker without a diagnosis in the same content is
+// denied. Tests and docs are skipped: a test names the marker it checks and a doc describes
+// the practice; neither defers a fix.
+
 import {
   runGate,
   deny,
   toolInGroups,
   writtenContentOf,
+  writtenPathOf,
   delegationPromptOf,
+  compileRegexList,
 } from '../../lib/hook-io.mjs';
+import { isTestPath } from '../../lib/tools.mjs';
 
 const GATE_ID = 'root-cause-first';
 const CONFIG_KEY = 'requireRootCauseBeforePatch';
 
-const DEFAULT_PATCH_MARKER_PATTERNS = ['//\\s*todo:?\\s*fix\\s+later\\s+patch'];
+const DEFAULT_PATCH_MARKER_PATTERNS = [
+  'todo:? fix later',
+  'fixme:? patch',
+  'hotfix',
+  'quick fix',
+  'workaround',
+  'temporary (patch|fix)',
+  'parche temporal',
+  'arreglo r[aá]pido',
+  'apa[ñn]o',
+];
 
-// The text to scan: a delegation's brief, or the content a write puts on disk. writtenContentOf
-// covers every native and MCP write shape (Write's content, Edit's new_string, NotebookEdit's
-// new_source, replace_file_content's new_content) — the old reader missed new_source, so a
-// deferral marker written via NotebookEdit was never caught by this DENY gate.
+const DIAGNOSIS_PATTERN =
+  /root cause:|causa ra[ií]z:|diagnosis:|diagn[oó]stico:/i;
+const DOCUMENT_EXTENSION_PATTERN = /\.(?:md|mdx|txt)$/i;
+
 function textToScan(toolName, toolInput) {
   if (toolInGroups(toolName, ['delegation']))
     return delegationPromptOf(toolInput);
+  const path = writtenPathOf(toolInput);
+  if (isTestPath(path) || DOCUMENT_EXTENSION_PATTERN.test(path)) return '';
   return writtenContentOf(toolInput);
 }
 
@@ -35,23 +54,21 @@ runGate(
 
     const content = textToScan(toolName, toolInput);
     if (!content) return;
+    if (DIAGNOSIS_PATTERN.test(content)) return;
 
-    const patterns = parameters.patchMarkerPatterns.map(
-      (source) => new RegExp(source, 'i'),
-    );
-    const matched = patterns.find((pattern) => pattern.test(content));
+    const { patterns } = compileRegexList(parameters.patchMarkerPatterns);
+    const matched = patterns
+      .map((pattern) => pattern.exec(content))
+      .find((match) => match !== null);
     if (!matched) return;
 
     deny(
       CONFIG_KEY,
-      `Content matches a patch-without-diagnosis marker (${matched.source}). Identify and fix the root cause before patching; do not defer with a "fix later" marker.`,
+      `Content contains a patch-without-diagnosis marker ("${matched[0]}"). Identify the ` +
+        'root cause before patching: state it in the same content with a line starting ' +
+        '"root cause:" (or "causa raíz:", "diagnosis:", "diagnóstico:"), then retry the ' +
+        'same write. To change the markers, set patchMarkerPatterns for ' +
+        `${CONFIG_KEY} in .ai/config.json.`,
     );
   },
 );
-
-// Simplified vs. the source guard (guard-root-cause-first.mjs): the original
-// used an auxiliary lib/embedded-content-detection.mjs module to tell real
-// file content apart from a quoted example inside markdown. That module does
-// not exist in this repo, so this gate matches directly against the new
-// content/prompt. Distinguishing markdown quotes from real code is future
-// work if false positives on quoted examples become a problem.

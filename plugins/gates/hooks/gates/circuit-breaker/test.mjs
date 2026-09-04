@@ -1,69 +1,61 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { stateFileFor } from '../../lib/session-state.mjs';
+import {
+  isDeny,
+  makeProject,
+  runGateProcess,
+  withSession,
+} from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
-const STATE_ROOT = join(tmpdir(), 'claude-gates', 'circuit-breaker');
-
-function runGate(payload, { config } = {}) {
-  const project = mkdtempSync(join(tmpdir(), 'circuit-breaker-'));
-  mkdirSync(join(project, '.git'));
-  if (config) {
-    mkdirSync(join(project, '.ai'));
-    writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(config));
-  }
-  const out = execFileSync(process.execPath, [GATE], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: project,
-    // Isolate from the user's real global config: point homedir() at the temp
-    // project so the global-config fallback finds nothing (registry default).
-    env: { ...process.env, HOME: project, USERPROFILE: project },
-  });
-  return out.trim() ? JSON.parse(out.trim()) : null;
-}
+const GATE_ID = 'circuit-breaker';
 
 function delegate(prompt, sessionId, extra = {}) {
-  return {
-    tool_name: 'Agent',
-    session_id: sessionId,
-    tool_input: { prompt, subagent_type: 'worker-senior', ...extra },
-  };
-}
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+  return withSession(
+    {
+      tool_name: 'Agent',
+      tool_input: { prompt, subagent_type: 'worker-senior', ...extra },
+    },
+    sessionId,
+  );
 }
 
-// These tests were written around a three-attempt scenario (two pass, the third denies),
-// so they pin retryThreshold: 3 explicitly and stay valid regardless of the gate's DEFAULT
-// threshold (now 2, verified by its own test in circuit-breaker.edge.test.mjs).
+// Tests written around a three-attempt scenario pin retryThreshold: 3 so they stay valid
+// regardless of the default (2, covered by its own test in the edge file).
 const ENABLED = {
-  config: {
-    gates: {
-      requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
-    },
+  gates: {
+    requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 3 },
   },
 };
 
-function freshSession() {
-  return `test-${randomUUID()}`;
+function session() {
+  const project = makeProject({ config: ENABLED });
+  const sessionId = `test-${randomUUID()}`;
+  return {
+    sessionId,
+    run: (payload, config) =>
+      runGateProcess(GATE, payload, {
+        project: config ? makeProject({ config }) : project,
+      }),
+    cleanup: () =>
+      rmSync(dirname(stateFileFor(GATE_ID, sessionId, { cwd: project })), {
+        recursive: true,
+        force: true,
+      }),
+  };
 }
 
-function cleanupSession(sessionId) {
-  try {
-    rmSync(join(STATE_ROOT, sessionId), { recursive: true, force: true });
-  } catch {
-    // best-effort cleanup
-  }
-}
+const LOGIN_TASK =
+  'Objetivo: fix the login redirect bug.\n\nQUE SI: update src/auth/redirect.js.';
 
 test('cuts the same delegation retried without substantial change', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
     const prompt = [
       'Objetivo: fix the circuit breaker false positive in guard scoring.',
@@ -71,101 +63,208 @@ test('cuts the same delegation retried without substantial change', () => {
       'QUE SI: update lib/scoring.mjs to fix the Dice threshold.',
     ].join('\n');
 
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
-    assert.ok(isDeny(runGate(delegate(prompt, sessionId), ENABLED)));
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.ok(isDeny(run(delegate(prompt, sessionId))));
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('does not accumulate two genuinely different tasks to the same subagent', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
-    const taskA =
-      'Objetivo: fix the login redirect bug.\n\nQUE SI: update src/auth/redirect.js.';
     const taskB =
       'Objetivo: migrate the billing schema to the new payments table.\n\nQUE SI: update db/migrations/billing.sql.';
 
-    assert.equal(runGate(delegate(taskA, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(taskB, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(taskA, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(taskB, sessionId), ENABLED), null);
+    assert.equal(run(delegate(LOGIN_TASK, sessionId)), null);
+    assert.equal(run(delegate(taskB, sessionId)), null);
+    assert.equal(run(delegate(LOGIN_TASK, sessionId)), null);
+    assert.equal(run(delegate(taskB, sessionId)), null);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('the retry/force escape hatch allows and resets the counter', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
     const prompt =
       'Objetivo: fix the flaky test in the payment suite.\n\nQUE SI: stabilize test/payment.spec.js.';
 
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
     assert.equal(
-      runGate(delegate(`${prompt}\n\nforce it, retry.`, sessionId), ENABLED),
+      run(delegate(`${prompt}\n\nforce it, retry.`, sessionId)),
       null,
     );
-    // Counter was reset: the same prompt again should not deny immediately.
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('bilingual control: the Spanish override imperative resets the counter exactly like its English equivalent', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
   try {
     const prompt =
       'Objetivo: fix the flaky test in the payment suite.\n\nQUE SI: stabilize test/payment.spec.js.';
 
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
     assert.equal(
-      runGate(
-        delegate(`${prompt}\n\nreintentalo, forzalo.`, sessionId),
-        ENABLED,
-      ),
+      run(delegate(`${prompt}\n\nreintentalo, forzalo.`, sessionId)),
       null,
     );
-    assert.equal(runGate(delegate(prompt, sessionId), ENABLED), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('disabled by config: the gate does not run', () => {
-  const sessionId = freshSession();
+  const { sessionId, run, cleanup } = session();
+  const disabled = { gates: { requireCircuitBreakerOnDelegation: false } };
   try {
-    const prompt =
-      'Objetivo: fix the login redirect bug.\n\nQUE SI: update src/auth/redirect.js.';
-    const disabled = {
-      config: { gates: { requireCircuitBreakerOnDelegation: false } },
-    };
-    assert.equal(runGate(delegate(prompt, sessionId), disabled), null);
-    assert.equal(runGate(delegate(prompt, sessionId), disabled), null);
-    assert.equal(runGate(delegate(prompt, sessionId), disabled), null);
-    assert.equal(runGate(delegate(prompt, sessionId), disabled), null);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      assert.equal(run(delegate(LOGIN_TASK, sessionId), disabled), null);
+    }
   } finally {
-    cleanupSession(sessionId);
+    cleanup();
   }
 });
 
 test('project retryThreshold override cuts sooner', () => {
-  const sessionId = freshSession();
-  try {
-    const config = {
+  const project = makeProject({
+    config: {
       gates: {
         requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold: 2 },
       },
-    };
-    const prompt =
-      'Objetivo: fix the login redirect bug.\n\nQUE SI: update src/auth/redirect.js.';
-    assert.equal(runGate(delegate(prompt, sessionId), { config }), null);
-    assert.ok(isDeny(runGate(delegate(prompt, sessionId), { config })));
+    },
+  });
+  const sessionId = `test-${randomUUID()}`;
+  const run = (payload) => runGateProcess(GATE, payload, { project });
+  try {
+    assert.equal(run(delegate(LOGIN_TASK, sessionId)), null);
+    assert.ok(isDeny(run(delegate(LOGIN_TASK, sessionId))));
   } finally {
-    cleanupSession(sessionId);
+    rmSync(dirname(stateFileFor(GATE_ID, sessionId, { cwd: project })), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+// ── Regressions from the audit ─────────────────────────────────────────────────────
+test('a one-word change is still the same task: similarity counts across keys', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    const first =
+      'Objetivo: fix the queue backoff cap in the payment worker.\n\nQUE SI: update src/workers/payment.js to cap the backoff.';
+    const reworded =
+      'Objetivo: fix the task backoff cap in the payment worker.\n\nQUE SI: update src/workers/payment.js to cap the backoff.';
+    assert.equal(run(delegate(first, sessionId)), null);
+    assert.equal(run(delegate(reworded, sessionId)), null);
+    assert.ok(isDeny(run(delegate(first, sessionId))));
+  } finally {
+    cleanup();
+  }
+});
+
+test('a numeric session_id does not crash the gate', () => {
+  const project = makeProject({ config: ENABLED });
+  const run = (payload) => runGateProcess(GATE, payload, { project });
+  try {
+    assert.equal(run(delegate(LOGIN_TASK, 12345)), null);
+    assert.equal(run(delegate(LOGIN_TASK, 12345)), null);
+    assert.ok(isDeny(run(delegate(LOGIN_TASK, 12345))));
+  } finally {
+    rmSync(dirname(stateFileFor(GATE_ID, '12345', { cwd: project })), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+test('a path-traversal session_id cannot write outside the state root', () => {
+  const project = makeProject({ config: ENABLED });
+  const traversal = `../../escaped-${randomUUID()}`;
+  const escapedDirectory = join(tmpdir(), traversal.split('/').at(-1));
+  try {
+    runGateProcess(GATE, delegate(LOGIN_TASK, traversal), { project });
+    assert.ok(!existsSync(escapedDirectory));
+    assert.ok(existsSync(stateFileFor(GATE_ID, traversal, { cwd: project })));
+  } finally {
+    rmSync(dirname(stateFileFor(GATE_ID, traversal, { cwd: project })), {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+test('retryThreshold below 2 is treated as 2: the first attempt never denies', () => {
+  for (const retryThreshold of [0, 1]) {
+    const project = makeProject({
+      config: {
+        gates: {
+          requireCircuitBreakerOnDelegation: { enabled: true, retryThreshold },
+        },
+      },
+    });
+    const sessionId = `test-${randomUUID()}`;
+    const run = (payload) => runGateProcess(GATE, payload, { project });
+    try {
+      assert.equal(run(delegate(LOGIN_TASK, sessionId)), null);
+      assert.ok(isDeny(run(delegate(LOGIN_TASK, sessionId))));
+    } finally {
+      rmSync(dirname(stateFileFor(GATE_ID, sessionId, { cwd: project })), {
+        recursive: true,
+        force: true,
+      });
+    }
+  }
+});
+
+test('an override imperative inside a long instruction is task vocabulary, not an override', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    const prompt =
+      'Objetivo: harden the staging database client.\n\nQUE SI: update src/db/client.js. ' +
+      'Also force it to use TLS when connecting to the staging database so that the handshake passes.';
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.equal(run(delegate(prompt, sessionId)), null);
+    assert.ok(isDeny(run(delegate(prompt, sessionId))));
+  } finally {
+    cleanup();
+  }
+});
+
+test('the IN SCOPE content on the heading line itself is part of the task identity', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    const taskA =
+      'Objetivo: refactor the module.\nQUE SI: update src/auth/login.js and the session cookie parser.';
+    const taskB =
+      'Objetivo: refactor the module.\nQUE SI: update db/migrations/billing.sql and the invoice totals.';
+    assert.equal(run(delegate(taskA, sessionId)), null);
+    assert.equal(run(delegate(taskB, sessionId)), null);
+    assert.equal(run(delegate(taskA, sessionId)), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('accents do not change the task identity', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    const accented =
+      'Objetivo: corregir la validación del correo electrónico.\n\nQUE SI: actualizar src/validación/correo.js.';
+    const plain =
+      'Objetivo: corregir la validacion del correo electronico.\n\nQUE SI: actualizar src/validacion/correo.js.';
+    assert.equal(run(delegate(accented, sessionId)), null);
+    assert.equal(run(delegate(plain, sessionId)), null);
+    assert.ok(isDeny(run(delegate(accented, sessionId))));
+  } finally {
+    cleanup();
   }
 });

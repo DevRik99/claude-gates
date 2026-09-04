@@ -1,66 +1,47 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { delegate, isDeny, runGateProcess } from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
-function runGate(payload, { config } = {}) {
-  const project = mkdtempSync(join(tmpdir(), 'intent-flow-'));
-  mkdirSync(join(project, '.git'));
-  if (config) {
-    mkdirSync(join(project, '.ai'));
-    writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(config));
-  }
-  const out = execFileSync(process.execPath, [GATE], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: project,
-    // Isolate from the user's real global config: point homedir() at the temp
-    // project so the global-config fallback finds nothing (registry default).
-    env: { ...process.env, HOME: project, USERPROFILE: project },
-  });
-  return out.trim() ? JSON.parse(out.trim()) : null;
-}
-
-function delegate(prompt, extra = {}) {
-  return { tool_name: 'Agent', tool_input: { prompt, ...extra } };
-}
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+function runGate(payload, options) {
+  return runGateProcess(GATE, payload, options);
 }
 
 const ENABLED = {
   config: { gates: { requireScopeListBeforeDelegating: true } },
 };
 
+function enabledWith(parameters) {
+  return {
+    config: {
+      gates: {
+        requireScopeListBeforeDelegating: { enabled: true, ...parameters },
+      },
+    },
+  };
+}
+
+const MONEY_PROMPT =
+  'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.';
+
 test('denies implementing a payment change with real intent and no scope list', () => {
-  const result = runGate(
-    delegate(
-      'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.',
-    ),
-    ENABLED,
-  );
-  assert.ok(isDeny(result));
+  assert.ok(isDeny(runGate(delegate(MONEY_PROMPT), ENABLED)));
 });
 
 test('bilingual control: an EN payment brief with no scope list denies exactly like its ES equivalent', () => {
-  const es = delegate(
-    'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.',
-  );
   const en = delegate(
     'Implement the payment charge with the new money gateway for checkout.',
   );
-  assert.ok(isDeny(runGate(es, ENABLED)));
+  assert.ok(isDeny(runGate(delegate(MONEY_PROMPT), ENABLED)));
   assert.ok(isDeny(runGate(en, ENABLED)));
 });
 
 test('allows the same request once IN SCOPE / OUT OF SCOPE / EDGE CASES are declared', () => {
   const prompt = [
-    'Implementa el cobro del pago con la nueva pasarela de dinero para el checkout.',
+    MONEY_PROMPT,
     '',
     'QUE SI (alcance): integrar el nuevo proveedor de pago en el checkout.',
     'QUE NO (fuera de alcance): no tocar el flujo de reembolsos.',
@@ -101,17 +82,10 @@ test('allows a normal implementation request with no high-impact signal', () => 
   );
 });
 
-// A whitelisted read-only subagent name is now void whenever the prompt itself carries
-// a mutation-risk signal (money/auth/data/write/deploy): the label is self-declared,
-// never a verified capability, and a real risk signal in the text must win over it
-// (bug fixed in this gate; see intent-flow.edge.test.mjs). So a prompt naming "plan" is
-// only exempt when it carries no such signal.
 test('allows a read-only subagent when the prompt carries no mutation-risk signal', () => {
   assert.equal(
     runGate(
-      delegate('Explica como funciona el flujo de checkout actual.', {
-        subagent_type: 'plan',
-      }),
+      delegate('Explica como funciona el flujo de checkout actual.', 'plan'),
       ENABLED,
     ),
     null,
@@ -119,47 +93,81 @@ test('allows a read-only subagent when the prompt carries no mutation-risk signa
 });
 
 test('a read-only subagent name no longer exempts a real money-mutation prompt', () => {
-  assert.ok(
-    isDeny(
-      runGate(
-        delegate(
-          'Implementa el cobro del pago con la nueva pasarela de dinero.',
-          {
-            subagent_type: 'plan',
-          },
-        ),
-        ENABLED,
-      ),
-    ),
-  );
+  assert.ok(isDeny(runGate(delegate(MONEY_PROMPT, 'plan'), ENABLED)));
 });
 
 test('disabled by config: the gate does not run', () => {
   assert.equal(
-    runGate(
-      delegate('Implementa el cobro del pago con la nueva pasarela de dinero.'),
-      {
-        config: { gates: { requireScopeListBeforeDelegating: false } },
-      },
-    ),
+    runGate(delegate(MONEY_PROMPT), {
+      config: { gates: { requireScopeListBeforeDelegating: false } },
+    }),
     null,
   );
 });
 
 test('project highImpactPatterns override narrows what counts as high-impact', () => {
-  const config = {
-    gates: {
-      requireScopeListBeforeDelegating: {
-        enabled: true,
-        highImpactPatterns: ['pagin[ao]ci[oó]n'],
-      },
-    },
-  };
+  assert.ok(isDeny(runGate(delegate(MONEY_PROMPT), ENABLED)));
+  assert.equal(
+    runGate(
+      delegate(MONEY_PROMPT),
+      enabledWith({ highImpactPatterns: ['pagin[ao]ci[oó]n'] }),
+    ),
+    null,
+  );
+});
+
+// ── Regressions from the audit ─────────────────────────────────────────────────────
+test('EN verbs add/create/delete count as implementation requests', () => {
+  const prompts = [
+    'Add a new payment method to the checkout flow for every customer account.',
+    'Create an auth middleware that validates the session token on each request.',
+    'Delete the old production migration files and drop the unused schema tables.',
+  ];
+  for (const prompt of prompts) {
+    assert.ok(isDeny(runGate(delegate(prompt), ENABLED)), prompt);
+  }
+});
+
+test('highImpactPatterns [] means nothing is high-impact, so every prompt is allowed', () => {
+  assert.equal(
+    runGate(delegate(MONEY_PROMPT), enabledWith({ highImpactPatterns: [] })),
+    null,
+  );
+});
+
+test('a malformed highImpactPatterns entry is skipped and the valid ones still apply', () => {
+  const options = enabledWith({
+    highImpactPatterns: ['(', 'pagin[ao]ci[oó]n'],
+  });
+  assert.ok(
+    isDeny(
+      runGate(
+        delegate('Implementa la paginacion de la tabla de usuarios del panel.'),
+        options,
+      ),
+    ),
+  );
+  assert.equal(runGate(delegate(MONEY_PROMPT), options), null);
+});
+
+test('a non-array highImpactPatterns falls back to the defaults instead of denying everything', () => {
+  const options = enabledWith({ highImpactPatterns: 'pago' });
+  assert.ok(isDeny(runGate(delegate(MONEY_PROMPT), options)));
+  // The fallback also surfaces a one-time "ignored config param" warn, never a deny.
+  assert.ok(
+    !isDeny(
+      runGate(
+        delegate(
+          'Arregla el boton que no cambia de color al pasar el mouse en la pagina de inicio.',
+        ),
+        options,
+      ),
+    ),
+  );
+});
+
+test('apostrophes are not quote delimiters: the real intent between them is still judged', () => {
   const prompt =
-    'Implementa el cobro del pago con la nueva pasarela de dinero.';
-  // With the default patterns (money/payment), this same prompt is denied.
+    "Don't break anything: implement the new payment charge in the user's checkout flow.";
   assert.ok(isDeny(runGate(delegate(prompt), ENABLED)));
-  // No longer matches "dinero/pago" as high-impact once overridden, so no scope list
-  // is required and the gate allows.
-  assert.equal(runGate(delegate(prompt), { config }), null);
 });

@@ -1,51 +1,38 @@
-// atomic-commit — denies a `git commit` that is not atomic: one that mixes too many distinct
-// NATURES of change (code + tests + deps + config in one shot) or stages more reviewable files
-// than a commit should carry. It never commits or groups for you (that is a tool, not a gate,
-// and the user already has guard-autocommit for it); it only OBJECTS when the staged set is not
-// a cohesive, reviewable unit, so the split happens before the commit lands.
-//
-// justification: no existing gate covers this. lint-commit/staged-lint run the linter on a
-// commit; no-coauthor reads the message; none look at the SHAPE of the staged set. This is the
-// first gate that judges whether a commit is atomic.
-//
-// ── How it decides (deterministic) ───────────────────────────────────────────────────
-// On a real `git commit`, it lists the staged files and classifies each by nature (deps,
-// generated, assets, docs, config, types, tests, tooling, or code). Docs/assets/generated do
-// NOT count toward the size or the mix — they are legitimately committed alongside anything and
-// are not reviewed line by line (same rule guard-autocommit uses). Among the files that DO
-// count, it blocks when either:
-//   · the number of distinct counted natures exceeds `maxNatures` (default 2 — e.g. code+tests
-//     is fine, but code+tests+deps+config in one commit is not atomic), or
-//   · the number of counted files exceeds `maxFiles` (default 12) — too large to review.
-// A commit that is already scoped (`--amend`, a merge, or the escape hatch) is left alone.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   maxFiles     max counted files in one commit. Default 12.
-//   maxNatures   max distinct counted natures in one commit. Default 2.
-//   escapeHatch  substring in the command that allows one deliberately broad commit.
-//                Default '[wip]'.
-//   natures      the classification table (name + regex source + counts flag). Replaces the
-//                built-in list wholesale.
-//
-// ── Fail-safe shape ──────────────────────────────────────────────────────────────────
-// Not a commit, an --amend, or nothing staged: allow (silent). git not queryable: allow (the
-// gate cannot judge and must not block a legitimate commit on a git error). Otherwise: deny
-// with the offending mix/size and how to split.
+// atomic-commit — denies a `git commit` that is not atomic: one mixing more distinct NATURES
+// of change (code + tests + deps + config) than `maxNatures`, or carrying more reviewable
+// files than `maxFiles`. It judges what the commit WILL contain (the staged set, plus what a
+// `git add …` in the same command line or `-a` stages, plus staged deletions); docs, assets
+// and generated files count toward neither. An `--amend` reshapes an existing commit and is
+// left alone, as is a `--dry-run`. Only a command segment that RUNS git commit counts. git
+// not queryable: allow — the gate cannot judge and must not block on a git error.
 
-import { spawnSync } from 'node:child_process';
-import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
+import { projectRootOf } from '../../lib/config.mjs';
+import {
+  effectiveCommitFiles,
+  isAmendCommit,
+  isDryRunCommit,
+  isGitCommit,
+  normalizeGitCommand,
+  stagedFiles,
+} from '../../lib/git.mjs';
+import {
+  compileRegex,
+  deny,
+  runGate,
+  shellCommandOf,
+  toolInGroups,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'atomic-commit';
 const CONFIG_KEY = 'blockNonAtomicCommits';
 
-const SHELL_GROUPS = ['shell'];
 const DEFAULT_MAX_FILES = 12;
 const DEFAULT_MAX_NATURES = 2;
 const DEFAULT_ESCAPE_HATCH = '[wip]';
 
-// Nature table, evaluated in order (first match wins), mirroring guard-autocommit's catalog so
-// a project that uses both sees the same grouping. `counts:false` = committed alongside anything
-// and not counted toward size/mix (docs, assets, generated artifacts).
+// First match wins. `counts:false` = committed alongside anything, never reviewed line by
+// line. A `hooks/` or `models/` folder is application code (React hooks, MVC models), not
+// tooling or types: types are `*.d.ts` and `types/` folders only.
 const DEFAULT_NATURES = [
   {
     name: 'deps',
@@ -74,7 +61,7 @@ const DEFAULT_NATURES = [
   },
   {
     name: 'types',
-    source: String.raw`(^|/)(types?|interfaces?|models?|schemas?)/|\.d\.ts$`,
+    source: String.raw`(^|/)types?/|\.d\.ts$`,
     counts: true,
   },
   {
@@ -84,84 +71,66 @@ const DEFAULT_NATURES = [
   },
   {
     name: 'tooling',
-    source: String.raw`(^|/)(scripts|hooks|\.ai|\.claude|\.github)/`,
+    source: String.raw`(^|/)(scripts|\.ai|\.claude|\.github)/`,
     counts: true,
   },
 ];
 const DEFAULT_NATURE = { name: 'code', counts: true };
 
-// git-global-option normalization, shared with the other commit gates.
-const GIT_OPTION_WITH_VALUE = String.raw`(?:-[Cc]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:\s+|=)\S+`;
-const GIT_FLAG_OPTION = String.raw`--(?:paginate|no-pager|bare|no-optional-locks)|-p`;
-const GIT_GLOBAL_OPTION_PATTERN = new RegExp(
-  String.raw`\bgit\s+(?:${GIT_OPTION_WITH_VALUE}|${GIT_FLAG_OPTION})\s+`,
-  'i',
-);
-const GIT_COMMIT_PATTERN = /\bgit\s+commit\b/i;
-// An --amend or a merge commit is a deliberate, already-scoped operation — not this gate's.
-const EXEMPT_COMMIT_PATTERN = /--amend\b|\bgit\s+merge\b/i;
+// ── The commit segment ──────────────────────────────────────────────────────────────
+const SEGMENT_SEPARATOR = /;|&&|\|\||\||\n/;
+const ARGUMENT_PATTERN = /"([^"]*)"|'([^']*)'|(\S+)/g;
+const GIT_BINARY_TOKEN = /(?:^|[\\/])git(?:\.exe)?$/i;
+const WRAPPER_TOKEN = /^(?:\w+=\S*|command|sudo|env)$/i;
 
-function normalizeGitOptions(command) {
-  let previous;
-  let normalized = command;
-  do {
-    previous = normalized;
-    normalized = normalized.replace(GIT_GLOBAL_OPTION_PATTERN, 'git ');
-  } while (normalized !== previous);
-  return normalized;
+function runsGit(segment) {
+  const tokens = [];
+  for (const match of segment.matchAll(ARGUMENT_PATTERN))
+    tokens.push(match[1] ?? match[2] ?? match[3]);
+  while (tokens.length > 0 && WRAPPER_TOKEN.test(tokens[0])) tokens.shift();
+  return tokens.length > 0 && GIT_BINARY_TOKEN.test(tokens[0]);
 }
 
-function isPlainCommit(command) {
-  const normalized = normalizeGitOptions(command);
-  return (
-    GIT_COMMIT_PATTERN.test(normalized) &&
-    !EXEMPT_COMMIT_PATTERN.test(normalized)
-  );
+function runsJudgedCommit(command) {
+  return String(command)
+    .split(SEGMENT_SEPARATOR)
+    .some((segment) => {
+      if (!runsGit(segment)) return false;
+      const normalized = normalizeGitCommand(segment);
+      return (
+        isGitCommit(normalized) &&
+        !isDryRunCommit(normalized) &&
+        !isAmendCommit(normalized)
+      );
+    });
 }
 
-function commandTextFrom(toolInput) {
-  return String(toolInput.CommandLine ?? toolInput.command ?? '');
-}
-
-/** The staged files (added/copied/modified/renamed), or [] when git cannot be queried. */
-function stagedFiles(cwd) {
-  const result = spawnSync(
-    'git',
-    ['diff', '--cached', '--name-only', '--diff-filter=ACMR'],
-    { cwd, encoding: 'utf8' },
-  );
-  if (result.status !== 0 || !result.stdout) return [];
-  return result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => line.replace(/\\/g, '/'));
-}
-
+// ── Natures ─────────────────────────────────────────────────────────────────────────
 function compileNatures(natures) {
-  return natures.map((nature) => ({
-    name: nature.name,
-    counts: nature.counts !== false,
-    pattern: (() => {
-      try {
-        return new RegExp(nature.source, 'i');
-      } catch {
-        return null;
-      }
-    })(),
-  }));
+  const compiled = [];
+  for (const nature of natures) {
+    if (!nature || typeof nature !== 'object') continue;
+    if (typeof nature.name !== 'string' || typeof nature.source !== 'string')
+      continue;
+    const pattern = compileRegex(nature.source);
+    if (!pattern) continue;
+    compiled.push({
+      name: nature.name,
+      counts: nature.counts !== false,
+      pattern,
+    });
+  }
+  return compiled;
 }
 
 function natureOf(filePath, compiledNatures) {
-  for (const nature of compiledNatures) {
-    if (nature.pattern && nature.pattern.test(filePath)) return nature;
-  }
-  return DEFAULT_NATURE;
+  return (
+    compiledNatures.find((nature) => nature.pattern.test(filePath)) ??
+    DEFAULT_NATURE
+  );
 }
 
-/** Classifies the staged files: the counted (reviewable) ones and the distinct natures among
- * them. Docs/assets/generated (counts:false) are excluded from both. */
-function classifyStaged(files, compiledNatures) {
+function classify(files, compiledNatures) {
   const counted = [];
   const countedNatures = new Set();
   for (const file of files) {
@@ -171,6 +140,13 @@ function classifyStaged(files, compiledNatures) {
     countedNatures.add(nature.name);
   }
   return { counted, countedNatures };
+}
+
+function commitFiles(root, command) {
+  const files = effectiveCommitFiles(root, command);
+  if (files === null) return null;
+  const deletions = stagedFiles(root, { filter: 'D' }) ?? [];
+  return [...new Set([...files, ...deletions])];
 }
 
 runGate(
@@ -185,26 +161,23 @@ runGate(
       natures: DEFAULT_NATURES,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
-    if (!toolInGroups(toolName, SHELL_GROUPS)) return;
+  ({ toolName, toolInput, parameters, cwd }) => {
+    if (!toolInGroups(toolName, ['shell'])) return;
 
-    const command = commandTextFrom(toolInput);
-    if (!isPlainCommit(command)) return;
+    const command = shellCommandOf(toolInput);
+    if (!runsJudgedCommit(command)) return;
 
-    const escapeHatch = parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH;
+    const escapeHatch = String(parameters.escapeHatch ?? '');
     if (escapeHatch && command.includes(escapeHatch)) return;
 
-    const cwd = process.cwd();
-    const files = stagedFiles(cwd);
-    if (files.length === 0) return; // nothing staged (or git unqueryable): nothing to judge
+    const files = commitFiles(projectRootOf(cwd) ?? cwd, command);
+    if (!files || files.length === 0) return;
 
-    const compiledNatures = compileNatures(
-      parameters.natures ?? DEFAULT_NATURES,
+    const { counted, countedNatures } = classify(
+      files,
+      compileNatures(parameters.natures),
     );
-    const { counted, countedNatures } = classifyStaged(files, compiledNatures);
-
-    const maxFiles = parameters.maxFiles ?? DEFAULT_MAX_FILES;
-    const maxNatures = parameters.maxNatures ?? DEFAULT_MAX_NATURES;
+    const { maxFiles, maxNatures } = parameters;
 
     if (countedNatures.size > maxNatures) {
       deny(
@@ -220,7 +193,7 @@ runGate(
     if (counted.length > maxFiles) {
       deny(
         CONFIG_KEY,
-        `This commit stages ${counted.length} reviewable files (max ${maxFiles}) — too large ` +
+        `This commit carries ${counted.length} reviewable files (max ${maxFiles}) — too large ` +
           `to review as one unit. Split it into smaller, cohesive commits (docs/assets/` +
           `generated files are not counted). Add "${escapeHatch}" for one deliberately broad commit.`,
       );

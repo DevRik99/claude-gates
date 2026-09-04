@@ -1,33 +1,15 @@
-// Edge-case audit for intent-flow. Each test demonstrates a confirmed BUG or an OK.
-// Run: node --test intent-flow.edge.test.mjs
+// Edge cases for intent-flow: MCP tool names, alternate prompt fields, and the read-only
+// label being voided by a mutation-risk signal.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { delegate, isDeny, runGateProcess } from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
-function runGate(payload, { config } = {}) {
-  const project = mkdtempSync(join(tmpdir(), 'intent-flow-edge-'));
-  mkdirSync(join(project, '.git'));
-  if (config) {
-    mkdirSync(join(project, '.ai'));
-    writeFileSync(join(project, '.ai', 'config.json'), JSON.stringify(config));
-  }
-  const out = execFileSync(process.execPath, [GATE], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: project,
-    env: { ...process.env, HOME: project, USERPROFILE: project },
-  });
-  return out.trim() ? JSON.parse(out.trim()) : null;
-}
-
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+function runGate(payload, options) {
+  return runGateProcess(GATE, payload, options);
 }
 
 const ENABLED = {
@@ -45,10 +27,7 @@ test('FIXED: a delegation tool name outside the native list is now caught via to
     },
     ENABLED,
   );
-  assert.ok(
-    isDeny(result),
-    'gate now denies the sensitive-no-scope prompt under the MCP tool name too',
-  );
+  assert.ok(isDeny(result));
 });
 
 test('FIXED: prompt carried in a field other than prompt/description/task is now read via delegationPromptOf', () => {
@@ -56,39 +35,20 @@ test('FIXED: prompt carried in a field other than prompt/description/task is now
     { tool_name: 'Agent', tool_input: { instructions: SENSITIVE_NO_SCOPE } },
     ENABLED,
   );
-  assert.ok(
-    isDeny(result),
-    'gate now sees the prompt under "instructions" and denies it for missing scope list',
-  );
+  assert.ok(isDeny(result));
 });
 
 test('FIXED: a mutation-risk signal in the prompt overrides a whitelisted read-only subagent name', () => {
-  // isReadOnlySubagent now voids the name-based exemption whenever the prompt itself
-  // carries a mutation-risk signal (money/auth/data/write/deploy): a subagent named
-  // "explore" cannot exempt a real money-mutation delegation just by using that label.
-  const result = runGate(
-    {
-      tool_name: 'Agent',
-      tool_input: { prompt: SENSITIVE_NO_SCOPE, subagent_type: 'explore' },
-    },
-    ENABLED,
-  );
-  assert.ok(
-    isDeny(result),
-    'gate no longer exempts a real money-mutation delegation solely because subagent_type says "explore"',
-  );
+  assert.ok(isDeny(runGate(delegate(SENSITIVE_NO_SCOPE, 'explore'), ENABLED)));
 });
 
 test('OK: a whitelisted read-only subagent name with no mutation-risk signal is still exempt', () => {
   assert.equal(
     runGate(
-      {
-        tool_name: 'Agent',
-        tool_input: {
-          prompt: 'Arregla el boton que no cambia de color al pasar el mouse.',
-          subagent_type: 'explore',
-        },
-      },
+      delegate(
+        'Arregla el boton que no cambia de color al pasar el mouse.',
+        'Explore',
+      ),
       ENABLED,
     ),
     null,
@@ -96,11 +56,7 @@ test('OK: a whitelisted read-only subagent name with no mutation-risk signal is 
 });
 
 test('OK: same sensitive prompt without a read-only subagent name is denied', () => {
-  const result = runGate(
-    { tool_name: 'Agent', tool_input: { prompt: SENSITIVE_NO_SCOPE } },
-    ENABLED,
-  );
-  assert.ok(isDeny(result));
+  assert.ok(isDeny(runGate(delegate(SENSITIVE_NO_SCOPE), ENABLED)));
 });
 
 test('OK: Task and invoke_subagent tool names are both covered', () => {

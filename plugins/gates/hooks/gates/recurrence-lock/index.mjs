@@ -1,66 +1,108 @@
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
+// recurrence-lock — while a registered defect class is open and at/above the threshold,
+// mutating work is denied until its root cause is closed. Whatever is needed to CLOSE the
+// class stays allowed (editing the recurrence file, read-only inspection, read-only
+// delegation), otherwise the lock would deadlock on its own remedy.
+
+import { basename, join } from 'node:path';
+import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
+import { isExemptQuery } from '../../lib/delegation.mjs';
+import {
+  runGate,
+  deny,
+  toolInGroups,
+  writtenPathOf,
+  shellCommandOf,
+  shellWrittenPaths,
+  delegationPromptOf,
+} from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'recurrence-lock';
 const CONFIG_KEY = 'blockRegisteredRecurrences';
 
-/**
- * De-duplicates occurrences before counting them against the threshold. An occurrence is
- * identified by its `id`/`hash` field when present (the intended identity for a logged
- * occurrence); a bare-scalar entry (number/string, as in the plain fixture shape used by
- * tests) is deduplicated by its own value instead, since it carries no other identity.
- * Without this, the same occurrence logged twice (a race or a bug in the writer) inflates
- * the count and trips the lock as if two distinct occurrences had happened.
- */
+const RECURRENCES_FILE = 'reincidencias.json';
+const RECURRENCES_RELATIVE_PATH = join('.ai', RECURRENCES_FILE);
+const DEFAULT_THRESHOLD = 2;
+
+const READ_ONLY_COMMANDS = [
+  'git status',
+  'git log',
+  'git diff',
+  'git show',
+  'git branch',
+  'cat',
+  'ls',
+  'dir',
+  'pwd',
+  'echo',
+  'grep',
+  'rg',
+  'find',
+  'head',
+  'tail',
+  'wc',
+  'type',
+  'get-content',
+  'get-childitem',
+  'node --test',
+  'npm test',
+  'npm run lint',
+];
+const SEGMENT_SEPARATOR = /&&|\|\||[;|\n]/;
+
+function segmentIsReadOnly(segment) {
+  const words = segment.trim().toLowerCase().split(/\s+/);
+  return READ_ONLY_COMMANDS.some((command) => {
+    const expected = command.split(' ');
+    return expected.every((word, index) => words[index] === word);
+  });
+}
+
+function isReadOnlyCommand(command) {
+  if (!command.trim()) return false;
+  if (shellWrittenPaths(command).length > 0) return false;
+  return command.split(SEGMENT_SEPARATOR).every(segmentIsReadOnly);
+}
+
+function isExemptCall(toolName, toolInput) {
+  if (toolInGroups(toolName, ['write']))
+    return basename(writtenPathOf(toolInput)) === RECURRENCES_FILE;
+  if (toolInGroups(toolName, ['shell']))
+    return isReadOnlyCommand(shellCommandOf(toolInput));
+  if (toolInGroups(toolName, ['delegation']))
+    return isExemptQuery(delegationPromptOf(toolInput));
+  return false;
+}
+
+// Identity is id/hash when present, else the value itself: the same occurrence logged
+// twice must not count as two.
 function dedupOccurrences(occurrences) {
   const seen = new Set();
-  const deduped = [];
-  for (const occurrence of occurrences) {
+  return occurrences.filter((occurrence) => {
     const identity =
       occurrence && typeof occurrence === 'object'
         ? String(occurrence.id ?? occurrence.hash ?? JSON.stringify(occurrence))
         : String(occurrence);
-    if (seen.has(identity)) continue;
+    if (seen.has(identity)) return false;
     seen.add(identity);
-    deduped.push(occurrence);
-  }
-  return deduped;
+    return true;
+  });
 }
 
-// The source guard (guard-reincidence-lock.mjs) reads pending recurrences
-// from a full tracking module (../scripts/memory/recurrences.mjs) with
-// close/decide/pending subcommands. That infrastructure belongs to another
-// project and does not exist here. This gate only reads a plain state file
-// at .ai/reincidencias.json if present, with the shape:
-//   { classes: [{ class, occurrences: [...], status }] }
-// If neither the module nor the file exists, it allows silently — there is
-// nothing to enforce without a recurrence record.
-function loadOpenRecurrences(projectRoot, thresholdAppearances) {
-  const filePath = join(projectRoot, '.ai', 'reincidencias.json');
-  if (!existsSync(filePath)) return [];
+function isClosed(entry) {
+  const status = String(entry?.status ?? '')
+    .trim()
+    .toLowerCase();
+  return status === 'closed' || status === 'cerrada';
+}
 
-  let parsed;
-  try {
-    parsed = JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch {
-    return [];
-  }
-
+function loadOpenRecurrences(root, thresholdAppearances) {
+  const parsed = readJsonOrNull(join(root, RECURRENCES_RELATIVE_PATH));
   const classes = Array.isArray(parsed?.classes) ? parsed.classes : [];
   return classes.filter((entry) => {
     const occurrences = Array.isArray(entry?.occurrences)
       ? dedupOccurrences(entry.occurrences)
       : [];
-    const occurrenceCount = occurrences.length;
-    // Trim before lowercasing so a padded status ("Closed ", "cerrada\n") is recognized —
-    // a status compared without trimming left a validly-closed (but padded) recurrence
-    // stuck as still-open, blocking unrelated work indefinitely.
-    const status = String(entry?.status ?? '')
-      .trim()
-      .toLowerCase();
-    const isClosed = status === 'closed' || status === 'cerrada';
-    return occurrenceCount >= thresholdAppearances && !isClosed;
+    return occurrences.length >= thresholdAppearances && !isClosed(entry);
   });
 }
 
@@ -70,15 +112,16 @@ runGate(
     configKey: CONFIG_KEY,
     enabledByDefault: true,
     defaultParams: {
-      thresholdAppearances: 2,
+      thresholdAppearances: DEFAULT_THRESHOLD,
     },
   },
-  ({ toolName, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
     if (!toolInGroups(toolName, ['execution', 'delegation'])) return;
+    if (isExemptCall(toolName, toolInput)) return;
 
-    const recurrencesFile = join('.ai', 'reincidencias.json');
+    const root = projectRootOf(cwd) ?? cwd;
     const openRecurrences = loadOpenRecurrences(
-      process.cwd(),
+      root,
       parameters.thresholdAppearances,
     );
     if (openRecurrences.length === 0) return;
@@ -88,9 +131,10 @@ runGate(
       CONFIG_KEY,
       `Registered recurring issue class(es) still open and at/above the ` +
         `${parameters.thresholdAppearances}-occurrence threshold: ${names}. Fix the root ` +
-        `cause of the class (not this one instance), then in ${recurrencesFile} set that ` +
-        'class\'s "status" to "closed" (or "cerrada") before proceeding — no other file to ' +
-        'find, this is the only source this gate reads.',
+        `cause of the class (not this one instance), then in ${RECURRENCES_RELATIVE_PATH} set that ` +
+        'class\'s "status" to "closed" (or "cerrada") before proceeding — editing that file, ' +
+        'read-only commands (git status/log/diff, cat, grep, tests) and read-only delegations ' +
+        'stay allowed so you can do exactly that.',
     );
   },
 );

@@ -1,143 +1,69 @@
-// bash-commands — denies destructive shell commands (rm -rf over protected areas, git
-// reset --hard, force push, kill-by-name). Runs on a real Bash/run_command call and on a
-// delegation prompt (a subagent can be told "run git reset --hard" in prose).
-//
-// Remote-publish blocking (git push / gh pr merge / gh release create) used to live here as
-// a hardcoded, non-configurable block. It was split out into the block-remote-publish gate
-// so it carries its own enabled flag: a project can now allow the agent to push by disabling
-// that gate WITHOUT also disabling the destructive-command protections below.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   denyPatterns          regex sources (matched case-insensitively) of destructive
-//                         commands to deny. Replaces the built-in list below wholesale.
-//   rmRfProtectedAreas    targets rm -rf may not hit; woven into the rm -rf pattern.
-//   embeddedInterpreterEnabled  block `node -e`/`python -c` that does raw file ops. Off
-//                         by default: this harness legitimately uses inline interpreters.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
+// bash-commands — denies destructive shell commands (recursive force delete over a protected
+// area, git reset --hard, force push, git clean -f, kill-by-name) on a real shell call and on
+// a delegation prompt that ORDERS one. Deliberate limits: a delete target built from a
+// variable (`rm -rf $DIR`) is not resolved, and a prompt that only mentions a command
+// (negated, audited, reported) is not an order. Remote publishing lives in
+// block-remote-publish so it carries its own flag.
 
+import { hasRealCommandIntent } from '../../lib/delegation.mjs';
+import { normalizeGitCommand } from '../../lib/git.mjs';
 import {
-  runGate,
-  deny,
-  toolInGroups,
+  compileRegex,
   delegationPromptOf,
+  deny,
+  escapeRegExp,
+  normalizeRulePairs,
+  runGate,
+  shellCommandOf,
+  toolInGroups,
 } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'bash-commands';
 const CONFIG_KEY = 'blockDestructiveShellCommands';
 
-// Areas rm -rf must never target. A project overrides this list in config; the rm -rf
-// deny pattern is rebuilt from it at runtime (see rmRfSourceFrom), so an edit takes effect.
 const DEFAULT_RM_RF_PROTECTED_AREAS = ['/', '*', 'src', 'tests'];
+const DEFAULT_DENY_REASON = 'Destructive command is not allowed.';
 
-// Process-killing command names, assembled from fragments so the spell checker does not
-// read them as prose (the project keeps an empty dictionary by policy).
-const KILL_BY_NAME_COMMANDS = ['task' + 'kill', 'p' + 'kill', 'kill' + 'all'];
+const KILL_BY_NAME_REMEDY =
+  'Killing processes by NAME reaches everything with that name, not just yours. ' +
+  'Keep the PID you started and kill that; if lost, find it by its full command line ' +
+  'and confirm it is yours before touching it.';
 
-// PowerShell's kill-by-name form: `Stop-Process -Name node` (and its Get-Process pipe). On
-// Windows this reaches every process of that name exactly like taskkill /IM, so it belongs
-// in the same block. Matched separately because its shape (a -Name flag) differs from the
-// unix commands above.
-const STOP_PROCESS_BY_NAME_SOURCE = String.raw`\bStop-Process\b[^|;\n]*\s-Name\b`;
+// A short-flag cluster carrying `f` (`-f`, `-fu`) or the long `--force`, but never the safe
+// `--force-with-lease` / `--force-if-includes`.
+const FORCE_FLAG = String.raw`(?:\s--force(?![\w-])|\s-[a-z]*f[a-z]*(?=\s|$))`;
 
-// The rm -rf deny source, built from the protected-areas list. Separate from the static
-// deny list so a project can edit rmRfProtectedAreas in config and have it take effect at
-// runtime: the list is re-read on every call, not baked in at load time.
-function rmRfSourceFrom(protectedAreas) {
-  const rmRfTargets = protectedAreas
-    .map((area) => area.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-    .join('|');
-  // Allow an optional `./` (or `.\`) prefix before the target, so `rm -rf ./src` and
-  // `rm -rf .\src` are caught, not just the bare `rm -rf src`. Without this, a leading
-  // `./` sat between the required whitespace and the target's word boundary and slipped past.
-  return String.raw`\brm\s+-rf\s+(?:\.[\\/])?(${rmRfTargets})\b`;
-}
+const DEFAULT_DENY_PATTERNS = [
+  [
+    String.raw`\bgit\s+reset\b[^;&|]*--hard\b`,
+    "'git reset --hard' discards uncommitted work for good. Use 'git stash' or " +
+      "'git reset --soft', or ask the user to authorize the hard reset explicitly.",
+  ],
+  [
+    String.raw`\bgit\s+push\b[^;&|]*(?:${FORCE_FLAG}|\s\+\S)`,
+    "'git push --force' (also -f and a +refspec) rewrites remote history. Use " +
+      "'--force-with-lease' if a forced update is really needed, with the user's authorization.",
+  ],
+  [
+    String.raw`\bgit\s+clean\b[^;&|]*${FORCE_FLAG}`,
+    "'git clean -f' deletes untracked files for good. Run 'git clean -n' to list them " +
+      'and delete specific paths instead.',
+  ],
+  [
+    '\\btaskkill(?:\\.exe)?\\b[^|;&]*\\s[/-]im\\b|\\bpkill\\s|\\bkillall\\s',
+    KILL_BY_NAME_REMEDY,
+  ],
+  [
+    '\\bStop-Process\\b[^|;\\n]*\\s-n(?:a(?:me?)?)?\\b|' +
+      '\\bGet-Process\\b[^|;\\n]*\\|\\s*(?:Stop-Process|kill|spps)\\b',
+    `Stop-Process by name (or piped from Get-Process): ${KILL_BY_NAME_REMEDY}`,
+  ],
+];
 
-/**
- * Static destructive-command rules as `[regexSource, reason]`. Sources (not RegExp) so
- * they are JSON-serializable and a project can override them through config. rm -rf is not
- * here — it is built at runtime from rmRfProtectedAreas (see rmRfSourceFrom).
- */
-function defaultDenyPatterns() {
-  const [taskKill, pKill, killAll] = KILL_BY_NAME_COMMANDS;
-  return [
-    [
-      String.raw`\bgit\s+reset\s+--hard\b`,
-      "'git reset --hard' is destructive and needs explicit authorization.",
-    ],
-    [
-      String.raw`\bgit\s+push\s+.*--force\b`,
-      "'git push --force' is destructive and is not allowed.",
-    ],
-    [
-      String.raw`\bgit\s+clean\s+-[a-z]*f[a-z]*\b`,
-      "'git clean -f' is destructive and is not allowed.",
-    ],
-    [
-      // Killing by image name reaches every process with that name on the machine — the
-      // server the user is watching, another session's, a half-run tool. The damage is
-      // silent. Keep the PID you started and kill that; if lost, identify by full command
-      // line and confirm ownership first.
-      [
-        String.raw`\b(`,
-        taskKill,
-        String.raw`\s+[^|;]*[/]IM|`,
-        pKill,
-        String.raw`\s+|`,
-        killAll,
-        String.raw`\s+)`,
-      ].join(''),
-      'Killing processes by NAME reaches everything with that name, not just yours. ' +
-        'Keep the PID you started and kill that; if lost, find it by its full command ' +
-        'line and confirm it is yours before touching it.',
-    ],
-    [
-      STOP_PROCESS_BY_NAME_SOURCE,
-      'Stop-Process -Name kills every process of that name on the machine, not just yours. ' +
-        'Stop the specific process by its Id (the PID you started); if lost, identify it by ' +
-        'its full command line and confirm ownership first.',
-    ],
-  ];
-}
-
-// Interpreter name, then any intermediate flags (e.g. --input-type=module), then an
-// eval flag. Intermediate flags are matched loosely (`-\S+`) to keep the pattern simple.
 const INTERPRETER_EVAL_PATTERN =
   /\b(node|python3?|deno|bun)\b(?:\s+-\S+)*?\s+(?:-e|-c|--eval|--print|-p)\b/i;
 const RAW_FILE_OPS_PATTERN =
   /\b(writeFileSync|readFileSync|appendFileSync|fs\.writeFile|fs\.readFile|fs\.unlink|fs\.mkdir)\b/;
-
-function compile(source) {
-  return new RegExp(source, 'i');
-}
-
-// git's GLOBAL options sit between `git` and the subcommand: `git -C <path> reset --hard`,
-// `git -c k=v push`, `git --git-dir=… clean -f`. A pattern that matches `git reset --hard`
-// contiguously is evaded by any of them. Stripping these options first — turning
-// `git -C /repo reset --hard` back into `git reset --hard` — closes that bypass for every
-// git rule at once, instead of teaching each pattern about every global option.
-//
-// A single global option, matched one at a time and stripped repeatedly (below), so the
-// pattern stays simple: an option taking a value (`-C /path`, `--git-dir=…`) or a flag
-// (`--no-pager`). The leading `git ` is kept; only the option after it is removed.
-const GIT_OPTION_WITH_VALUE = String.raw`(?:-[Cc]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:\s+|=)\S+`;
-const GIT_FLAG_OPTION = String.raw`--(?:paginate|no-pager|bare|no-optional-locks)|-p`;
-const GIT_GLOBAL_OPTION_PATTERN = new RegExp(
-  String.raw`\bgit\s+(?:${GIT_OPTION_WITH_VALUE}|${GIT_FLAG_OPTION})\s+`,
-  'i',
-);
-
-function normalizeGitOptions(command) {
-  // Strip one leading global option at a time and re-run, so a stacked
-  // `git -c a=b -C /x reset` is fully reduced to `git reset` before the deny patterns run.
-  let previous;
-  let normalized = command;
-  do {
-    previous = normalized;
-    normalized = normalized.replace(GIT_GLOBAL_OPTION_PATTERN, 'git ');
-  } while (normalized !== previous);
-  return normalized;
-}
 
 function checkEmbeddedInterpreter(command) {
   const match = INTERPRETER_EVAL_PATTERN.exec(command);
@@ -149,47 +75,145 @@ function checkEmbeddedInterpreter(command) {
   if (RAW_FILE_OPS_PATTERN.test(inline)) {
     return 'Inline interpreter doing a raw file operation (read/write/delete/mkdir). Use Write/Edit/Read instead.';
   }
-  return null; // import/require or fetch: logic the native tools do not cover — allowed
+  return null;
 }
 
-/** The text to inspect: a real command's command line, or the delegation prompt. */
-function commandTextFrom(toolName, toolInput) {
-  if (toolInGroups(toolName, ['shell'])) {
-    return String(toolInput.CommandLine ?? toolInput.command ?? '');
-  }
-  return delegationPromptOf(toolInput);
-}
+// ── rm -rf over a protected area ────────────────────────────────────────────────────
+const RM_INVOCATION_PATTERN = /(?:^|[\s;&|(`$'"])(rm\s+([^;&|\n)`]*))/gi;
+const ARGUMENT_PATTERN = /"([^"]*)"|'([^']*)'|(\S+)/g;
 
-/** Static deny rules + the runtime rm -rf rule, both read from config params. */
-function checkDestructive(command, parameters) {
-  // Strip git's global options so `git -C /repo reset --hard` cannot slip past a pattern
-  // written for `git reset --hard`. Non-git commands are unaffected.
-  const normalized = normalizeGitOptions(command);
-
-  // denyPatterns may be a flat list of sources or [source, reason] pairs; normalize.
-  const denyPairs = (parameters.denyPatterns ?? []).map((entry) =>
-    Array.isArray(entry)
-      ? entry
-      : [entry, 'Destructive command is not allowed.'],
+function isRecursiveFlag(token) {
+  return (
+    token === '--recursive' || (!token.startsWith('--') && /r/i.test(token))
   );
-  for (const [source, reason] of denyPairs) {
-    if (compile(source).test(normalized)) deny(CONFIG_KEY, reason);
-  }
+}
 
-  // rm -rf over a protected area: areas read from config at runtime, so editing
-  // rmRfProtectedAreas takes effect without touching denyPatterns.
-  const rmRfAreas =
-    parameters.rmRfProtectedAreas ?? DEFAULT_RM_RF_PROTECTED_AREAS;
-  if (
-    rmRfAreas.length > 0 &&
-    compile(rmRfSourceFrom(rmRfAreas)).test(command)
-  ) {
-    deny(CONFIG_KEY, "'rm -rf' over a protected area is not allowed.");
-  }
+function isForceFlag(token) {
+  return (
+    token === '--force' || (!token.startsWith('--') && token.includes('f'))
+  );
+}
 
+function stripTrailingQuotes(token) {
+  let stripped = token;
+  while (stripped.endsWith('"') || stripped.endsWith("'"))
+    stripped = stripped.slice(0, -1);
+  return stripped;
+}
+
+function rmArguments(argumentText) {
+  const flags = { recursive: false, force: false };
+  const targets = [];
+  let optionsEnded = false;
+  for (const match of argumentText.matchAll(ARGUMENT_PATTERN)) {
+    const token = match[1] ?? match[2] ?? stripTrailingQuotes(match[3]);
+    if (optionsEnded || !token.startsWith('-') || token === '-') {
+      targets.push(token);
+    } else if (token === '--') {
+      optionsEnded = true;
+    } else {
+      flags.recursive ||= isRecursiveFlag(token);
+      flags.force ||= isForceFlag(token);
+    }
+  }
+  return { recursiveForce: flags.recursive && flags.force, targets };
+}
+
+function normalizeTarget(path) {
+  let normalized = String(path).replace(/\\/g, '/');
+  while (normalized.startsWith('./')) normalized = normalized.slice(2);
+  while (normalized.length > 1 && normalized.endsWith('/'))
+    normalized = normalized.slice(0, -1);
+  return normalized;
+}
+
+function hitsArea(target, area) {
+  if (area === '/') return target === '/' || target === '/*';
+  return target === area || target.startsWith(`${area}/`);
+}
+
+function protectedRecursiveDeletes(command, areas) {
+  const normalizedAreas = areas.map(normalizeTarget).filter(Boolean);
+  if (normalizedAreas.length === 0) return [];
+  const hits = [];
+  for (const match of String(command).matchAll(RM_INVOCATION_PATTERN)) {
+    const { recursiveForce, targets } = rmArguments(match[2]);
+    if (!recursiveForce) continue;
+    const target = targets
+      .map(normalizeTarget)
+      .find((candidate) =>
+        normalizedAreas.some((area) => hitsArea(candidate, area)),
+      );
+    if (target !== undefined) hits.push({ text: match[1].trim(), target });
+  }
+  return hits;
+}
+
+function rmReason(hit, areas) {
+  return (
+    `'${hit.text}' would wipe '${hit.target}', a protected area (${areas.join(', ')}). ` +
+    'Delete a specific path inside it instead, or edit rmRfProtectedAreas under ' +
+    `${CONFIG_KEY} in .ai/config.json.`
+  );
+}
+
+// ── Rules ───────────────────────────────────────────────────────────────────────────
+function destructiveRules(parameters) {
+  return normalizeRulePairs(parameters.denyPatterns, DEFAULT_DENY_REASON)
+    .map(({ source, reason }) => ({ pattern: compileRegex(source), reason }))
+    .filter((rule) => rule.pattern !== null);
+}
+
+function checkShellCommand(command, parameters) {
+  const normalized = normalizeGitCommand(command);
+  for (const { pattern, reason } of destructiveRules(parameters)) {
+    const match = pattern.exec(normalized);
+    if (match) deny(CONFIG_KEY, `${reason} (matched: "${match[0].trim()}")`);
+  }
+  const [hit] = protectedRecursiveDeletes(
+    command,
+    parameters.rmRfProtectedAreas,
+  );
+  if (hit) deny(CONFIG_KEY, rmReason(hit, parameters.rmRfProtectedAreas));
   if (parameters.embeddedInterpreterEnabled) {
     const reason = checkEmbeddedInterpreter(command);
     if (reason) deny(CONFIG_KEY, reason);
+  }
+}
+
+const DELEGATION_REMEDY =
+  'The delegation prompt orders this command; a subagent must not run it either. ' +
+  'If the prompt only describes or forbids it, say so in the same sentence.';
+
+function checkDelegationPrompt(prompt, parameters) {
+  const normalized = normalizeGitCommand(prompt);
+  for (const { pattern, reason } of destructiveRules(parameters)) {
+    if (hasRealCommandIntent(normalized, pattern))
+      deny(CONFIG_KEY, `${reason} ${DELEGATION_REMEDY}`);
+  }
+  const areas = parameters.rmRfProtectedAreas;
+  for (const hit of protectedRecursiveDeletes(prompt, areas)) {
+    const mention = new RegExp(escapeRegExp(hit.text), 'i');
+    if (hasRealCommandIntent(prompt, mention))
+      deny(CONFIG_KEY, `${rmReason(hit, areas)} ${DELEGATION_REMEDY}`);
+  }
+  if (parameters.embeddedInterpreterEnabled) {
+    const reason = checkEmbeddedInterpreter(prompt);
+    if (reason && hasRealCommandIntent(prompt, INTERPRETER_EVAL_PATTERN))
+      deny(CONFIG_KEY, reason);
+  }
+}
+
+// toolInputOf reduces a bare-string tool_input to {}, which would let a command sent in that
+// shape through unread; the raw payload still carries it.
+function shellCommandFrom(rawPayload, toolInput) {
+  const command = shellCommandOf(toolInput);
+  if (command) return command;
+  try {
+    const rawInput = JSON.parse(rawPayload)?.tool_input;
+    return typeof rawInput === 'string' ? rawInput : '';
+  } catch {
+    return '';
   }
 }
 
@@ -199,17 +223,16 @@ runGate(
     configKey: CONFIG_KEY,
     enabledByDefault: true,
     defaultParams: {
-      denyPatterns: defaultDenyPatterns(),
+      denyPatterns: DEFAULT_DENY_PATTERNS,
       rmRfProtectedAreas: DEFAULT_RM_RF_PROTECTED_AREAS,
       embeddedInterpreterEnabled: false,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
-    // Destructive-command rules act on a real shell command AND on a delegation prompt (a
-    // subagent can be told "run rm -rf" in prose). commandTextFrom picks the right text.
-    if (!toolInGroups(toolName, ['shell', 'delegation'])) return;
-
-    const command = commandTextFrom(toolName, toolInput);
-    checkDestructive(command, parameters);
+  ({ rawPayload, toolName, toolInput, parameters }) => {
+    if (toolInGroups(toolName, ['shell'])) {
+      checkShellCommand(shellCommandFrom(rawPayload, toolInput), parameters);
+    } else if (toolInGroups(toolName, ['delegation'])) {
+      checkDelegationPrompt(delegationPromptOf(toolInput), parameters);
+    }
   },
 );

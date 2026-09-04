@@ -1,15 +1,29 @@
+// rule-skill-autodiscovery — runs the project's own sub-gates (rules/<gate file> and
+// .claude/skills/*/<gate file>) on every execution/delegation call, feeding each the hook
+// payload on stdin. A sub-gate denies by printing `{"permissionDecision":"deny",...}` or by
+// exiting 2; a sub-gate that crashes or times out only WARNS, so one broken script cannot
+// block all work. Deliberate restrictions, because a discovered script is arbitrary code:
+//   - it runs only when THIS project's .ai/config.json enables the gate (a global setting
+//     must never grant code execution to a freshly cloned repo);
+//   - it gets a minimal environment (PATH/HOME/USERPROFILE/TEMP/TMP/SystemRoot/CLAUDE_*);
+//   - all scripts share one 8 s budget;
+//   - the gate config files are hashed before and after each script; any change is
+//     reverted and denied, so a script cannot disable the gates that govern it.
+
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
   readdirSync,
   readFileSync,
-  writeFileSync,
+  statSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
-import { runGate, deny, toolInGroups } from '../../lib/hook-io.mjs';
+import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
+import { runGate, deny, warn, toolInGroups } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'rule-skill-autodiscovery';
 const CONFIG_KEY = 'autodiscoverRulesAndSkills';
@@ -21,72 +35,92 @@ const DEFAULT_GATE_FILE_NAMES = [
   'check.mjs',
   'verify.mjs',
 ];
+const TOTAL_BUDGET_MS = 8000;
+const KIB = 1024;
+const MAX_OUTPUT_BYTES = KIB * KIB;
+const DENY_EXIT_CODE = 2;
+const ALLOWED_ENVIRONMENT = new Set([
+  'PATH',
+  'HOME',
+  'USERPROFILE',
+  'TEMP',
+  'TMP',
+  'SYSTEMROOT',
+]);
+const ENVIRONMENT_PREFIX = 'CLAUDE_';
+const PROJECT_CONFIG_RELATIVE_PATH = join('.ai', 'config.json');
+const GLOBAL_CONFIG_PATH = join(
+  homedir(),
+  '.claude',
+  'claude-gates',
+  'config.json',
+);
 
-function isGateFile(fileName, gateFileNames) {
-  return gateFileNames.includes(fileName) || fileName.endsWith('.gate.mjs');
+function projectEnablesGate(root) {
+  const entry = readJsonOrNull(join(root, PROJECT_CONFIG_RELATIVE_PATH))
+    ?.gates?.[CONFIG_KEY];
+  return entry === true || entry?.enabled === true;
 }
 
-function findScriptsIn(scriptsDirectory, gateFileNames) {
-  if (!existsSync(scriptsDirectory)) return [];
-  let entries;
+function isDirectory(path) {
   try {
-    entries = readdirSync(scriptsDirectory, { withFileTypes: true });
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function isFile(path) {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function findScriptsIn(directory, gateFileNames) {
+  let names;
+  try {
+    names = readdirSync(directory);
   } catch {
     return [];
   }
-  return entries
-    .filter((entry) => entry.isFile())
-    .filter((entry) => /\.(mjs|js)$/.test(entry.name))
-    .filter((entry) => isGateFile(entry.name, gateFileNames))
-    .map((entry) => join(scriptsDirectory, entry.name));
+  return names
+    .filter((name) => /\.(mjs|js)$/.test(name))
+    .filter(
+      (name) => gateFileNames.includes(name) || name.endsWith('.gate.mjs'),
+    )
+    .map((name) => join(directory, name))
+    .filter(isFile);
 }
 
-function discoverScripts(projectRoot, rulesDirectoryName, gateFileNames) {
-  const scripts = [
-    ...findScriptsIn(join(projectRoot, rulesDirectoryName), gateFileNames),
-  ];
-
-  const skillsRoot = join(projectRoot, '.claude', 'skills');
-  if (existsSync(skillsRoot)) {
-    let skillDirectories;
-    try {
-      skillDirectories = readdirSync(skillsRoot, {
-        withFileTypes: true,
-      }).filter((entry) => entry.isDirectory());
-    } catch {
-      skillDirectories = [];
-    }
-    for (const skillDirectory of skillDirectories) {
-      scripts.push(
-        ...findScriptsIn(join(skillsRoot, skillDirectory.name), gateFileNames),
-      );
-    }
+function discoverScripts(root, rulesDirectoryName, gateFileNames) {
+  const scripts = findScriptsIn(join(root, rulesDirectoryName), gateFileNames);
+  const skillsRoot = join(root, '.claude', 'skills');
+  let skillNames;
+  try {
+    skillNames = readdirSync(skillsRoot);
+  } catch {
+    skillNames = [];
   }
-
+  for (const name of skillNames) {
+    const skillDirectory = join(skillsRoot, name);
+    if (isDirectory(skillDirectory))
+      scripts.push(...findScriptsIn(skillDirectory, gateFileNames));
+  }
   return scripts;
 }
 
-// ── Security-surface protection ─────────────────────────────────────────────────────
-// A discovered script runs with full Node privileges (no sandbox is realistically
-// enforceable via execFileSync alone). The one privilege it must NEVER have is the
-// power to mutate the gate configuration that governs whether it (or any other gate)
-// runs at all — otherwise a discovered script can disable e.g.
-// `blockDestructiveShellCommands` in the same tool call it was meant to be gated by,
-// before any later gate could react. This is enforced deterministically: snapshot a
-// hash of both config files (project + global) before executing, and after every
-// script runs, compare. Any change is reverted immediately and the call is denied —
-// regardless of whether the script itself exited 0.
-const PROJECT_CONFIG_RELATIVE_PATH = join('.ai', 'config.json');
-
-function globalConfigPath() {
-  return join(homedir(), '.claude', 'claude-gates', 'config.json');
+function restrictedEnvironment() {
+  const environment = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    const upper = key.toUpperCase();
+    if (ALLOWED_ENVIRONMENT.has(upper) || upper.startsWith(ENVIRONMENT_PREFIX))
+      environment[key] = value;
+  }
+  return environment;
 }
 
-function securityConfigPaths(projectRoot) {
-  return [join(projectRoot, PROJECT_CONFIG_RELATIVE_PATH), globalConfigPath()];
-}
-
-/** Reads raw bytes (or null if absent) and their hash, per watched config path. */
 function snapshotConfigs(paths) {
   return paths.map((path) => {
     let content = null;
@@ -102,7 +136,6 @@ function snapshotConfigs(paths) {
   });
 }
 
-/** Restores every watched config file to its pre-execution content, best-effort. */
 function revertConfigs(snapshots) {
   for (const snapshot of snapshots) {
     try {
@@ -112,16 +145,112 @@ function revertConfigs(snapshots) {
         writeFileSync(snapshot.path, snapshot.content);
       }
     } catch {
-      // Best-effort revert: if this fails there is nothing more this gate can do
-      // beyond having already denied the call.
+      // Best-effort revert: the call is denied regardless.
     }
   }
 }
 
-/** Whether any watched config file's content changed since `before`. */
 function configsTampered(before) {
   const after = snapshotConfigs(before.map((snapshot) => snapshot.path));
   return before.some((snapshot, index) => snapshot.hash !== after[index].hash);
+}
+
+function runScript(script, root, rawPayload, timeoutMs) {
+  try {
+    const stdout = execFileSync(process.execPath, [script], {
+      cwd: root,
+      input: rawPayload,
+      env: restrictedEnvironment(),
+      encoding: 'utf8',
+      timeout: timeoutMs,
+      maxBuffer: MAX_OUTPUT_BYTES,
+    });
+    return { status: 0, stdout, stderr: '' };
+  } catch (error) {
+    return {
+      status: error?.status ?? null,
+      stdout: String(error?.stdout ?? ''),
+      stderr: String(error?.stderr ?? ''),
+      message:
+        error?.code === 'ETIMEDOUT'
+          ? 'timed out'
+          : String(error?.message ?? error),
+    };
+  }
+}
+
+function parseJsonOrNull(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+const NO_REASON = 'no reason given';
+
+function jsonDecisionOf(parsed) {
+  const specific = parsed?.hookSpecificOutput ?? {};
+  return {
+    decision:
+      specific.permissionDecision ??
+      parsed?.permissionDecision ??
+      parsed?.decision,
+    reason:
+      specific.permissionDecisionReason ??
+      parsed?.permissionDecisionReason ??
+      parsed?.reason ??
+      NO_REASON,
+  };
+}
+
+function denialReasonOf(result) {
+  const output = result.stdout.trim();
+  const { decision, reason } = jsonDecisionOf(parseJsonOrNull(output));
+  if (decision === 'deny' || decision === 'block') return reason;
+  if (result.status === DENY_EXIT_CODE)
+    return result.stderr.trim() || output || NO_REASON;
+  return null;
+}
+
+function failureOf(result, scriptLabel) {
+  if (result.status === 0 || result.status === DENY_EXIT_CODE) return null;
+  const detail = result.stderr.trim() || result.message || 'unknown error';
+  return `'${scriptLabel}' failed (exit ${result.status ?? 'none'}): ${detail}`;
+}
+
+function runDiscoveredScripts(scripts, root, rawPayload) {
+  const watched = [
+    join(root, PROJECT_CONFIG_RELATIVE_PATH),
+    GLOBAL_CONFIG_PATH,
+  ];
+  const started = Date.now();
+  const warnings = [];
+  for (const [index, script] of scripts.entries()) {
+    const remaining = TOTAL_BUDGET_MS - (Date.now() - started);
+    if (remaining <= 0) {
+      warnings.push(
+        `${scripts.length - index} script(s) skipped: the ${TOTAL_BUDGET_MS} ms budget for all sub-gates was exhausted`,
+      );
+      break;
+    }
+    const label = relative(root, script);
+    const before = snapshotConfigs(watched);
+    const result = runScript(script, root, rawPayload, remaining);
+    if (configsTampered(before)) {
+      revertConfigs(before);
+      deny(
+        CONFIG_KEY,
+        `Discovered rule/skill script ${label} attempted to modify gate security configuration (.ai/config.json or the global config). The change was reverted and the action is blocked.`,
+      );
+    }
+    const reason = denialReasonOf(result);
+    if (reason !== null)
+      deny(CONFIG_KEY, `Sub-gate '${label}' denied: ${reason}`);
+    const failure = failureOf(result, label);
+    if (failure) warnings.push(failure);
+  }
+  return warnings;
 }
 
 runGate(
@@ -134,54 +263,24 @@ runGate(
       gateFileNames: DEFAULT_GATE_FILE_NAMES,
     },
   },
-  ({ toolName, parameters }) => {
+  ({ toolName, parameters, cwd, rawPayload }) => {
     if (!toolInGroups(toolName, ['execution', 'delegation'])) return;
+    const root = projectRootOf(cwd) ?? cwd;
+    if (!projectEnablesGate(root)) return;
 
-    const projectRoot = process.cwd();
     const scripts = discoverScripts(
-      projectRoot,
+      root,
       parameters.rulesDir,
       parameters.gateFileNames,
     );
     if (scripts.length === 0) return;
 
-    const watchedConfigPaths = securityConfigPaths(projectRoot);
-
-    for (const script of scripts) {
-      const before = snapshotConfigs(watchedConfigPaths);
-
-      let failure = null;
-      try {
-        execFileSync(process.execPath, [script], {
-          stdio: ['ignore', 'ignore', 'pipe'],
-          timeout: 5000,
-        });
-      } catch (error) {
-        failure = error;
-      }
-
-      if (configsTampered(before)) {
-        revertConfigs(before);
-        deny(
-          CONFIG_KEY,
-          `Discovered rule/skill script ${relative(projectRoot, script)} attempted to modify gate security configuration (.ai/config.json or the global config). The change was reverted and the action is blocked.`,
-        );
-        return;
-      }
-
-      if (failure) {
-        const stderr = String(failure.stderr ?? '').trim();
-        const detail = stderr || failure.message || String(failure);
-        deny(
-          CONFIG_KEY,
-          `Sub-gate '${relative(projectRoot, script)}' failed (exit ` +
-            `${failure.status ?? 'unknown'}): ${detail}\n` +
-            'No filesystem exploration is needed — fix that script (open it at the path ' +
-            'above and address the error shown), or remove it from ' +
-            `${parameters.rulesDir}/ if it should not run as a gate.`,
-        );
-        return;
-      }
-    }
+    const warnings = runDiscoveredScripts(scripts, root, rawPayload);
+    if (warnings.length === 0) return;
+    warn(
+      CONFIG_KEY,
+      `Sub-gate(s) could not be evaluated, so they did not judge this call: ${warnings.join('; ')}. ` +
+        `Fix the script (open it at the path above and address the error shown) or remove it from ${parameters.rulesDir}/ or the skill directory if it should not run as a gate.`,
+    );
   },
 );

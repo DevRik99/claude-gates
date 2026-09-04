@@ -1,67 +1,53 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import {
+  bash,
+  isDeny,
+  makeProject,
+  messageOf,
+  runGateProcess,
+  write,
+} from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
-// Creates a fresh temp project (with .git so it is recognized as a root, and an optional
-// .ai/config.json) and returns its path plus a `run` function that executes the gate with
-// that project as cwd, building the write target relative to it. This keeps the file path
-// the gate inspects and the cwd it resolves against always in sync.
-function project({ config } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'root-whitelist-'));
-  mkdirSync(join(root, '.git'));
-  if (config) {
-    mkdirSync(join(root, '.ai'));
-    writeFileSync(join(root, '.ai', 'config.json'), JSON.stringify(config));
-  }
+// A scratch project plus a runner bound to it, so the path the gate inspects and the root it
+// resolves against always agree.
+function project({ config, cwd } = {}) {
+  const root = makeProject({ prefix: 'root-whitelist-', config });
   return {
     root,
-    run(payload) {
-      const out = execFileSync(process.execPath, [GATE], {
-        input: JSON.stringify(payload),
-        encoding: 'utf8',
-        cwd: root,
-        // Isolate from the user's real global config: point homedir() at the temp
-        // project so the global-config fallback finds nothing (registry default).
-        env: { ...process.env, HOME: root, USERPROFILE: root },
+    run(payload, options = {}) {
+      return runGateProcess(GATE, payload, {
+        project: root,
+        cwd: cwd ? join(root, cwd) : root,
+        ...options,
       });
-      return out.trim() ? JSON.parse(out.trim()) : null;
     },
   };
 }
 
-function write(root, relativePath) {
-  return {
-    tool_name: 'Write',
-    tool_input: { file_path: join(root, relativePath) },
-  };
-}
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
+function writeAt(root, relativePath) {
+  return write(join(root, relativePath));
 }
 
 test('denies an orphan root file and an undeclared root folder', () => {
   const { root, run } = project();
-  assert.ok(isDeny(run(write(root, 'random-orphan.txt'))));
-  assert.ok(isDeny(run(write(root, join('random-folder', 'a.js')))));
+  assert.ok(isDeny(run(writeAt(root, 'random-orphan.txt'))));
+  assert.ok(isDeny(run(writeAt(root, join('random-folder', 'a.js')))));
 });
 
 test('allows a whitelisted root file, a whitelisted folder and a dotfile', () => {
   const { root, run } = project();
-  assert.equal(run(write(root, 'package.json')), null);
-  assert.equal(run(write(root, join('src', 'index.js'))), null);
-  assert.equal(run(write(root, '.env')), null);
+  assert.equal(run(writeAt(root, 'package.json')), null);
+  assert.equal(run(writeAt(root, join('src', 'index.js'))), null);
+  assert.equal(run(writeAt(root, '.env')), null);
 });
 
 test('allows the common framework root folders that the old narrow list wrongly blocked', () => {
-  // Regression: the previous whitelist only had src/tests/docs/scripts/plugins, so a real
-  // project creating app/ (Next/Nuxt/Laravel/Expo), lib/, public/, components/, pages/, api/
-  // was blocked at the root. Those are legitimate structural folders and must pass.
   const { root, run } = project();
   for (const folder of [
     'app',
@@ -75,7 +61,7 @@ test('allows the common framework root folders that the old narrow list wrongly 
     'assets',
   ]) {
     assert.equal(
-      run(write(root, join(folder, 'thing.js'))),
+      run(writeAt(root, join(folder, 'thing.js'))),
       null,
       `root folder '${folder}' must be allowed`,
     );
@@ -85,7 +71,7 @@ test('allows the common framework root folders that the old narrow list wrongly 
 test('disabled by config: the gate does not run', () => {
   const config = { gates: { blockPathsOutsideRootWhitelist: false } };
   const { root, run } = project({ config });
-  assert.equal(run(write(root, 'random-orphan.txt')), null);
+  assert.equal(run(writeAt(root, 'random-orphan.txt')), null);
 });
 
 test('project rootFoldersWhitelist replaces the built-in list', () => {
@@ -98,7 +84,88 @@ test('project rootFoldersWhitelist replaces the built-in list', () => {
     },
   };
   const { root, run } = project({ config });
-  // 'src' no longer whitelisted under the override
-  assert.ok(isDeny(run(write(root, join('src', 'index.js')))));
-  assert.equal(run(write(root, join('app', 'index.js'))), null);
+  assert.ok(isDeny(run(writeAt(root, join('src', 'index.js')))));
+  assert.equal(run(writeAt(root, join('app', 'index.js'))), null);
+});
+
+// ── Regressions from the audit ──────────────────────────────────────────────────────
+
+test('editing a root file that already exists is allowed even when unwhitelisted', () => {
+  const { root, run } = project();
+  for (const name of [
+    'registry.json',
+    'CHANGELOG.md',
+    'yarn.lock',
+    'Makefile',
+  ]) {
+    writeFileSync(join(root, name), 'x');
+    assert.equal(run(writeAt(root, name)), null, `${name} exists: an edit`);
+  }
+  assert.ok(isDeny(run(writeAt(root, 'brand-new.json'))));
+});
+
+test('a nested path under a root folder that already exists is allowed', () => {
+  const { root, run } = project();
+  mkdirSync(join(root, 'random-folder'));
+  assert.equal(run(writeAt(root, join('random-folder', 'a.js'))), null);
+});
+
+test('the root is the project root, not the cwd: judged the same from a subfolder', () => {
+  const { root, run } = project({ cwd: 'sub' });
+  mkdirSync(join(root, 'sub'));
+  assert.ok(
+    isDeny(run(writeAt(root, 'orphan.txt'))),
+    'a root orphan written from <root>/sub is still an orphan',
+  );
+  assert.equal(
+    run(writeAt(root, join('sub', 'file.txt'))),
+    null,
+    'a file inside the subfolder is not at the root',
+  );
+});
+
+test(
+  'a lowercase drive letter or a git-bash /c/ path is the same root',
+  { skip: process.platform !== 'win32' },
+  () => {
+    const { root, run } = project();
+    const lowerDrive = root[0].toLowerCase() + root.slice(1);
+    assert.ok(isDeny(run(write(join(lowerDrive, 'orphan.txt')))));
+    const gitBash = `/${root[0].toLowerCase()}/${root.slice(3).replace(/\\/g, '/')}/orphan.txt`;
+    assert.ok(isDeny(run(write(gitBash))));
+  },
+);
+
+test('every shell form that creates a root entry is judged', () => {
+  const { run } = project();
+  for (const command of [
+    'echo hi>orphan.txt',
+    'echo x > "orphan file.txt"',
+    'mkdir newdir',
+    'git clone https://example.test/x/y.git newrepo',
+    'git clone https://example.test/x/newrepo.git',
+    'curl -o dump.json http://example.test',
+    'New-Item orphan.txt',
+    'New-Item -ItemType Directory newdir',
+    'Set-Content orphan.txt x',
+    'Out-File -FilePath orphan.txt',
+  ]) {
+    assert.ok(isDeny(run(bash(command))), `${command} must be denied`);
+  }
+});
+
+test('mkdir and git clone at the root are judged as folders', () => {
+  const { run } = project();
+  assert.equal(run(bash('mkdir src')), null, 'src is a whitelisted folder');
+  assert.equal(run(bash('git clone https://example.test/x/docs.git')), null);
+  const result = run(bash('mkdir newdir'));
+  assert.match(messageOf(result), /Folder 'newdir'/);
+  assert.match(messageOf(result), /rootFoldersWhitelist/);
+});
+
+test('a copy whose destination is outside the root, or into a whitelisted folder, is allowed', () => {
+  const { root, run } = project();
+  writeFileSync(join(root, 'registry.json'), '{}');
+  assert.equal(run(bash('cp registry.json /tmp/backup.json')), null);
+  assert.equal(run(bash('mv old.txt src/')), null);
 });

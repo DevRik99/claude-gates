@@ -1,112 +1,81 @@
-// test-matrix — denies an implementation delegation whose brief touches a domain that
-// makes a test type mandatory (money/auth/persistence → E2E; UI → visual/QA; always →
-// unit/mutation) without that type declared in the prompt. Migrated from
-// ~/.claude/hooks/guard-matriz-de-tests.mjs.
+// test-matrix — denies a STANDARD/HIGH-RISK implementation delegation whose brief touches a
+// domain that makes a test type mandatory (money/auth/persistence → E2E; UI → visual/QA;
+// always → unit/mutation) without that type declared in the prompt.
 //
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   e2eSignals       regex sources (matched case-insensitively) that make an E2E row
-//                     mandatory when found in the brief (money, auth, persistence...).
-//                     Replaces the built-in list wholesale.
-//   visualSignals    regex sources that make a visual/QA row mandatory (UI signals).
-//                     Replaces the built-in list wholesale.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
-//
-// ── Off by default, and quiet outside its narrow trigger ───────────────────────────
-// Only STANDARD/HIGH-RISK implementation delegations on builder subagents, not about
-// the harness itself, reach the check. A brief that only describes work never triggers.
+// Decisions: the E2E signals are the terms that name a money/auth/data-loss domain; generic
+// words (role, balance, amount, session, token) were dropped because they fire on ordinary
+// briefs. An empty `e2eSignals`/`visualSignals` means that row is never mandatory. A file
+// extension signal (`.tsx`) matches a real path, so it is compiled without a leading word
+// boundary. "QA:" counts as a visual row only when something follows it. Only the exempt
+// list exempts a subagent type; harness work (.claude/, .ai/...) is exempt.
 
+import {
+  DEFAULT_EXEMPT_SUBAGENTS,
+  DEMANDING_LEVELS,
+  isHarnessWork,
+  isImplementationRequest,
+  isSubagentNamedIn,
+  operativeLevelOf,
+} from '../../lib/delegation.mjs';
 import {
   runGate,
   deny,
+  compileRegex,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
-import { RISK_SIGNAL_SOURCES } from '../../lib/signals.mjs';
+import { withUnicodeWordBoundary } from '../../lib/signals.mjs';
 
 const GATE_ID = 'test-matrix';
 const CONFIG_KEY = 'requireTestMatrixWhenImplementing';
 
-const DEFAULT_EXEMPT_SUBAGENTS = [
-  'scout',
-  'explore',
-  'plan',
-  'revision',
-  'contraste',
-  'test-planner',
-  'qa',
-  'ui',
-  'ux',
-];
-
-// Money/auth signals shared with RISK_SIGNAL (lib/signals.mjs, ES+EN), plus this gate's
-// own persistence-domain terms (also bilingual) — a project override still replaces the
-// whole list wholesale, same as before.
 const DEFAULT_E2E_SIGNALS = [
-  ...RISK_SIGNAL_SOURCES.slice(0, 2), // money terms, auth terms
-  'login|session|token|permission|role|sesi[oó]n|permiso|rol',
+  'money|payment|pago|dinero|cobro|charge|invoice|factura|precio|price|saldo|monto|cuota|checkout',
+  'auth|autenticaci[oó]n|authentication|login|password|contrase[nñ]a|credencial|credential',
   'persist|database|migration|transaction|persistencia|base de datos|migraci[oó]n|transacci[oó]n',
+  'data loss|p[eé]rdida de datos|delete|borrar|drop',
 ];
 
 const DEFAULT_VISUAL_SIGNALS = [
   'ui|interface|interfaz|component|componente|screen|pantalla|view|vista',
   'form|formulario|button|bot[oó]n|modal|layout|style|estilo',
-  'responsive|mobile|m[oó]vil|visual|\\.vue|\\.tsx?|\\.jsx?',
+  'responsive|mobile|m[oó]vil|visual',
+  '\\.(vue|tsx?|jsx?)(?!\\w)',
 ];
 
-function withWordBoundary(alternation) {
-  return new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])(?:${alternation})(?:[^\\p{L}\\p{N}_]|$)`,
-    'iu',
-  );
-}
-
-const IMPLEMENTATION_VERBS = withWordBoundary(
-  'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +
-    'arregl(a|á)|arreglar|cambi(a|á)|cambiar|migr(a|á)|migrar|' +
-    'corrige|corregir|correg(í|ir)|constru(ye|í)|construir|modific(a|á)|modificar|' +
-    'refactoriz(a|á)|refactorizar|elimin(a|á)|eliminar|reescrib(e|í)|reescribir|desplieg(a|á)|desplegar|' +
-    'escrib(í|e)|escribir|implement\\w*|writ(?:e|ing)|creat\\w*|fix\\w*|build\\w*|refactor\\w*|migrat\\w*|' +
-    'add\\w*|remov\\w*|delet\\w*|modify|modifies|modifying|rewrit\\w*',
-);
-
-/** Declared LEVEL near the word "level"/"classification" in Spanish or English, matching
- * the plugin-wide convention (see risk-level.mjs). */
-const DEMANDING_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(STANDARD|HIGH-RISK)\b/iu;
-const EXEMPT_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(QUESTION|MICRO)\b/iu;
-
-const HARNESS_PATTERN =
-  /(\.claude[\\/]|hooks[\\/]|plugins[\\/]gates|settings\.json|[\\/]agents[\\/]\w|[\\/]rules[\\/]\w|[\\/]skills[\\/]\w)/i;
-
 const DETECTS_E2E = /\b(e2e|end[- ]to[- ]end|playwright)\b/i;
-const DETECTS_VISUAL = /\b(visual|qa\b|screenshot|snapshot)\b/i;
+const DETECTS_VISUAL = /\b(visual|qa\s*:\s*\p{L}|screenshot|snapshot)/iu;
 const DETECTS_UNIT_OR_MUTATION =
   /\b(unit\b|units\b|unitari[ao]s?|vitest|jest|mutation|mutaci[oó]n|mutant|stryker)\b/i;
-const DETECTS_NEGATIVE_CASES = withWordBoundary(
+const DETECTS_NEGATIVE_CASES = withUnicodeWordBoundary(
   'negative|edge|empty|error|no data|zero|count 0|failure|invalid|limit|' +
     'negativ[ao]s?|borde|vac[ií]o|sin datos|cero|falla|inv[aá]lid[ao]|l[ií]mite',
 );
 
-function joinSignals(signals) {
-  return withWordBoundary(signals.join('|'));
+// A source that starts with an escaped dot is a file-extension shape and must match inside
+// a path; every other source is a word and gets the Unicode word boundary.
+function compileSignal(source) {
+  if (typeof source !== 'string' || !compileRegex(source, 'iu')) return null;
+  return source.startsWith('\\.')
+    ? compileRegex(source, 'iu')
+    : withUnicodeWordBoundary(source);
+}
+
+function anySignalMatches(sources, prompt) {
+  return sources
+    .map(compileSignal)
+    .filter(Boolean)
+    .some((pattern) => pattern.test(prompt));
 }
 
 function isExempt(toolInput, prompt, exemptSubagents) {
-  const subagentType = String(
-    toolInput.subagent_type ?? toolInput.subagentType ?? '',
-  ).toLowerCase();
-  if (exemptSubagents.includes(subagentType)) return true;
-  if (EXEMPT_LEVEL_PATTERN.test(prompt)) return true;
-  if (!DEMANDING_LEVEL_PATTERN.test(prompt)) return true;
-  if (!IMPLEMENTATION_VERBS.test(prompt)) return true;
-  if (HARNESS_PATTERN.test(prompt)) return true;
-  return false;
+  if (isSubagentNamedIn(toolInput, exemptSubagents)) return true;
+  if (!DEMANDING_LEVELS.has(operativeLevelOf(prompt))) return true;
+  if (!isImplementationRequest(prompt)) return true;
+  return isHarnessWork(prompt);
 }
 
-/** Which mandatory test types are missing from the prompt, given the brief text. */
-function missingTypes(prompt, e2ePattern, visualPattern) {
+function missingTypes(prompt, e2eSignals, visualSignals) {
   const missing = [];
 
   if (!DETECTS_UNIT_OR_MUTATION.test(prompt)) {
@@ -116,14 +85,14 @@ function missingTypes(prompt, e2ePattern, visualPattern) {
     });
   }
 
-  if (e2ePattern.test(prompt) && !DETECTS_E2E.test(prompt)) {
+  if (anySignalMatches(e2eSignals, prompt) && !DETECTS_E2E.test(prompt)) {
     missing.push({
       type: 'E2E',
       line: '- E2E: yes — <end-to-end flow verified>  (mandatory: the requirement touches money/auth/persistence)',
     });
   }
 
-  if (visualPattern.test(prompt) && !DETECTS_VISUAL.test(prompt)) {
+  if (anySignalMatches(visualSignals, prompt) && !DETECTS_VISUAL.test(prompt)) {
     missing.push({
       type: 'visual/QA',
       line: '- visual/QA: yes — <screen/state reviewed in the browser>  (mandatory: the requirement touches UI)',
@@ -160,17 +129,13 @@ runGate(
 
     const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
+    if (isExempt(toolInput, prompt, parameters.exemptSubagents)) return;
 
-    const exemptSubagents =
-      parameters.exemptSubagents ?? DEFAULT_EXEMPT_SUBAGENTS;
-    if (isExempt(toolInput, prompt, exemptSubagents)) return;
-
-    const e2eSignals = parameters.e2eSignals ?? DEFAULT_E2E_SIGNALS;
-    const visualSignals = parameters.visualSignals ?? DEFAULT_VISUAL_SIGNALS;
-    const e2ePattern = joinSignals(e2eSignals);
-    const visualPattern = joinSignals(visualSignals);
-
-    const missing = missingTypes(prompt, e2ePattern, visualPattern);
+    const missing = missingTypes(
+      prompt,
+      parameters.e2eSignals,
+      parameters.visualSignals,
+    );
     if (missing.length === 0) return;
 
     const lines = missing.map((entry) => `  ${entry.line}`).join('\n');

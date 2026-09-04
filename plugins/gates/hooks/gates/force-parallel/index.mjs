@@ -1,134 +1,93 @@
-// force-parallel — nudges toward parallelizing independent delegations. WARN-only: it
-// never denies, because a PreToolUse hook sees one tool call at a time and has no way to
-// know whether the delegations it observed COULD have been sent together — only that they
-// arrived one after another.
+// force-parallel — warns when delegations keep arriving one turn at a time instead of as a
+// batch. Advisory only: a PreToolUse hook sees one call at a time and cannot prove the
+// delegations were independent, so it nudges the NEXT delegation and never denies.
 //
-// justification: no existing tool covers this. brief-before-delegate/intent-flow/risk-level
-// gate the CONTENT of a single delegation prompt; none of them look across delegations in
-// the same session to notice a sequential pattern.
-//
-// ── Honest limitation (read before trusting this gate) ──────────────────────────────
-// A PreToolUse hook fires once per tool call, synchronously, with no visibility into what
-// the model is "thinking" or whether independent work existed to batch. This gate can only
-// count consecutive delegation calls that land close together in wall-clock time and warn
-// after a threshold — it cannot prove they were independent, and it cannot force the model
-// to have sent them in one message (Claude Code's own turn structure decides that, not a
-// hook). Treat the warning as a nudge for the NEXT delegation, never as proof of a missed
-// opportunity on the ones already sent.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   sequentialThreshold      consecutive delegations (within the window) before warning.
-//   sequentialWindowMs       how close in time two delegations must land to count as the
-//                            same sequential run; a gap resets the count.
-//   sequentialJustifiedMarker  a marker token in the delegation prompt that escapes the
-//                            warning — a declared reason not to parallelize is a decision.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
-//
-// ── State ─────────────────────────────────────────────────────────────────────────────
-// Per-session count + last-delegation timestamp, persisted at
-// os.tmpdir()/claude-gates/force-parallel/<sessionId>/state.json — process-local state
-// would not survive across the separate process each hook invocation spawns.
+// Decisions: delegations landing within BATCH_GAP_MS of each other are ONE batch (a parallel
+// launch in a single message) and do not raise the sequential count; only a gap between the
+// batch threshold and `sequentialWindowMs` counts as sequential, and a longer gap resets.
+// State lives in the shared session store (sanitized session segment, project-keyed bucket
+// when the payload has no session id, atomic writes, TTL pruning).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   runGate,
   warn,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import {
+  readSessionState,
+  writeSessionState,
+} from '../../lib/session-state.mjs';
 
 const GATE_ID = 'force-parallel';
 const CONFIG_KEY = 'warnSequentialDelegations';
 
-const DELEGATION_GROUPS = ['delegation'];
 const DEFAULT_SEQUENTIAL_THRESHOLD = 3;
 const DEFAULT_SEQUENTIAL_WINDOW_MS = 120000;
 const DEFAULT_JUSTIFIED_MARKER = 'SEQUENTIAL-JUSTIFIED';
 const MS_PER_SECOND = 1000;
+const BATCH_GAP_MS = 2000;
 
-const STATE_ROOT = join(tmpdir(), 'claude-gates', 'force-parallel');
-const STATE_FILE = 'state.json';
-const UNKNOWN_SESSION = 'unknown-session';
+const ORDINAL_SUFFIXES = { 1: 'st', 2: 'nd', 3: 'rd' };
+const TEENS_FROM = 11;
+const TEENS_TO = 13;
+const HUNDRED = 100;
+const TEN = 10;
 
-function statePathFor(sessionId) {
-  const safeSessionId = String(sessionId || UNKNOWN_SESSION).replace(
-    /[^\w-]/g,
-    '_',
-  );
-  return join(STATE_ROOT, safeSessionId, STATE_FILE);
+function ordinal(number) {
+  const lastTwo = number % HUNDRED;
+  if (lastTwo >= TEENS_FROM && lastTwo <= TEENS_TO) return `${number}th`;
+  return `${number}${ORDINAL_SUFFIXES[number % TEN] ?? 'th'}`;
 }
 
-function readState(path) {
-  if (!existsSync(path)) return { count: 0, lastAt: 0 };
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    return {
-      count: Number(parsed.count) || 0,
-      lastAt: Number(parsed.lastAt) || 0,
-    };
-  } catch {
-    return { count: 0, lastAt: 0 };
-  }
+function nextCount(previous, now, windowMs) {
+  const gap = now - previous.lastAt;
+  if (gap > windowMs) return 1;
+  if (gap < BATCH_GAP_MS) return Math.max(previous.count, 1);
+  return previous.count + 1;
 }
-
-function writeState(path, state) {
-  mkdirSync(join(path, '..'), { recursive: true });
-  writeFileSync(path, JSON.stringify(state), 'utf8');
-}
-
-const WARN_MESSAGE =
-  'This is the {count}th delegation sent one-by-one within {windowSeconds}s. If the ' +
-  'remaining work is independent, launch the next batch together in a single message ' +
-  '(multiple tool calls) instead of one delegation per turn. If this delegation ' +
-  'genuinely depends on a prior result, ignore this and mark the prompt with ' +
-  '"{marker}" to skip the warning next time.';
 
 runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
     enabledByDefault: false,
+    severity: 'warn',
     defaultParams: {
       sequentialThreshold: DEFAULT_SEQUENTIAL_THRESHOLD,
       sequentialWindowMs: DEFAULT_SEQUENTIAL_WINDOW_MS,
       sequentialJustifiedMarker: DEFAULT_JUSTIFIED_MARKER,
     },
   },
-  ({ toolName, toolInput, sessionId, parameters }) => {
-    if (!toolInGroups(toolName, DELEGATION_GROUPS)) return;
+  ({ toolName, toolInput, sessionId, parameters, cwd }) => {
+    if (!toolInGroups(toolName, ['delegation'])) return;
 
-    const marker =
-      parameters.sequentialJustifiedMarker ?? DEFAULT_JUSTIFIED_MARKER;
+    const marker = String(parameters.sequentialJustifiedMarker ?? '');
     const prompt = delegationPromptOf(toolInput);
-    if (prompt.includes(marker)) return; // declared reason not to parallelize: no warning
+    if (marker && prompt.includes(marker)) return;
 
-    const threshold =
-      parameters.sequentialThreshold ?? DEFAULT_SEQUENTIAL_THRESHOLD;
-    const windowMs =
-      parameters.sequentialWindowMs ?? DEFAULT_SEQUENTIAL_WINDOW_MS;
-
-    const statePath = statePathFor(sessionId);
-    const state = readState(statePath);
+    const stateOptions = { cwd };
+    const stored = readSessionState(GATE_ID, sessionId, {}, stateOptions);
+    const previous = {
+      count: Number(stored.count) || 0,
+      lastAt: Number(stored.lastAt) || 0,
+    };
     const now = Date.now();
+    const count = nextCount(previous, now, parameters.sequentialWindowMs);
+    writeSessionState(GATE_ID, sessionId, { count, lastAt: now }, stateOptions);
 
-    const withinWindow = now - state.lastAt <= windowMs;
-    const nextCount = withinWindow ? state.count + 1 : 1;
+    if (count < parameters.sequentialThreshold) return;
 
-    writeState(statePath, { count: nextCount, lastAt: now });
-
-    if (nextCount < threshold) return;
-
+    const windowSeconds = Math.round(
+      parameters.sequentialWindowMs / MS_PER_SECOND,
+    );
     warn(
       CONFIG_KEY,
-      WARN_MESSAGE.replace('{count}', String(nextCount))
-        .replace(
-          '{windowSeconds}',
-          String(Math.round(windowMs / MS_PER_SECOND)),
-        )
-        .replace('{marker}', marker),
+      `This is the ${ordinal(count)} delegation sent one-by-one within ${windowSeconds}s. If the ` +
+        'remaining work is independent, launch the next batch together in a single message ' +
+        '(multiple tool calls) instead of one delegation per turn. If this delegation ' +
+        'genuinely depends on a prior result, ignore this and mark the prompt with ' +
+        `"${marker || DEFAULT_JUSTIFIED_MARKER}" to skip the warning next time.`,
     );
   },
 );

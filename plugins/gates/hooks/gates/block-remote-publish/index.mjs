@@ -1,113 +1,123 @@
 // block-remote-publish — denies publishing to a remote (`git push`, `gh pr merge`,
-// `gh release create`) without fresh human authorization. Split out of bash-commands so it
-// carries its OWN enabled flag: a project can turn remote-publish blocking off in config
-// (blockRemotePublish: false) WITHOUT losing the destructive-command protections (rm -rf,
-// git reset --hard) that live in bash-commands. Nothing is hardcoded any more — this gate
-// obeys its flag like every other, and appears in the CLI's gate selector on its own.
-//
-// Default: enabled. The safe posture is that the human states the authorization in chat,
-// naming commits, branch, remote and target — a project that wants the agent to push on its
-// own opts in explicitly by disabling this gate.
-//
-// ── Two-stage intent check, only for delegation prompts ─────────────────────────────
-// A real command's `command` field IS what the shell runs — a single-stage regex is right.
-// A delegation prompt is natural language that may DESCRIBE a command ("I extended the guard
-// to deny git push") without asking anyone to run it. There, publish rules run a second
-// stage: strip quoted/example text, then require that at least one surviving mention is not
-// governed by a reporting verb before denying.
+// `gh release create`) without fresh human authorization. Split out of bash-commands so a
+// project can let the agent push (blockRemotePublish: false) without losing the destructive
+// command protections. Deliberate limits: only a command segment that RUNS git/gh is judged
+// (a mention inside grep, echo or a --grep value is not a publish), a `--dry-run` push writes
+// nothing, and a delegation prompt is denied only when it orders the publish rather than
+// describing or forbidding it.
 
+import { hasRealCommandIntent } from '../../lib/delegation.mjs';
+import { normalizeGitCommand } from '../../lib/git.mjs';
 import {
-  runGate,
-  deny,
-  toolInGroups,
+  compileRegex,
   delegationPromptOf,
+  deny,
+  normalizeRulePairs,
+  runGate,
+  shellCommandOf,
+  toolInGroups,
 } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'block-remote-publish';
 const CONFIG_KEY = 'blockRemotePublish';
 
-// Remote-publish rules as `[regexSource, reason]`. Sources (not RegExp) so a project could
-// override them through config if it ever needed to.
-function defaultPublishRules() {
-  return [
-    [
-      String.raw`\bgit\s+(?:-C\s+\S+\s+)?push\b`,
-      "Publishing to a remote ('git push') needs fresh authorization from the user naming " +
-        'commits, local branch, remote and target. This gate cannot verify that from the ' +
-        'command itself — ask the user and let them run it. To let the agent push on its ' +
-        'own, set "blockRemotePublish": false in .ai/config.json.',
-    ],
-    [
-      String.raw`\bgh\s+(?:pr\s+merge|release\s+create)\b`,
-      'Publishing via GitHub CLI (merging a PR or creating a release) needs fresh ' +
-        'authorization from the user naming commits, local branch, remote and target. ' +
-        'Ask the user and let them run it. To let the agent publish on its own, set ' +
-        '"blockRemotePublish": false in .ai/config.json.',
-    ],
-  ];
-}
+const AUTHORIZATION_REMEDY =
+  'needs fresh authorization from the user naming commits, local branch, remote and ' +
+  'target. This gate cannot verify that from the command itself — ask the user and let ' +
+  'them run it. To let the agent publish on its own, set "blockRemotePublish": false in ' +
+  '.ai/config.json.';
 
-// How far back from a mention to look for a governing verb, and the reporting-verb lexicon
-// that marks a mention as description rather than an order. Only the text before a mention
-// is inspected: what governs it is what precedes it (appending words after a real command
-// would otherwise be a trivial bypass).
-const DESCRIPTION_LOOK_BACK = 80;
-const REPORTING_VERB_PATTERN =
-  /(describe|explain|summar|mention|added|built|extended|denies?|deny|prohibit|protection|report|documentation|changelog)/i;
+const DEFAULT_PUBLISH_RULES = [
+  [
+    String.raw`\bgit\s+push\b`,
+    `Publishing to a remote ('git push') ${AUTHORIZATION_REMEDY}`,
+  ],
+  [
+    String.raw`\bgh\s+(?:pr\s+merge|release\s+create)\b`,
+    `Publishing via GitHub CLI (merging a PR or creating a release) ${AUTHORIZATION_REMEDY}`,
+  ],
+];
+const DEFAULT_REASON = `Publishing to a remote ${AUTHORIZATION_REMEDY}`;
 
-function compile(source) {
-  return new RegExp(source, 'i');
-}
+// `gh -R owner/repo pr merge` and `gh pr --repo x merge` name the repo between the words a
+// rule looks for; stripping the option first keeps the rules readable.
+const GH_REPO_OPTION_PATTERN =
+  /(\bgh\s+(?:pr\s+|release\s+)?)(?:-R|--repo)(?:=|\s+)\S+\s+/i;
 
-// git's GLOBAL options sit between `git` and the subcommand: `git -C <path> push`, etc. A
-// pattern that matches `git push` contiguously is evaded by any of them. Stripping these
-// first — turning `git -C /repo push` back into `git push` — closes that bypass at once.
-const GIT_OPTION_WITH_VALUE = String.raw`(?:-[Cc]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)(?:\s+|=)\S+`;
-const GIT_FLAG_OPTION = String.raw`--(?:paginate|no-pager|bare|no-optional-locks)|-p`;
-const GIT_GLOBAL_OPTION_PATTERN = new RegExp(
-  String.raw`\bgit\s+(?:${GIT_OPTION_WITH_VALUE}|${GIT_FLAG_OPTION})\s+`,
-  'i',
-);
-
-function normalizeGitOptions(command) {
+function normalizeGhCommand(text) {
+  let normalized = text;
   let previous;
-  let normalized = command;
   do {
     previous = normalized;
-    normalized = normalized.replace(GIT_GLOBAL_OPTION_PATTERN, 'git ');
+    normalized = normalized.replace(GH_REPO_OPTION_PATTERN, '$1');
   } while (normalized !== previous);
   return normalized;
 }
 
-function stripQuoted(text) {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/"[^"\n]{0,300}"/g, ' ')
-    .replace(/'[^'\n]{0,300}'/g, ' ');
+function normalizeCommand(text) {
+  return normalizeGhCommand(normalizeGitCommand(text));
 }
 
-/** True when a surviving, non-quoted mention is not governed by a reporting verb. */
-function hasRealPublishIntent(text, pattern) {
-  if (!pattern.test(text)) return false;
-  const cleaned = stripQuoted(text);
-  const global = new RegExp(
-    pattern.source,
-    `${pattern.flags.replace('g', '')}g`,
-  );
-  const matches = [...cleaned.matchAll(global)];
-  if (matches.length === 0) return false;
-  return matches.some((match) => {
-    const from = Math.max(0, match.index - DESCRIPTION_LOOK_BACK);
-    return !REPORTING_VERB_PATTERN.test(cleaned.slice(from, match.index));
-  });
+// ── Command segments that run git/gh ────────────────────────────────────────────────
+const SEGMENT_SEPARATOR = /;|&&|\|\||\||\n|\$\(|`/;
+const WRAPPER_WORD_PATTERN =
+  /^(?:\w+=\S*|command|sudo|exec|env|time|nohup|builtin)$/i;
+
+function stripLeadingWrappers(segment) {
+  const tokens = segment.replace(/^[\s(]+/, '').split(/\s+/);
+  while (tokens.length > 0 && WRAPPER_WORD_PATTERN.test(tokens[0]))
+    tokens.shift();
+  return tokens.join(' ');
 }
 
-/** The text to inspect: a real command's command line, or the delegation prompt. */
-function commandTextFrom(toolName, toolInput) {
-  if (toolInGroups(toolName, ['shell'])) {
-    return String(toolInput.CommandLine ?? toolInput.command ?? '');
+const SHELL_WRAPPER_PATTERN =
+  /^(?:sh|bash|zsh|dash|ksh)\s+(-\w+)\s+(?:"([^"]*)"|'([^']*)')/i;
+const QUOTED_PATTERN = /"[^"]*"|'[^']*'/g;
+const PUBLISHING_BINARY_PATTERN = /^(?:git|gh)(?=\s|$)/i;
+
+function segmentsRunningGit(command) {
+  const segments = [];
+  for (const rawSegment of String(command).split(SEGMENT_SEPARATOR)) {
+    const segment = stripLeadingWrappers(rawSegment);
+    const wrapped = SHELL_WRAPPER_PATTERN.exec(segment);
+    if (wrapped && wrapped[1].includes('c')) {
+      segments.push(...segmentsRunningGit(wrapped[2] ?? wrapped[3]));
+    } else if (PUBLISHING_BINARY_PATTERN.test(segment)) {
+      segments.push(segment.replace(QUOTED_PATTERN, ' '));
+    }
   }
-  return delegationPromptOf(toolInput);
+  return segments;
+}
+
+const DRY_RUN_PUSH_PATTERN = /\bgit\s+push\b.*(?:\s--dry-run\b|\s-n\b)/i;
+
+function publishRules(parameters) {
+  return normalizeRulePairs(parameters.publishRules, DEFAULT_REASON)
+    .map(({ source, reason }) => ({ pattern: compileRegex(source), reason }))
+    .filter((rule) => rule.pattern !== null);
+}
+
+function checkShellCommand(command, parameters) {
+  const rules = publishRules(parameters);
+  for (const segment of segmentsRunningGit(normalizeCommand(command))) {
+    if (DRY_RUN_PUSH_PATTERN.test(segment)) continue;
+    for (const { pattern, reason } of rules) {
+      if (pattern.test(segment))
+        deny(CONFIG_KEY, `${reason} (command: "${segment.trim()}")`);
+    }
+  }
+}
+
+function checkDelegationPrompt(prompt, parameters) {
+  const normalized = normalizeCommand(prompt);
+  for (const { pattern, reason } of publishRules(parameters)) {
+    if (hasRealCommandIntent(normalized, pattern)) {
+      deny(
+        CONFIG_KEY,
+        `${reason} The delegation prompt orders the publish; a subagent must not run it either.`,
+      );
+    }
+  }
 }
 
 runGate(
@@ -116,25 +126,14 @@ runGate(
     configKey: CONFIG_KEY,
     enabledByDefault: true,
     defaultParams: {
-      publishRules: defaultPublishRules(),
+      publishRules: DEFAULT_PUBLISH_RULES,
     },
   },
   ({ toolName, toolInput, parameters }) => {
-    const isShell = toolInGroups(toolName, ['shell']);
-    const isDelegation = toolInGroups(toolName, ['delegation']);
-    if (!isShell && !isDelegation) return;
-
-    const command = commandTextFrom(toolName, toolInput);
-    // For a real shell command, normalize git's global options first. For a delegation
-    // prompt (free text), the intent check runs on the raw text.
-    const shellCommand = normalizeGitOptions(command);
-    for (const [source, reason] of parameters.publishRules) {
-      const pattern = compile(source);
-      if (isShell) {
-        if (pattern.test(shellCommand)) deny(CONFIG_KEY, reason);
-      } else if (hasRealPublishIntent(command, pattern)) {
-        deny(CONFIG_KEY, reason);
-      }
+    if (toolInGroups(toolName, ['shell'])) {
+      checkShellCommand(shellCommandOf(toolInput), parameters);
+    } else if (toolInGroups(toolName, ['delegation'])) {
+      checkDelegationPrompt(delegationPromptOf(toolInput), parameters);
     }
   },
 );

@@ -1,47 +1,32 @@
-// Edge-case audit for root-whitelist: bypasses and false positives.
+// Edge cases for root-whitelist: bypasses and false positives.
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import {
+  bash,
+  isDeny,
+  makeProject,
+  runGateProcess,
+  write,
+} from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
 function project({ config } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'root-whitelist-edge-'));
-  mkdirSync(join(root, '.git'));
-  if (config) {
-    mkdirSync(join(root, '.ai'));
-    writeFileSync(join(root, '.ai', 'config.json'), JSON.stringify(config));
-  }
+  const root = makeProject({ prefix: 'root-whitelist-edge-', config });
   return {
     root,
     run(payload) {
-      const out = execFileSync(process.execPath, [GATE], {
-        input: JSON.stringify(payload),
-        encoding: 'utf8',
-        cwd: root,
-        env: { ...process.env, HOME: root, USERPROFILE: root },
-      });
-      return out.trim() ? JSON.parse(out.trim()) : null;
+      return runGateProcess(GATE, payload, { project: root });
     },
   };
 }
 
-function write(filePath) {
-  return { tool_name: 'Write', tool_input: { file_path: filePath } };
-}
 function mcpTool(name, input) {
   return { tool_name: name, tool_input: input };
 }
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
-}
 
-// ── FIXED: toolInGroups classifies an MCP tool by its action segment, so an MCP write
-// tool creating an orphan root file is now recognized.
 test('FIXED: mcp filesystem write_file creating an orphan root file is now recognized', () => {
   const { root, run } = project();
   const result = run(
@@ -53,78 +38,54 @@ test('FIXED: mcp filesystem write_file creating an orphan root file is now recog
   assert.ok(isDeny(result));
 });
 
-// ── FIXED: a relative (non-absolute) file_path is now resolved against process.cwd()
-// (the test runs the gate with cwd = root) before the root-prefix check, so it is judged
-// by where it actually lands instead of skipping the check entirely.
 test('FIXED: a relative file_path targeting the root is now caught by resolving it against cwd', () => {
   const { run } = project();
-  const result = run(write('orphan-relative.txt'));
-  assert.ok(isDeny(result));
+  assert.ok(isDeny(run(write('orphan-relative.txt'))));
 });
 
-// ── BUG candidate: path traversal via ../ that resolves back into the root from a
-// nested absolute path, e.g. '<root>/src/../orphan.txt'. normalize() collapses '..'
-// segments, so this SHOULD reduce to '<root>/orphan.txt' and be caught. Confirm.
 test('OK: a traversal path that normalizes back to the root is still caught', () => {
   const { root, run } = project();
   const result = run(write(join(root, 'src', '..', 'orphan-traversal.txt')));
   assert.ok(isDeny(result));
 });
 
-// ── BUG candidate: a whitelisted root FOLDER name used as a FILE at the root, e.g.
-// creating a file literally named 'src' (no extension) at the root. relativePath has no
-// sep, so it goes through the FILE branch and checks filesWhitelist, not
-// foldersWhitelist — 'src' is not in rootFilesWhitelist, so this is correctly denied,
-// not a bug. Confirm.
 test('OK: a root-level file named identically to a whitelisted folder is still denied under the file whitelist', () => {
   const { root, run } = project();
-  const result = run(write(join(root, 'src')));
-  assert.ok(isDeny(result));
+  assert.ok(isDeny(run(write(join(root, 'src')))));
 });
 
-// ── FIXED: case-sensitivity. rootFilesWhitelist/rootFoldersWhitelist membership is now
-// compared lowercase on both sides, so 'Package.json' is recognized as the same entry as
-// the whitelisted 'package.json' — no more false positive on case-insensitive filesystems.
 test('FIXED: a root file matching the whitelist except for letter case is now allowed', () => {
   const { root, run } = project();
-  const result = run(write(join(root, 'Package.json')));
-  assert.equal(result, null);
+  assert.equal(run(write(join(root, 'Package.json'))), null);
 });
 
-// ── BUG candidate: an MCP "write" tool with a `path` field only (not `file_path`,
-// `TargetFile`, or `target_file`) — writeTargetFrom does not recognize `path` alone
-// unless the tool is also in WRITE_TOOLS. Since MCP tools already fail the toolName
-// check, this compounds the same root bug; not a separate one worth a distinct test.
-
-// ── FIXED (the VPS bug): a shell REDIRECTION creating a root file evaded the gate, because
-// root-whitelist only watched write tools, not Bash. It now also inspects the paths a shell
-// command creates (redirection / touch / tee / cp / mv), matching protected-paths' behavior.
-function bash(command) {
-  return { tool_name: 'Bash', tool_input: { command } };
-}
-
 test('FIXED: a shell redirection creating an orphan root file is now denied', () => {
-  const p = project();
+  const { run } = project();
   assert.ok(
-    isDeny(p.run(bash('printf "x" > basura.txt'))),
+    isDeny(run(bash('printf "x" > basura.txt'))),
     'printf > basura.txt must be denied',
   );
 });
 
 test('FIXED: touch of an orphan root file via Bash is now denied', () => {
-  const p = project();
+  const { run } = project();
   assert.ok(
-    isDeny(p.run(bash('touch orphan.js'))),
+    isDeny(run(bash('touch orphan.js'))),
     'touch orphan.js must be denied',
   );
 });
 
 test('OK: a shell redirection into a whitelisted folder is allowed', () => {
-  const p = project();
-  assert.equal(p.run(bash('echo x > src/ok.js')), null, 'src/ is whitelisted');
+  const { run } = project();
+  assert.equal(run(bash('echo x > src/ok.js')), null, 'src/ is whitelisted');
 });
 
 test('OK: a shell command that creates nothing (git status) is allowed', () => {
-  const p = project();
-  assert.equal(p.run(bash('git status')), null);
+  const { run } = project();
+  assert.equal(run(bash('git status')), null);
+});
+
+test('a variable-built target is not resolved and passes', () => {
+  const { run } = project();
+  assert.equal(run(bash('echo x > "$OUT"')), null);
 });

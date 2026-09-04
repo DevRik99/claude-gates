@@ -1,28 +1,22 @@
-// feature-catalog — enforces the machine-readable feature catalog's own invariants on
-// a write to that file: at most one feature `in_progress` at a time, and `done` is
-// never written directly (only a review/QA process closes a feature). Migrated from
-// ~/.claude/hooks/guard-feature-catalog.mjs.
+// feature-catalog — enforces the feature catalog's own invariants on a change to that
+// file: at most `maxInProgress` features in_progress, and no feature moved to `done` by a
+// direct write (only a review/QA process closes a feature).
 //
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   catalogFileName   basename of the catalog file this gate watches for (default
-//                      feature_list.json). A write to any other file is ignored.
-//   maxInProgress     how many features may be `in_progress` simultaneously.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
-//
-// ── Auto-off when the project never adopted the catalog ────────────────────────────
-// This gate only inspects the CONTENT being written to a file named `catalogFileName`.
-// A project that never uses that file never triggers it — there is nothing to disable
-// separately, the check is inert by construction rather than by a discovery pass.
-//
-// ── What is NOT configurable (base, non-negotiable) ─────────────────────────────────
-// Writing `status: done` directly is always denied, regardless of `maxInProgress`: only
-// a review/QA subagent or a validated automated process may close a feature, and this
-// gate has no way to tell who is writing, so it blocks the write itself.
+// Decisions: the gate judges the CHANGE, not the content — the existing catalog is read
+// from disk and a feature that was already `done` stays writable; only a NEW transition to
+// done is denied. An Edit is applied to the disk content when its old_string is found, so
+// the in_progress count covers the whole file, not the fragment. A shell redirect/copy
+// onto the catalog is denied outright: its resulting content cannot be judged. An empty
+// `catalogFileName` turns the gate off.
 
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { projectRootOf, stripBom } from '../../lib/config.mjs';
 import {
   runGate,
   deny,
+  shellCommandOf,
+  shellWrittenPaths,
   toolInGroups,
   writtenContentOf,
   writtenPathOf,
@@ -34,8 +28,131 @@ const CONFIG_KEY = 'requireFeatureCatalog';
 const DEFAULT_CATALOG_FILE_NAME = 'feature_list.json';
 const DEFAULT_MAX_IN_PROGRESS = 1;
 
-const DONE_STATUS_PATTERN = /"status"\s*:\s*"done"|status\s*:\s*['"]done['"]/i;
-const IN_PROGRESS_STATUS_PATTERN = /"status"\s*:\s*"in_progress"/g;
+const DONE_STATUS = 'done';
+const IN_PROGRESS_STATUS = 'in_progress';
+const STATUS_PATTERN = /["']?status["']?\s*:\s*["']?(done|in_progress)["']?/gi;
+
+function parseJsonOrNull(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function featuresOf(parsed) {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && Array.isArray(parsed.features)) return parsed.features;
+  return null;
+}
+
+function countStatuses(text) {
+  const counts = { done: 0, inProgress: 0 };
+  for (const match of String(text).matchAll(STATUS_PATTERN)) {
+    if (match[1].toLowerCase() === DONE_STATUS) counts.done += 1;
+    else counts.inProgress += 1;
+  }
+  return counts;
+}
+
+function snapshotOf(text) {
+  const features = featuresOf(parseJsonOrNull(text));
+  if (!features) {
+    const counts = countStatuses(text);
+    return {
+      parsed: false,
+      done: null,
+      doneCount: counts.done,
+      inProgress: counts.inProgress,
+    };
+  }
+  const done = new Set();
+  let inProgress = 0;
+  features.forEach((feature, index) => {
+    const status = String(feature?.status ?? '').toLowerCase();
+    if (status === DONE_STATUS)
+      done.add(String(feature?.name ?? feature?.id ?? `#${index}`));
+    if (status === IN_PROGRESS_STATUS) inProgress += 1;
+  });
+  return { parsed: true, done, doneCount: done.size, inProgress };
+}
+
+function newlyDone(before, after) {
+  if (before.parsed && after.parsed)
+    return [...after.done].filter((name) => !before.done.has(name));
+  return after.doneCount > before.doneCount ? ['(unnamed feature)'] : [];
+}
+
+function diskContentOf(path) {
+  try {
+    return stripBom(readFileSync(path, 'utf8'));
+  } catch {
+    return '';
+  }
+}
+
+function applyEdits(diskContent, toolInput) {
+  const edits = Array.isArray(toolInput.edits) ? toolInput.edits : [toolInput];
+  let content = diskContent;
+  for (const edit of edits) {
+    const oldString = String(edit?.old_string ?? '');
+    const newString = String(edit?.new_string ?? '');
+    if (!oldString || !content.includes(oldString)) return null;
+    content = edit?.replace_all
+      ? content.replaceAll(oldString, newString)
+      : content.replace(oldString, newString);
+  }
+  return content;
+}
+
+function isEdit(toolInput) {
+  return (
+    Array.isArray(toolInput.edits) ||
+    typeof toolInput.old_string === 'string' ||
+    typeof toolInput.new_string === 'string'
+  );
+}
+
+function beforeAndAfter(toolInput, catalogPath) {
+  const diskContent = diskContentOf(catalogPath);
+  if (!isEdit(toolInput))
+    return { before: diskContent, after: writtenContentOf(toolInput) };
+  const applied = applyEdits(diskContent, toolInput);
+  if (applied !== null) return { before: diskContent, after: applied };
+  // The fragment cannot be placed in the file: judge it on its own, against nothing.
+  return { before: '', after: writtenContentOf(toolInput) };
+}
+
+function judgeChange(before, after, catalogFileName, maxInProgress) {
+  const beforeSnapshot = snapshotOf(before);
+  const afterSnapshot = snapshotOf(after);
+
+  const closed = newlyDone(beforeSnapshot, afterSnapshot);
+  if (closed.length > 0) {
+    deny(
+      CONFIG_KEY,
+      `This write moves ${closed.join(', ')} to 'status: done' in ${catalogFileName}. A feature is ` +
+        'never closed by a direct write: only a review/QA subagent or a validated automated process ' +
+        'may set done. Leave the previous status and let the review step close it.',
+    );
+  }
+
+  if (afterSnapshot.inProgress > maxInProgress) {
+    deny(
+      CONFIG_KEY,
+      `${catalogFileName} would have ${afterSnapshot.inProgress} features 'in_progress'; ` +
+        `the maximum allowed is ${maxInProgress} (maxInProgress). Finish or park one before starting another.`,
+    );
+  }
+}
+
+function denyShellWrite(catalogFileName, path) {
+  deny(
+    CONFIG_KEY,
+    `This shell command writes to the feature catalog (${path}) through a redirect/copy/move. ` +
+      `Edit ${catalogFileName} with the Write/Edit tool instead, so the status transitions can be checked.`,
+  );
+}
 
 runGate(
   {
@@ -47,37 +164,26 @@ runGate(
       maxInProgress: DEFAULT_MAX_IN_PROGRESS,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
+    const catalogFileName = String(parameters.catalogFileName ?? '').trim();
+    if (!catalogFileName) return;
+    const targetsCatalog = (path) => String(path).includes(catalogFileName);
+
+    if (toolInGroups(toolName, ['shell'])) {
+      const written = shellWrittenPaths(shellCommandOf(toolInput)).find(
+        targetsCatalog,
+      );
+      if (written) denyShellWrite(catalogFileName, written);
+      return;
+    }
+
     if (!toolInGroups(toolName, ['write'])) return;
-
     const target = writtenPathOf(toolInput);
-    const catalogFileName = String(
-      parameters.catalogFileName ?? DEFAULT_CATALOG_FILE_NAME,
-    );
-    if (!target.includes(catalogFileName)) return;
+    if (!targetsCatalog(target)) return;
 
-    const content = writtenContentOf(toolInput);
-
-    // Base, non-negotiable: `done` is never written directly to the catalog.
-    if (DONE_STATUS_PATTERN.test(content)) {
-      deny(
-        CONFIG_KEY,
-        `Writing 'status: done' directly to ${catalogFileName} is not allowed. ` +
-          'Only a review/QA subagent or a validated automated process may close a feature.',
-      );
-    }
-
-    const maxInProgress = Number(
-      parameters.maxInProgress ?? DEFAULT_MAX_IN_PROGRESS,
-    );
-    const inProgressCount = (content.match(IN_PROGRESS_STATUS_PATTERN) ?? [])
-      .length;
-    if (inProgressCount > maxInProgress) {
-      deny(
-        CONFIG_KEY,
-        `${catalogFileName} would have ${inProgressCount} features 'in_progress'; ` +
-          `the maximum allowed is ${maxInProgress}.`,
-      );
-    }
+    const root = projectRootOf(cwd) ?? cwd;
+    const catalogPath = isAbsolute(target) ? target : join(root, target);
+    const { before, after } = beforeAndAfter(toolInput, catalogPath);
+    judgeChange(before, after, catalogFileName, parameters.maxInProgress);
   },
 );

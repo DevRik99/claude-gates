@@ -1,93 +1,128 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import {
+  bash,
+  isDeny,
+  makeProject,
+  messageOf,
+  runGateProcess,
+} from '../../lib/testing.mjs';
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
-function bashPayload(command) {
-  return { tool_name: 'Bash', tool_input: { command } };
-}
-
-function isDeny(result) {
-  return result?.hookSpecificOutput?.permissionDecision === 'deny';
-}
-
-/** Runs the gate in a temp project. HOME isolated so the real global config is not read. */
-function runGate(project, payload, { enabled = true } = {}) {
-  mkdirSync(join(project, '.git'), { recursive: true });
-  mkdirSync(join(project, '.ai'), { recursive: true });
+function runGate(project, payload, { enabled = true, cwd, extra = {} } = {}) {
   writeFileSync(
     join(project, '.ai', 'config.json'),
-    JSON.stringify({ gates: { blockCommitWithFailingLint: { enabled } } }),
+    JSON.stringify({
+      gates: { blockCommitWithFailingLint: { enabled, ...extra } },
+    }),
   );
-  const out = execFileSync(process.execPath, [GATE], {
-    input: JSON.stringify(payload),
-    encoding: 'utf8',
-    cwd: project,
-    env: { ...process.env, HOME: project, USERPROFILE: project },
-  });
-  return out.trim() ? JSON.parse(out.trim()) : null;
+  return runGateProcess(GATE, payload, { project, cwd });
 }
 
 function projectWithLintScript(exitCode) {
-  const project = mkdtempSync(join(tmpdir(), 'lint-commit-'));
-  writeFileSync(
-    join(project, 'package.json'),
-    JSON.stringify({
-      name: 'fixture',
-      scripts: {
-        lint: `node -e "process.exit(${exitCode})"`,
-      },
-    }),
-  );
-  return project;
+  return makeProject({
+    prefix: 'lint-commit-',
+    config: {},
+    files: {
+      'package.json': JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: `node -e "process.exit(${exitCode})"` },
+      }),
+    },
+  });
 }
 
 test('lint exits non-zero: git commit is denied with tail of output', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(project, bashPayload('git commit -m "x"'));
+  const result = runGate(project, bash('git commit -m "x"'));
   assert.ok(isDeny(result), 'expected a deny result');
-  assert.match(
-    result.hookSpecificOutput.permissionDecisionReason,
-    /Lint failed/,
-  );
+  assert.match(messageOf(result), /Lint failed/);
 });
 
 test('lint exits zero: git commit is allowed', () => {
   const project = projectWithLintScript(0);
-  const result = runGate(project, bashPayload('git commit -m "x"'));
-  assert.equal(result, null);
+  assert.equal(runGate(project, bash('git commit -m "x"')), null);
 });
 
 test('no package.json / no lint script: commit is allowed (never invented)', () => {
-  const project = mkdtempSync(join(tmpdir(), 'lint-commit-nolint-'));
-  const result = runGate(project, bashPayload('git commit -m "x"'));
-  assert.equal(result, null);
+  const project = makeProject({ prefix: 'lint-commit-nolint-', config: {} });
+  assert.equal(runGate(project, bash('git commit -m "x"')), null);
 });
 
 test('a non-commit shell command is never blocked, even with failing lint', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(project, bashPayload('git status'));
-  assert.equal(result, null);
+  assert.equal(runGate(project, bash('git status')), null);
 });
 
 test('git -C <path> commit is still recognized as a commit (global-option bypass closed)', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(
-    project,
-    bashPayload(`git -C ${project} commit -m "x"`),
-  );
-  assert.ok(isDeny(result));
+  assert.ok(isDeny(runGate(project, bash(`git -C ${project} commit -m "x"`))));
 });
 
 test('gate disabled: commit is allowed even with failing lint', () => {
   const project = projectWithLintScript(1);
-  const result = runGate(project, bashPayload('git commit -m "x"'), {
-    enabled: false,
-  });
-  assert.equal(result, null);
+  assert.equal(
+    runGate(project, bash('git commit -m "x"'), { enabled: false }),
+    null,
+  );
+});
+
+// ── Regressions from the audit ──────────────────────────────────────────────────────
+
+test('a mention of git commit inside grep or echo does not run lint', () => {
+  const project = projectWithLintScript(1);
+  assert.equal(runGate(project, bash('grep "git commit" README.md')), null);
+  assert.equal(runGate(project, bash('echo "git commit -m x"')), null);
+});
+
+test('git commit --dry-run and git commit-tree do not run lint', () => {
+  const project = projectWithLintScript(1);
+  assert.equal(runGate(project, bash('git commit --dry-run')), null);
+  assert.equal(runGate(project, bash('git commit-tree HEAD^{tree}')), null);
+});
+
+test('git.exe commit is a commit', () => {
+  const project = projectWithLintScript(1);
+  assert.ok(isDeny(runGate(project, bash('git.exe commit -m "x"'))));
+});
+
+test('git -C <other repo> commit lints THAT repo, not the cwd', () => {
+  const clean = projectWithLintScript(0);
+  const dirty = projectWithLintScript(1);
+  assert.ok(
+    isDeny(runGate(clean, bash(`git -C "${dirty}" commit -m "x"`))),
+    'the dirty repo named by -C is what gets linted',
+  );
+  assert.equal(
+    runGate(dirty, bash(`git -C "${clean}" commit -m "x"`)),
+    null,
+    'the clean repo named by -C passes even though the cwd repo fails',
+  );
+});
+
+test('a commit from a subfolder lints the project root, where package.json lives', () => {
+  const project = projectWithLintScript(1);
+  mkdirSync(join(project, 'sub'));
+  assert.ok(
+    isDeny(
+      runGate(project, bash('git commit -m "x"'), {
+        cwd: join(project, 'sub'),
+      }),
+    ),
+  );
+});
+
+test('a wrong-typed lintCommand falls back to autodetection instead of crashing', () => {
+  const project = projectWithLintScript(1);
+  assert.ok(
+    isDeny(
+      runGate(project, bash('git commit -m "x"'), {
+        extra: { lintCommand: true },
+      }),
+    ),
+  );
 });

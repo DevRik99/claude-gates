@@ -1,94 +1,53 @@
-// forge-flow — the enforcer forge cannot be. A forge MCP directs a pipeline but cannot
-// intercept Edit/Write/Bash, so nothing makes you actually use it. This gate closes that
-// hole: in a project that ADOPTED forge, a code-mutating action is denied unless there is
-// an active forge run for this project — so every change goes through the pipeline and you
-// always know which phase you are in.
-//
-// justification: no existing tool covers this. A forge MCP audit (see memory
-// forge-mcp-auditoria-flujo) confirmed the structural hole: an MCP cannot gate other tools;
-// only a Claude Code PreToolUse hook can. This is that hook.
-//
-// ── When it acts (never surprises you) ──────────────────────────────────────────────
-// Only when the project adopted forge — a marker on disk (.ai/forge.json, or `forge: true`
-// in .ai/config.json). In any other project it stays silent. Off by default in the
-// registry, so it never fires unless a project turns it on.
-//
-// ── How it checks (deterministic, no judgment) ──────────────────────────────────────
-// forge persists its runs in a SQLite DB (global by default). This gate reads that DB with
-// node:sqlite (a Node built-in — no npm, contract intact) and looks for an active run whose
-// cwd matches this project. Absent → deny with an actionable message. The DB unreadable or
-// node:sqlite unavailable → allow (fail open: a broken lookup must not block all work).
+// forge-flow — in a project that ADOPTED forge (.ai/forge.json, or `forge: true` in
+// .ai/config.json), a code-mutating action is denied unless forge has an active run for
+// this project. A forge MCP cannot intercept Edit/Write/Bash; only this hook can.
+// The run's cwd may be the project root or any ANCESTOR of it (a monorepo run covers its
+// packages); paths are compared normalized, case-insensitively on Windows.
+// The DB is read with node:sqlite (a built-in, so the plugin stays npm-free). A DB that is
+// absent means no runs → deny; a DB that cannot be read means "unknown" → warn and allow,
+// so a broken lookup never freezes work and never disables the enforcer silently.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
 import { runGate, deny, warn, toolInGroups } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'forge-flow';
 const CONFIG_KEY = 'requireForgeRunToEdit';
 
-// Any code-mutating surface: native write/shell AND their MCP equivalents. `execution`
-// already unions write+shell+mcp__ide__executeCode, and toolInGroups adds the mcp__* signal
-// match — so an MCP filesystem-write or shell-exec tool no longer slips past the enforcer.
 const ACTING_GROUPS = ['execution'];
-const PROJECT_ROOT_MARKERS = ['.git', '.ai'];
-const DEFAULT_FORGE_DB = join('.forge', 'forge-mcp.db');
+const DEFAULT_FORGE_DB_PATH = join(homedir(), '.forge', 'forge-mcp.db');
 const FORGE_MARKER_FILE = join('.ai', 'forge.json');
 const PROJECT_CONFIG_FILE = join('.ai', 'config.json');
 
-function projectRootOf(startDirectory) {
-  let current = startDirectory;
-  while (true) {
-    if (
-      PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(current, marker)))
-    ) {
-      return current;
-    }
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
-}
-
-function readJson(path) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
-}
-
-/** True when this project opted into forge: a marker file, or forge:true in .ai/config.json. */
 function projectAdoptedForge(root) {
   if (existsSync(join(root, FORGE_MARKER_FILE))) return true;
-  const config = readJson(join(root, PROJECT_CONFIG_FILE));
-  return config?.forge === true;
+  return readJsonOrNull(join(root, PROJECT_CONFIG_FILE))?.forge === true;
 }
 
-/**
- * True when forge has an active run whose cwd is this project. Reads forge's SQLite DB with
- * node:sqlite (imported dynamically so an older Node without it degrades instead of
- * throwing). Any failure — module missing, DB absent, locked, unreadable, schema drift —
- * returns true: the gate must fail OPEN, since a broken lookup must never block every edit.
- */
-// Returns one of three verdicts, so a broken lookup no longer masquerades as "run present":
-//   { state: 'active' }   → a run for this project exists; allow.
-//   { state: 'none' }     → DB readable, no active run for this project; deny.
-//   { state: 'unknown', reason } → DB absent/locked/corrupt/schema-drift, or node:sqlite
-//                                   missing; we cannot tell. Warn (visible) but allow, so a
-//                                   broken DB never blocks all work AND never disables the
-//                                   enforcer silently — the earlier code returned true here,
-//                                   which looked identical to "run present".
-async function forgeRunState(root, forgeDatabasePath) {
-  if (!existsSync(forgeDatabasePath)) return { state: 'none' }; // no DB yet → no runs → deny
+function normalizeDirectory(path) {
+  let normalized = String(path ?? '').replace(/\\/g, '/');
+  while (normalized.endsWith('/')) normalized = normalized.slice(0, -1);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function runCovers(runCwd, root) {
+  const run = normalizeDirectory(runCwd);
+  const project = normalizeDirectory(root);
+  return run !== '' && (project === run || project.startsWith(`${run}/`));
+}
+
+async function forgeRunState(root, databasePath) {
+  if (!existsSync(databasePath)) return { state: 'none' };
   try {
     const { DatabaseSync } = await import('node:sqlite');
-    const database = new DatabaseSync(forgeDatabasePath, { readOnly: true });
+    const database = new DatabaseSync(databasePath, { readOnly: true });
     const rows = database
       .prepare("SELECT cwd FROM runs WHERE status = 'active'")
       .all();
     database.close();
-    return rows.some((row) => String(row.cwd) === root)
+    return rows.some((row) => runCovers(row.cwd, root))
       ? { state: 'active' }
       : { state: 'none' };
   } catch (error) {
@@ -96,39 +55,48 @@ async function forgeRunState(root, forgeDatabasePath) {
   }
 }
 
+// The registry documents `forgeDbPath`; `forgeDatabasePath` is the name earlier configs
+// used. A declared forgeDbPath wins; otherwise whichever of the two was set applies.
+function configuredDatabasePath(parameters) {
+  const { forgeDbPath, forgeDatabasePath } = parameters;
+  if (typeof forgeDbPath === 'string' && forgeDbPath !== DEFAULT_FORGE_DB_PATH)
+    return forgeDbPath;
+  return typeof forgeDatabasePath === 'string' && forgeDatabasePath
+    ? forgeDatabasePath
+    : DEFAULT_FORGE_DB_PATH;
+}
+
 const DENY_MESSAGE =
   'This project uses forge, but there is no active forge run for it. Every change should ' +
   'go through the pipeline so the next step is always clear. Start or resume a run ' +
   '(forge_start / forge_next) before editing — that is how forge tells you which phase ' +
-  'you are in. To work outside the pipeline, turn this gate off in .ai/config.json.';
+  `you are in. To work outside the pipeline, set ${CONFIG_KEY} to false in .ai/config.json.`;
 
 runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
     enabledByDefault: false,
-    defaultParams: { forgeDatabasePath: join(homedir(), DEFAULT_FORGE_DB) },
+    defaultParams: {
+      forgeDbPath: DEFAULT_FORGE_DB_PATH,
+      forgeDatabasePath: DEFAULT_FORGE_DB_PATH,
+    },
   },
-  async ({ toolName, parameters }) => {
+  async ({ toolName, parameters, cwd }) => {
     if (!toolInGroups(toolName, ACTING_GROUPS)) return;
 
-    const root = projectRootOf(process.cwd());
-    if (!root) return; // no project
-    if (!projectAdoptedForge(root)) return; // project did not opt into forge
+    const root = projectRootOf(cwd);
+    if (!root || !projectAdoptedForge(root)) return;
 
-    const forgeDatabasePath =
-      parameters.forgeDatabasePath ?? join(homedir(), DEFAULT_FORGE_DB);
-    const result = await forgeRunState(root, forgeDatabasePath);
-
-    if (result.state === 'active') return; // pipeline is running → allow
-    if (result.state === 'none') deny(CONFIG_KEY, DENY_MESSAGE); // no run → block
-    // state 'unknown': the DB could not be read. Allow so a broken lookup never freezes work,
-    // but surface it loudly — a silent allow here would disable the enforcer without a trace.
+    const databasePath = configuredDatabasePath(parameters);
+    const result = await forgeRunState(root, databasePath);
+    if (result.state === 'active') return;
+    if (result.state === 'none') deny(CONFIG_KEY, DENY_MESSAGE);
     warn(
       CONFIG_KEY,
       `forge enforcement is degraded: the forge DB could not be read (${result.reason}). ` +
         'Allowing this action, but the pipeline is NOT being enforced. Check that forge is ' +
-        `installed and ${forgeDatabasePath} is readable, or turn this gate off if intended.`,
+        `installed and ${databasePath} is readable, or turn this gate off if intended.`,
     );
   },
 );

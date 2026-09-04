@@ -1,44 +1,20 @@
-// no-lint-suppression — denies a write that SILENCES the linter/type-checker instead of
-// fixing the code it complains about. Turning a rule off, adding an inline disable, or
-// widening an ignore list is the lazy path ("it is easier to disable the linter than to fix
-// it"); this gate makes that path a deliberate, escape-hatched choice rather than a default.
-//
-// justification: no existing gate covers this. lint-commit RUNS the linter and blocks a
-// commit when it fails, but a suppression makes the linter pass — so lint-commit goes green
-// precisely when the code got worse. This gate reads the WRITE, not the lint result, and is
-// the only one that catches "made it pass by turning the check off".
-//
-// The defect is fully visible in the content being written (the disable directive, the rule
-// set to "off", the added @ts-ignore), so this is a deterministic deny with an escape hatch —
-// not a prose reminder. A legitimate suppression (a documented false positive) is allowed by
-// putting the escape hatch on the SAME line as the directive, which also forces a reason to
-// live next to it in the diff.
-//
-// ── What this catches ────────────────────────────────────────────────────────────────
-//   inline directives in any source file:
-//     // eslint-disable, /* eslint-disable */, // eslint-disable-next-line,
-//     // @ts-ignore, // @ts-nocheck, # type: ignore, # noqa, // prettier-ignore,
-//     // biome-ignore, // stylelint-disable, // NOSONAR
-//   config edits that weaken the ruleset, in eslint/tsconfig/prettier/biome/stylelint config:
-//     a rule set to "off" / 0, "@ts-nocheck", disabling strict, or "ignore" additions.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   suppressionPatterns  regex sources (case-insensitive) that mark a line as a
-//                        suppression. Replaces the built-in list wholesale.
-//   escapeHatch          substring that, present on the same line as a suppression, allows
-//                        it — so a real false positive is annotated, not smuggled. Default
-//                        'lint-ok:' (write e.g. `// eslint-disable-next-line ... lint-ok: <reason>`).
-//   watchedConfigFiles   basenames whose edits are also scanned for rule-weakening. Replaces
-//                        the built-in list.
-//
-// ── Fail-safe shape ──────────────────────────────────────────────────────────────────
-// A non-write tool, or a write with no suppression line: allow (silent). A write that adds a
-// suppression line WITHOUT the escape hatch on that same line: deny, naming the line.
+// no-lint-suppression — denies a write that SILENCES a linter/type-checker instead of fixing
+// the code: a NEW inline disable directive in a source file, or a rule turned off/downgraded
+// in a watched config file. A line already present in the file on disk is not a new
+// suppression (rewriting a file must not re-litigate old ones). A legitimate suppression is
+// allowed by putting the escape hatch on the SAME line, so the reason lives next to it in the
+// diff. Deliberate limits: `@ts-expect-error` WITH a description is the recommended form and
+// passes; in config files only a rule-like key (`a/b`, `no-x`, or one under a rules/overrides
+// block) counts, so `"printWidth": 0` is not a weakening; shell writes are out of scope.
 
-import { extname } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { basename, extname, resolve } from 'node:path';
+import { projectRootOf } from '../../lib/config.mjs';
 import {
-  runGate,
+  compileRegexList,
   deny,
+  escapeRegExp,
+  runGate,
   toolInGroups,
   writtenContentOf,
   writtenPathOf,
@@ -47,28 +23,36 @@ import {
 const GATE_ID = 'no-lint-suppression';
 const CONFIG_KEY = 'blockLintSuppression';
 
-// Inline suppression directives across the common linters/type-checkers. Sources, compiled
-// case-insensitively and matched one line at a time.
 const DEFAULT_SUPPRESSION_PATTERNS = [
-  String.raw`eslint-disable`,
-  String.raw`@ts-ignore`,
-  String.raw`@ts-nocheck`,
-  String.raw`@ts-expect-error`,
-  String.raw`prettier-ignore`,
-  String.raw`biome-ignore`,
-  String.raw`stylelint-disable`,
-  String.raw`nosonar`,
-  String.raw`#\s*noqa`,
-  String.raw`#\s*type:\s*ignore`,
-  String.raw`//\s*@flow-ignore`,
-  String.raw`istanbul ignore`,
+  'eslint-disable',
+  '@ts-ignore',
+  '@ts-nocheck',
+  '@ts-expect-error\\s*[:-]?\\s*$',
+  'prettier-ignore',
+  'biome-ignore',
+  'stylelint-disable',
+  'nosonar',
+  '#\\s*noqa',
+  '#\\s*type:\\s*ignore',
+  '//\\s*@flow-ignore',
+  'istanbul ignore',
+  'c8 ignore',
+  'pylint:\\s*disable',
+  'pyright:\\s*ignore',
+  '//\\s*nolint',
+  '#\\[allow\\(',
+  '#pragma\\s+warning\\s+disable',
+  '@SuppressWarnings',
 ];
 
-// Config files whose edits are scanned for rule-weakening (a rule set off, strict disabled).
+// Basenames; `*` matches within one name.
 const DEFAULT_WATCHED_CONFIG_FILES = [
   'eslint.config.mjs',
   'eslint.config.js',
   'eslint.config.cjs',
+  'eslint.config.ts',
+  'eslint.config.mts',
+  'eslint.config.cts',
   '.eslintrc',
   '.eslintrc.js',
   '.eslintrc.cjs',
@@ -76,60 +60,138 @@ const DEFAULT_WATCHED_CONFIG_FILES = [
   '.eslintrc.yml',
   '.eslintrc.yaml',
   'tsconfig.json',
+  'tsconfig.*.json',
+  'jsconfig.json',
   '.prettierrc',
+  '.prettierrc.json',
   'biome.json',
   '.stylelintrc',
   '.stylelintrc.json',
-];
-
-// Inside a watched config file, these mark a rule being turned off or a check being weakened.
-const CONFIG_WEAKENING_PATTERNS = [
-  // a rule mapped to "off" or 0:  "no-unused-vars": "off"   'rule': 0
-  // (no trailing \b: the value can end in a quote, which is a non-word char, so \b would
-  // never match after "off" and silently miss every quoted "off")
-  String.raw`["'][^"']+["']\s*:\s*(?:["']off["']|0)(?:\s|,|}|$)`,
-  // strict / type-checking disabled in tsconfig
-  String.raw`"(?:strict|noImplicitAny|strictNullChecks|checkJs)"\s*:\s*false`,
-  String.raw`@ts-nocheck`,
+  'package.json',
 ];
 
 const DEFAULT_ESCAPE_HATCH = 'lint-ok:';
 
-function compile(sources) {
-  const compiled = [];
-  for (const source of sources) {
-    try {
-      compiled.push(new RegExp(source, 'i'));
-    } catch {
-      // Skip a malformed override pattern rather than crashing; the rest still protect.
-    }
+const NON_SOURCE_EXTENSIONS = new Set(['.md', '.mdx', '.txt', '.lock', '.log']);
+
+// ── Config weakening ────────────────────────────────────────────────────────────────
+const RULES_SECTION_PATTERN = /(?:^|[\s{,])["']?(?:rules|overrides)["']?\s*:/;
+const LINTER_SECTION_PATTERN = /["']linter["']\s*:/;
+const STRICTNESS_OFF_PATTERN =
+  /["'](?:strict|noImplicitAny|strictNullChecks|checkJs)["']\s*:\s*false/;
+const LINTER_DISABLED_PATTERN = /["']enabled["']\s*:\s*false/;
+const TS_NOCHECK_PATTERN = /@ts-nocheck/i;
+const DISABLING_TOKEN_PATTERN = /^["']?(?:off|warn|0)["']?(?=\s*(?:[,}\]]|$))/i;
+const RULE_LIKE_KEY = /[/-]/;
+const KEY_CHARACTER = /[\w@./-]/;
+
+function hasSectionBefore(lines, index, sectionPattern) {
+  for (let cursor = index; cursor >= 0; cursor -= 1)
+    if (sectionPattern.test(lines[cursor])) return true;
+  return false;
+}
+
+function isDisablingValue(rest) {
+  const value = rest.trimStart().replace(/^\[\s*/, '');
+  return DISABLING_TOKEN_PATTERN.test(value);
+}
+
+// Each `key: value` on the line, located by walking back from every colon (a regex over
+// the key run is quadratic on colon-less lines).
+function assignmentsOf(line) {
+  const found = [];
+  for (
+    let colon = line.indexOf(':');
+    colon !== -1;
+    colon = line.indexOf(':', colon + 1)
+  ) {
+    let end = colon;
+    while (end > 0 && /\s/.test(line[end - 1])) end -= 1;
+    if (end > 0 && (line[end - 1] === '"' || line[end - 1] === "'")) end -= 1;
+    let start = end;
+    while (start > 0 && KEY_CHARACTER.test(line[start - 1])) start -= 1;
+    if (start < end)
+      found.push({ key: line.slice(start, end), rest: line.slice(colon + 1) });
   }
-  return compiled;
+  return found;
 }
 
-function baseNameOf(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
-  return normalized.slice(normalized.lastIndexOf('/') + 1);
+function assignsDisablingValue(line, index, lines) {
+  for (const { key, rest } of assignmentsOf(line)) {
+    if (!isDisablingValue(rest)) continue;
+    if (RULE_LIKE_KEY.test(key)) return true;
+    if (hasSectionBefore(lines, index, RULES_SECTION_PATTERN)) return true;
+  }
+  return false;
 }
 
-function isWatchedConfig(filePath, watchedConfigFiles) {
-  return watchedConfigFiles.includes(baseNameOf(filePath));
+function weakensConfig(lines, index) {
+  const line = lines[index];
+  if (STRICTNESS_OFF_PATTERN.test(line) || TS_NOCHECK_PATTERN.test(line))
+    return true;
+  if (
+    LINTER_DISABLED_PATTERN.test(line) &&
+    hasSectionBefore(lines, index, LINTER_SECTION_PATTERN)
+  )
+    return true;
+  return assignsDisablingValue(line, index, lines);
 }
 
-// A code file's inline directives count everywhere; a config file's edits are read with the
-// rule-weakening patterns instead. We never guess a language — the directives are recognizable
-// on their own.
-const NON_SOURCE_EXTENSIONS = new Set(['.md', '.txt', '.lock', '.log']);
-
-function isPlausibleSource(filePath) {
-  return !NON_SOURCE_EXTENSIONS.has(extname(filePath).toLowerCase());
+function watchedFilePatterns(names) {
+  return compileRegexList(
+    names.map((name) => `^${escapeRegExp(name).replace(/\\\*/g, '[^/]*')}$`),
+  ).patterns;
 }
 
-/** The first written line matching any pattern and lacking the escape hatch, or null. */
-function offendingLine(content, patterns, escapeHatch) {
-  for (const line of content.split('\n')) {
+function isWatchedConfig(filePath, content, watchedConfigFiles) {
+  const name = basename(filePath.replace(/\\/g, '/'));
+  if (name === 'package.json' && !content.includes('eslintConfig'))
+    return false;
+  return watchedFilePatterns(watchedConfigFiles).some((pattern) =>
+    pattern.test(name),
+  );
+}
+
+// ── Lines already on disk are not new suppressions ──────────────────────────────────
+// Counted, not just collected: a directive the file already has once does not license a
+// second identical one.
+function existingLineCounts(filePath, root) {
+  const counts = new Map();
+  const resolved = resolve(root, filePath);
+  try {
+    if (!existsSync(resolved)) return counts;
+    for (const line of readFileSync(resolved, 'utf8').split('\n')) {
+      const trimmed = line.trim();
+      counts.set(trimmed, (counts.get(trimmed) ?? 0) + 1);
+    }
+  } catch {
+    counts.clear();
+  }
+  return counts;
+}
+
+function consumeExisting(existing, trimmed) {
+  const remaining = existing.get(trimmed) ?? 0;
+  if (remaining === 0) return false;
+  existing.set(trimmed, remaining - 1);
+  return true;
+}
+
+function firstOffendingLine({
+  content,
+  inlinePatterns,
+  isConfig,
+  escapeHatch,
+  existing,
+}) {
+  const lines = content.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed || consumeExisting(existing, trimmed)) continue;
     if (escapeHatch && line.includes(escapeHatch)) continue;
-    if (patterns.some((pattern) => pattern.test(line))) return line.trim();
+    if (inlinePatterns.some((pattern) => pattern.test(line))) return trimmed;
+    if (isConfig && weakensConfig(lines, index)) return trimmed;
   }
   return null;
 }
@@ -145,31 +207,29 @@ runGate(
       escapeHatch: DEFAULT_ESCAPE_HATCH,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
     if (!toolInGroups(toolName, ['write'])) return;
 
     const filePath = writtenPathOf(toolInput);
-    if (!filePath) return;
-
     const content = writtenContentOf(toolInput);
-    if (!content) return;
+    if (!filePath || !content) return;
 
-    const escapeHatch = parameters.escapeHatch ?? DEFAULT_ESCAPE_HATCH;
+    const isConfig = isWatchedConfig(
+      filePath,
+      content,
+      parameters.watchedConfigFiles,
+    );
+    if (!isConfig && NON_SOURCE_EXTENSIONS.has(extname(filePath).toLowerCase()))
+      return;
 
-    // Config files: scan for rule-weakening. Any source file: scan for inline suppressions.
-    const isConfig = isWatchedConfig(filePath, parameters.watchedConfigFiles);
-    const inlinePatterns = compile(parameters.suppressionPatterns);
-    const configPatterns = compile(CONFIG_WEAKENING_PATTERNS);
-
-    // A config file is scanned for both inline directives and rule-weakening; any other
-    // plausible source file only for inline directives; a non-source file (docs, lockfiles)
-    // is not scanned at all.
-    let patterns = [];
-    if (isConfig) patterns = [...inlinePatterns, ...configPatterns];
-    else if (isPlausibleSource(filePath)) patterns = inlinePatterns;
-    if (patterns.length === 0) return;
-
-    const offender = offendingLine(content, patterns, escapeHatch);
+    const escapeHatch = String(parameters.escapeHatch ?? '');
+    const offender = firstOffendingLine({
+      content,
+      inlinePatterns: compileRegexList(parameters.suppressionPatterns).patterns,
+      isConfig,
+      escapeHatch,
+      existing: existingLineCounts(filePath, projectRootOf(cwd) ?? cwd),
+    });
     if (!offender) return;
 
     deny(
@@ -177,7 +237,7 @@ runGate(
       `This write silences the linter/type-checker instead of fixing the code: "${offender}". ` +
         'Fix the underlying issue rather than turning the check off. If this is a genuine, ' +
         `documented false positive, put "${escapeHatch} <reason>" on the same line so the ` +
-        'reason lives next to the suppression, or set blockLintSuppression in .ai/config.json.',
+        `reason lives next to the suppression, or set ${CONFIG_KEY} in .ai/config.json.`,
     );
   },
 );

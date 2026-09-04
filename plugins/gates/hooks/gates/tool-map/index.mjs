@@ -1,20 +1,12 @@
-// tool-map — maintains the per-project tool map so a discovery is never repeated. It is
-// the write half of the discovery pair (reuse-before-build is the read half). When a new
-// tool is created WITH its audit declared, this gate records what that tool covers into
-// .ai/tool-map.json, so next time reuse-before-build finds it and does not block.
-//
-// It never reaches the network and takes no judgment: it only appends a deterministic
-// record (path + the audit line the author already wrote) to a JSON file. The cloud search
-// that decides "does something already exist?" is the assistant's / the CLI's job. This
-// gate never denies — it observes a legitimate build and remembers it. It warns once when
-// it could not record, so a silent write failure does not go unnoticed.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   toolMapFile   path to the per-project tool map, relative to the project root.
-//                 Default .ai/tool-map.json.
+// tool-map — the write half of the discovery pair (reuse-before-build reads). When a tool
+// is created WITH its audit declared, the tool and that audit line are recorded in the
+// project's tool map so the discovery is never repeated. Never denies; warns once when it
+// cannot record. What counts as a tool and as an audit line is the same lib definition
+// reuse-before-build uses, so the map records exactly what the read half accepts.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
 import {
   runGate,
   warn,
@@ -22,6 +14,13 @@ import {
   writtenContentOf,
   writtenPathOf,
 } from '../../lib/hook-io.mjs';
+import {
+  DEFAULT_TOOL_EXTENSIONS,
+  DEFAULT_TOOL_FOLDERS,
+  DEFAULT_TOOL_NAME_PATTERNS,
+  hasAuditEvidence,
+  isToolPath,
+} from '../../lib/tools.mjs';
 
 const GATE_ID = 'tool-map';
 const CONFIG_KEY = 'maintainToolMap';
@@ -30,107 +29,73 @@ const DEFAULT_TOOL_MAP_FILE = join('.ai', 'tool-map.json');
 const JSON_INDENT = 2;
 const MAX_AUDIT_LENGTH = 300;
 
-// Kept in sync with reuse-before-build's scope (its read half): a file this gate would NOT
-// record is a file reuse-before-build would still flag, and the pair must agree on what
-// counts as a tool/helper. Extensions and folders are broad because a reusable helper lives
-// in many places (lib/utils/composables/components), not only the four original tool dirs.
-const EXECUTABLE_EXTENSIONS = new Set([
-  '.js',
-  '.mjs',
-  '.cjs',
-  '.ts',
-  '.tsx',
-  '.jsx',
-  '.vue',
-  '.py',
-  '.sh',
-  '.ps1',
-  '.rb',
-  '.go',
-]);
-const TOOL_FOLDERS = [
-  'scripts/',
-  'hooks/',
-  'tools/',
-  'gates/',
-  'lib/',
-  'libs/',
-  'utils/',
-  'util/',
-  'helpers/',
-  'helper/',
-  'composables/',
-  'components/',
-  'services/',
-  'shared/',
-  'common/',
-];
+// Same rule as reuse-before-build: a map path outside the project root is ignored.
+function toolMapPathFor(root, toolMapFile) {
+  const resolved = resolve(root, String(toolMapFile || DEFAULT_TOOL_MAP_FILE));
+  const relativePath = relative(root, resolved);
+  const inside =
+    relativePath !== '' &&
+    !relativePath.startsWith('..') &&
+    !isAbsolute(relativePath);
+  return inside ? resolved : join(root, DEFAULT_TOOL_MAP_FILE);
+}
 
-// Phrases that mark a line as the author's audit statement. Matched against one line at a
-// time (no wrapping `.*`, which backtracks): the matching line is captured whole.
-const AUDIT_PHRASE_PATTERN =
-  /(already exists|no existing tool|there is no plugin|audited|nothing does this|justification:)/i;
-
-/** The first line of `content` that states an audit, trimmed — or null when none does. */
 function auditLineOf(content) {
-  for (const line of content.split('\n')) {
-    if (AUDIT_PHRASE_PATTERN.test(line)) return line.trim();
-  }
-  return null;
+  return content
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => hasAuditEvidence(line));
 }
 
-function projectRootOf(startDirectory) {
-  let current = startDirectory;
-  while (true) {
-    if (existsSync(join(current, '.git'))) return current;
-    const parent = dirname(current);
-    if (parent === current) return null;
-    current = parent;
-  }
+function normalizePath(path) {
+  return String(path ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '');
 }
 
-function isExecutableToolPath(filePath) {
-  const normalized = filePath.replace(/\\/g, '/');
-  const inToolFolder = TOOL_FOLDERS.some((folder) =>
-    normalized.includes(folder),
-  );
-  return (
-    inToolFolder && EXECUTABLE_EXTENSIONS.has(extname(filePath).toLowerCase())
-  );
+function rootRelativePath(root, rawPath) {
+  const absolute = isAbsolute(rawPath) ? rawPath : join(root, rawPath);
+  const relativePath = normalizePath(relative(root, absolute));
+  return relativePath.startsWith('..') ? normalizePath(rawPath) : relativePath;
 }
 
 function readMap(path) {
-  if (!existsSync(path)) return { tools: [] };
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    return Array.isArray(parsed.tools) ? parsed : { tools: [] };
-  } catch {
-    return { tools: [] };
-  }
+  const parsed = readJsonOrNull(path);
+  return Array.isArray(parsed?.tools) ? parsed : { tools: [] };
 }
 
-/** Appends the tool's record to the map file, warning (never blocking) if it cannot. */
-function recordTool(mapPath, normalizedPath, auditLine, toolMapFile) {
+// The file being recorded does not exist yet at PreToolUse time, so it is exempt from
+// the prune; every other entry must still point at a real file.
+function recordTool(root, mapPath, toolPath, auditLine) {
   const map = readMap(mapPath);
-  if (map.tools.some((tool) => tool.path === normalizedPath)) return; // already recorded
-
-  map.tools.push({
-    path: normalizedPath,
-    audit: auditLine.slice(0, MAX_AUDIT_LENGTH),
-    recordedAt: new Date().toISOString(),
+  const kept = map.tools.filter((tool) => {
+    const recorded = normalizePath(tool?.path);
+    return recorded !== toolPath && existsSync(join(root, recorded));
   });
+  const unchanged =
+    kept.length === map.tools.length &&
+    map.tools.some((tool) => normalizePath(tool?.path) === toolPath);
+  if (unchanged) return;
 
+  const tools = [
+    ...kept,
+    {
+      path: toolPath,
+      audit: auditLine.slice(0, MAX_AUDIT_LENGTH),
+      recordedAt: new Date().toISOString(),
+    },
+  ];
   try {
     mkdirSync(dirname(mapPath), { recursive: true });
     writeFileSync(
       mapPath,
-      `${JSON.stringify(map, null, JSON_INDENT)}\n`,
+      `${JSON.stringify({ ...map, tools }, null, JSON_INDENT)}\n`,
       'utf8',
     );
   } catch (error) {
     warn(
       CONFIG_KEY,
-      `Could not record this tool in ${toolMapFile}: ${error?.message ?? error}. ` +
+      `Could not record this tool in ${mapPath}: ${error?.message ?? error}. ` +
         'The build proceeds, but the discovery was not remembered.',
     );
   }
@@ -141,28 +106,33 @@ runGate(
     id: GATE_ID,
     configKey: CONFIG_KEY,
     enabledByDefault: false,
-    defaultParams: { toolMapFile: DEFAULT_TOOL_MAP_FILE },
+    defaultParams: {
+      toolMapFile: DEFAULT_TOOL_MAP_FILE,
+      toolFolders: DEFAULT_TOOL_FOLDERS,
+      toolExtensions: DEFAULT_TOOL_EXTENSIONS,
+      toolNamePatterns: DEFAULT_TOOL_NAME_PATTERNS,
+    },
   },
-  ({ toolName, toolInput, parameters }) => {
+  ({ toolName, toolInput, parameters, cwd }) => {
     if (!toolInGroups(toolName, ['write'])) return;
 
-    const filePath = writtenPathOf(toolInput);
-    if (!isExecutableToolPath(filePath)) return;
+    const rawPath = writtenPathOf(toolInput);
+    const isTool = isToolPath(rawPath, {
+      folders: parameters.toolFolders,
+      extensions: parameters.toolExtensions,
+      namePatterns: parameters.toolNamePatterns,
+    });
+    if (!isTool) return;
 
-    // Only a build that declared its audit is worth recording: that line IS the reason
-    // this tool exists and what it was checked against.
-    const content = writtenContentOf(toolInput);
-    const auditLine = auditLineOf(content);
+    const auditLine = auditLineOf(writtenContentOf(toolInput));
     if (!auditLine) return;
 
-    const root = projectRootOf(process.cwd());
-    if (!root) return;
-    const toolMapFile = parameters.toolMapFile ?? DEFAULT_TOOL_MAP_FILE;
+    const root = projectRootOf(cwd) ?? cwd;
     recordTool(
-      join(root, toolMapFile),
-      filePath.replace(/\\/g, '/'),
+      root,
+      toolMapPathFor(root, parameters.toolMapFile),
+      rootRelativePath(root, rawPath),
       auditLine,
-      toolMapFile,
     );
   },
 );

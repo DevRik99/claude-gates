@@ -1,34 +1,34 @@
-// implementation-pipeline — denies a delegation that sends a builder subagent straight
-// to writing code without the prompt declaring the pipeline stages around it:
-// definition (where the context came from), writing's own verification plan, and a
-// separate reviewer for validation/QA/closure. Migrated from
-// ~/.claude/hooks/guard-pipeline-de-implementacion.mjs.
+// implementation-pipeline — denies a STANDARD/HIGH-RISK implementation delegation whose
+// prompt does not declare the pipeline around the build: where the context came from
+// (definition), what is verified and how (writing), and who reviews the result (reviewer).
 //
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   builderSubagents   subagent types that count as builders — the ones this gate
-//                       holds to the pipeline. Replaces the built-in list wholesale.
-//   exemptSubagents     subagent types exempt outright: read-only pipeline stages that
-//                       cannot be required to declare a pipeline around themselves.
-//                       Replaces the built-in list wholesale.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces.
-//
-// ── Off by default, and quiet outside its narrow trigger ───────────────────────────
-// This gate only evaluates a delegation whose prompt declares a STANDARD/HIGH-RISK
-// level, uses an implementation verb, targets a builder subagent, and is not about the
-// harness itself. A prompt that only describes work, or that is read-only/exploratory,
-// never reaches the check.
+// Decisions: every non-exempt subagent is a builder — an absent or unknown subagent_type is
+// not a reason to skip the check, only the exempt list is. A negated mention ("do not write
+// tests", "no brief.md yet") does not satisfy a stage. Work on the agent harness itself
+// (.claude/, .ai/, CLAUDE.md...) is exempt; ordinary app paths such as src/hooks/ are not.
 
+import {
+  DEFAULT_EXEMPT_SUBAGENTS,
+  DEMANDING_LEVELS,
+  LEVELS,
+  allMatches,
+  isHarnessWork,
+  isImplementationRequest,
+  isSubagentNamedIn,
+  operativeLevelOf,
+} from '../../lib/delegation.mjs';
 import {
   runGate,
   deny,
   toolInGroups,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import { withUnicodeWordBoundary } from '../../lib/signals.mjs';
 
 const GATE_ID = 'implementation-pipeline';
 const CONFIG_KEY = 'requireImplementationPipeline';
 
+// Kept for config compatibility: every non-exempt type is held to the pipeline.
 const DEFAULT_BUILDER_SUBAGENTS = [
   'frontend',
   'backend',
@@ -37,45 +37,10 @@ const DEFAULT_BUILDER_SUBAGENTS = [
   'general-purpose',
 ];
 
-const DEFAULT_EXEMPT_SUBAGENTS = [
-  'scout',
-  'explore',
-  'plan',
-  'revision',
-  'contraste',
-  'test-planner',
-  'qa',
-  'ui',
-  'ux',
-];
-
-function withWordBoundary(alternation) {
-  return new RegExp(
-    `(?:^|[^\\p{L}\\p{N}_])(?:${alternation})(?:[^\\p{L}\\p{N}_]|$)`,
-    'iu',
-  );
-}
-
-const IMPLEMENTATION_VERBS = withWordBoundary(
-  'implementa|implementar|implement(á|é)|agreg(a|á)|agregar|añad(e|í)|añadir|cre(a|á)|crear|' +
-    'arregl(a|á)|arreglar|cambi(a|á)|cambiar|migr(a|á)|migrar|' +
-    'corrige|corregir|correg(í|ir)|constru(ye|í)|construir|modific(a|á)|modificar|' +
-    'refactoriz(a|á)|refactorizar|elimin(a|á)|eliminar|reescrib(e|í)|reescribir|desplieg(a|á)|desplegar|' +
-    'escrib(í|e)|escribir|implement\\w*|writ(?:e|ing)|creat\\w*|fix\\w*|build\\w*|refactor\\w*|migrat\\w*|' +
-    'add\\w*|remov\\w*|delet\\w*|modify|modifies|modifying|rewrit\\w*',
+const NEGATION_LOOK_BACK = 15;
+const NEGATION_PATTERN = withUnicodeWordBoundary(
+  "no|not|don'?t|do not|sin|never",
 );
-
-/** Declared LEVEL near the word "level"/"classification" in Spanish or English, matching
- * the plugin-wide convention (see risk-level.mjs). */
-const DEMANDING_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(STANDARD|HIGH-RISK)\b/iu;
-const EXEMPT_LEVEL_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\b(QUESTION|MICRO)\b/iu;
-const HIGH_RISK_PATTERN =
-  /(nivel|level|clasificaci[oó]n|classification)[^\n]{0,25}?\bHIGH-RISK\b/iu;
-
-const HARNESS_PATTERN =
-  /(\.claude[\\/]|hooks[\\/]|plugins[\\/]gates|settings\.json|[\\/]agents[\\/]\w|[\\/]rules[\\/]\w|[\\/]skills[\\/]\w)/i;
 
 // Several small patterns instead of one long alternation: a single big regex here
 // tripped the linter's regex-complexity limit. Any one matching counts as declared.
@@ -103,18 +68,26 @@ const DEFINITION_PATTERN =
 const WRITING_PATTERN =
   /\b(test|tests|prueba|pruebas|vitest|jest|playwright|typecheck|lint|verification|verificaci[oó]n|verification criteria)\b/i;
 
-/** The three pipeline stages this gate requires be declared, in this order. */
+function isNegated(prompt, match) {
+  const from = Math.max(0, match.index - NEGATION_LOOK_BACK);
+  return NEGATION_PATTERN.test(prompt.slice(from, match.index));
+}
+
+function hasAffirmativeMention(prompt, pattern) {
+  return allMatches(pattern, prompt).some((match) => !isNegated(prompt, match));
+}
+
 const REQUIRED_STAGES = [
   {
     id: 'definition',
-    isDeclared: (prompt) => DEFINITION_PATTERN.test(prompt),
+    isDeclared: (prompt) => hasAffirmativeMention(prompt, DEFINITION_PATTERN),
     missing:
       'DEFINITION: does not declare where the context came from (a prior scout, read-only exploration, or an already-written asserts/brief).',
     line: 'Verified context: <path to the cited asserts/brief> — or: a prior scout ran, findings at <path>.',
   },
   {
     id: 'writing',
-    isDeclared: (prompt) => WRITING_PATTERN.test(prompt),
+    isDeclared: (prompt) => hasAffirmativeMention(prompt, WRITING_PATTERN),
     missing:
       'WRITING: does not declare what is verified nor with what command. A builder does not validate its own work without a criterion written beforehand.',
     line: 'Verification: <exact command> and what is expected. Anything that cannot run is reported OMITTED, never PASS.',
@@ -128,19 +101,11 @@ const REQUIRED_STAGES = [
   },
 ];
 
-function isExempt(toolInput, prompt, builderSubagents, exemptSubagents) {
-  const subagentType = String(
-    toolInput.subagent_type ?? toolInput.subagentType ?? '',
-  ).toLowerCase();
-  if (exemptSubagents.includes(subagentType)) return true;
-  // An unknown type is not assumed to be a builder: the safe side here is not to
-  // invent requirements for agents this gate cannot classify.
-  if (subagentType && !builderSubagents.includes(subagentType)) return true;
-  if (EXEMPT_LEVEL_PATTERN.test(prompt)) return true;
-  if (!DEMANDING_LEVEL_PATTERN.test(prompt)) return true;
-  if (!IMPLEMENTATION_VERBS.test(prompt)) return true;
-  if (HARNESS_PATTERN.test(prompt)) return true;
-  return false;
+function isExempt(toolInput, prompt, exemptSubagents) {
+  if (isSubagentNamedIn(toolInput, exemptSubagents)) return true;
+  if (!DEMANDING_LEVELS.has(operativeLevelOf(prompt))) return true;
+  if (!isImplementationRequest(prompt)) return true;
+  return isHarnessWork(prompt);
 }
 
 runGate(
@@ -158,19 +123,14 @@ runGate(
 
     const prompt = delegationPromptOf(toolInput);
     if (!prompt.trim()) return;
-
-    const builderSubagents =
-      parameters.builderSubagents ?? DEFAULT_BUILDER_SUBAGENTS;
-    const exemptSubagents =
-      parameters.exemptSubagents ?? DEFAULT_EXEMPT_SUBAGENTS;
-    if (isExempt(toolInput, prompt, builderSubagents, exemptSubagents)) return;
+    if (isExempt(toolInput, prompt, parameters.exemptSubagents)) return;
 
     const missingStages = REQUIRED_STAGES.filter(
       (stage) => !stage.isDeclared(prompt),
     );
     if (missingStages.length === 0) return;
 
-    const isHighRisk = HIGH_RISK_PATTERN.test(prompt);
+    const isHighRisk = operativeLevelOf(prompt) === LEVELS.HIGH_RISK;
     const details = missingStages.map((stage) => stage.missing).join(' ');
     const lines = missingStages.map((stage) => `  ${stage.line}`).join('\n');
 

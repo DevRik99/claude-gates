@@ -1,25 +1,21 @@
-// root-whitelist — denies creating a new file or folder at the project's ROOT unless it
-// is on the declared whitelist. Migrated from ~/.claude/hooks/guard-root-whitelist.mjs.
-// A root grows orphaned files silently: nothing else stops a stray file from landing next
-// to package.json. Only the top level of the project is governed — anything nested is
-// this gate's business only insofar as its first path segment is the new thing at the root.
-//
-// ── What a project can configure (params) ───────────────────────────────────────────
-//   rootFilesWhitelist    root-level file names allowed to be created. Replaces the
-//                         built-in list wholesale.
-//   rootFoldersWhitelist  root-level folder names allowed to be created. Replaces the
-//                         built-in list wholesale.
-// The defaults live here, in the source, so a project reads them and knows exactly what
-// its override replaces. A dotfile/dotfolder (.gitignore, .claude) is always allowed —
-// dotfiles are a different, well-known convention this gate does not police.
+// root-whitelist — denies CREATING a file or folder at the project's root unless its name is
+// whitelisted. Only the top level is governed, and only new entries: an edit to a file that
+// already exists (registry.json, CHANGELOG.md) is not this gate's business, nor is a path
+// outside the project (a scratchpad, /tmp). Dotfiles and dotfolders are always allowed — a
+// different, well-known convention. The root is the nearest .git/.ai ancestor of the cwd, so a
+// tool call from a subfolder is judged against the same root. A path built from a variable is
+// not resolved.
 
-import { basename, isAbsolute, resolve, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { projectRootOf } from '../../lib/config.mjs';
 import {
-  runGate,
   deny,
+  runGate,
+  shellCommandOf,
+  shellWrittenPaths,
   toolInGroups,
   writtenPathOf,
-  shellWrittenPaths,
 } from '../../lib/hook-io.mjs';
 
 const GATE_ID = 'root-whitelist';
@@ -47,16 +43,9 @@ const DEFAULT_ROOT_FILES_WHITELIST = [
   '.env.example',
 ];
 
-// Root folders that real projects legitimately create. The old list (src/tests/docs/
-// scripts/plugins) was calibrated to THIS repo and wrongly blocked the root folders every
-// common framework creates — app (Next/Nuxt/Laravel/Expo), lib, public, dist, components,
-// pages, api, and so on. A root-level folder is a deliberate, structural choice; the value
-// of this gate is catching a stray FILE dropped next to package.json, not second-guessing a
-// project's directory layout. So the folder whitelist is broad (real framework/tooling
-// conventions) while the file whitelist stays the strict part. A project still overrides
-// either list wholesale via config.
+// Broad on purpose: a root folder is a deliberate structural choice every framework makes
+// differently; the value of this gate is the stray FILE next to package.json.
 const DEFAULT_ROOT_FOLDERS_WHITELIST = [
-  // source / app code
   'src',
   'app',
   'lib',
@@ -74,7 +63,6 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   'core',
   'modules',
   'features',
-  // web / framework conventions
   'public',
   'static',
   'assets',
@@ -95,7 +83,6 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   'configs',
   'i18n',
   'locales',
-  // tests / docs / tooling
   'tests',
   'test',
   '__tests__',
@@ -108,7 +95,6 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   'scripts',
   'tools',
   'bin',
-  // build / generated (present in many repos, not worth blocking)
   'dist',
   'build',
   'out',
@@ -116,7 +102,6 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   'node_modules',
   'vendor',
   'target',
-  // infra / ops
   'migrations',
   'prisma',
   'db',
@@ -125,42 +110,133 @@ const DEFAULT_ROOT_FOLDERS_WHITELIST = [
   '.github',
 ];
 
-// The whitelist verdict for one target path. Returns a deny reason string when the path is a
-// non-whitelisted new thing at the project root, or null when it is allowed (outside the root,
-// a dotfile, or whitelisted). Shared by the write-tool path and every shell-created path, so a
-// `printf x > basura.txt` is judged by the same rule as a Write to basura.txt.
-function rootWhitelistViolation(target, filesWhitelist, foldersWhitelist) {
-  if (!target) return null;
+const IS_WINDOWS = process.platform === 'win32';
+const GIT_BASH_DRIVE_PATTERN = /^\/([a-z])(?=\/|$)/i;
 
-  // Some tools send a path relative to cwd rather than absolute. resolve() leaves an
-  // already-absolute path merely normalized ('..' collapsed, separators fixed), and resolves
-  // a relative one against process.cwd() — so either shape lands on the same absolute path.
-  const normalized = isAbsolute(target)
-    ? resolve(target)
-    : resolve(process.cwd(), target);
-  const projectRoot = process.cwd() + sep;
+// Git Bash spells C:\Users as /c/Users; on Windows that form is otherwise resolved to C:\c\.
+function toNativePath(path) {
+  if (!IS_WINDOWS) return path;
+  return path.replace(
+    GIT_BASH_DRIVE_PATTERN,
+    (_, drive) => `${drive.toUpperCase()}:`,
+  );
+}
 
-  // A path outside the project (scratchpad, temp, another repo) is not at its root — not this
-  // rule's business. Judged AFTER resolving, so a relative path is judged by where it lands.
-  if (!normalized.startsWith(projectRoot)) return null;
+function comparable(path) {
+  return IS_WINDOWS ? path.toLowerCase() : path;
+}
 
-  const relativePath = normalized.slice(projectRoot.length);
-
-  if (!relativePath.includes(sep)) {
-    const fileName = basename(relativePath);
-    if (fileName.startsWith('.') || filesWhitelist.has(fileName.toLowerCase()))
-      return null;
-    return `'${fileName}' at the project root is not on the whitelist (${[...filesWhitelist].join(', ')}).`;
-  }
-
-  const topDirectory = relativePath.split(sep)[0];
+// The first path segment under the root, or null when the path is outside the project.
+function rootEntryOf(target, cwd, root) {
+  const absolute = resolve(cwd, toNativePath(target));
+  const relativePath = relative(comparable(root), comparable(absolute));
   if (
-    topDirectory.startsWith('.') ||
-    foldersWhitelist.has(topDirectory.toLowerCase())
-  ) {
+    !relativePath ||
+    relativePath.startsWith('..') ||
+    isAbsolute(relativePath)
+  )
     return null;
+  const [name] = relativePath.split(sep);
+  return {
+    name,
+    isNested: relativePath.includes(sep),
+    path: resolve(root, name),
+  };
+}
+
+function whitelistViolation({ target, isFolder }, context) {
+  const entry = rootEntryOf(target, context.cwd, context.root);
+  if (!entry || entry.name.startsWith('.') || existsSync(entry.path))
+    return null;
+  const judgedAsFolder = isFolder || entry.isNested;
+  const whitelist = judgedAsFolder
+    ? context.foldersWhitelist
+    : context.filesWhitelist;
+  if (whitelist.has(entry.name.toLowerCase())) return null;
+  const kind = judgedAsFolder ? 'Folder' : 'File';
+  const parameter = judgedAsFolder
+    ? 'rootFoldersWhitelist'
+    : 'rootFilesWhitelist';
+  return (
+    `${kind} '${entry.name}' would be created at the project root and is not on the ` +
+    `whitelist (${[...whitelist].join(', ')}). Put it inside an existing folder, or add ` +
+    `it to ${parameter} under ${CONFIG_KEY} in .ai/config.json.`
+  );
+}
+
+// ── Shell targets ───────────────────────────────────────────────────────────────────
+const SEGMENT_SEPARATOR = /;|&&|\|\||\||\n/;
+const ARGUMENT_PATTERN = /"([^"]*)"|'([^']*)'|(\S+)/g;
+const MKDIR_PREFIX = /^mkdir(?=\s)/i;
+const GIT_CLONE_PREFIX = /^git\s+clone(?=\s)/i;
+const NEW_ITEM_PREFIX = /^New-Item(?=\s)/i;
+const DIRECTORY_ITEM_TYPE = /-ItemType\s+Directory\b/i;
+const NAMED_PATH_PARAMETER =
+  /-(?:Path|Name|LiteralPath)\s+("[^"]*"|'[^']*'|\S+)/i;
+
+function nonFlagArguments(text) {
+  const found = [];
+  for (const match of text.matchAll(ARGUMENT_PATTERN)) {
+    const token = match[1] ?? match[2] ?? match[3];
+    if (!token.startsWith('-')) found.push(token);
   }
-  return `Folder '${topDirectory}' at the project root is not on the whitelist (${[...foldersWhitelist].join(', ')}).`;
+  return found;
+}
+
+function argumentsAfter(prefix, segment) {
+  const match = prefix.exec(segment);
+  return match ? segment.slice(match[0].length) : null;
+}
+
+function newDirectoryItemTarget(segment) {
+  if (!NEW_ITEM_PREFIX.test(segment) || !DIRECTORY_ITEM_TYPE.test(segment))
+    return null;
+  const remainder = segment.replace(DIRECTORY_ITEM_TYPE, '');
+  const named = NAMED_PATH_PARAMETER.exec(remainder);
+  if (named) return named[1].replace(/^["']|["']$/g, '');
+  return (
+    nonFlagArguments(argumentsAfter(NEW_ITEM_PREFIX, remainder))[0] ?? null
+  );
+}
+
+function cloneDestination(argumentText) {
+  const [url, destination] = nonFlagArguments(argumentText);
+  if (destination) return destination;
+  const base = String(url ?? '')
+    .split(/[\\/]/)
+    .filter(Boolean)
+    .at(-1);
+  return base ? base.replace(/\.git$/i, '') : null;
+}
+
+function folderTargetsOf(command) {
+  const folders = new Set();
+  for (const rawSegment of String(command).split(SEGMENT_SEPARATOR)) {
+    const segment = rawSegment.trim();
+    const mkdirArguments = argumentsAfter(MKDIR_PREFIX, segment);
+    if (mkdirArguments !== null)
+      nonFlagArguments(mkdirArguments).forEach((path) => folders.add(path));
+    const directoryItem = newDirectoryItemTarget(segment);
+    if (directoryItem) folders.add(directoryItem);
+    const cloneArguments = argumentsAfter(GIT_CLONE_PREFIX, segment);
+    const destination =
+      cloneArguments === null ? null : cloneDestination(cloneArguments);
+    if (destination) folders.add(destination);
+  }
+  return folders;
+}
+
+function shellTargetsOf(command) {
+  const folders = folderTargetsOf(command);
+  const targets = shellWrittenPaths(command).map((path) => ({
+    target: path,
+    isFolder: folders.has(path) || /[\\/]$/.test(path),
+  }));
+  for (const folder of folders) {
+    if (!targets.some((entry) => entry.target === folder))
+      targets.push({ target: folder, isFolder: true });
+  }
+  return targets.filter((entry) => !/[$`%]/.test(entry.target));
 }
 
 runGate(
@@ -173,38 +249,27 @@ runGate(
       rootFoldersWhitelist: DEFAULT_ROOT_FOLDERS_WHITELIST,
     },
   },
-  ({ toolName, toolInput, parameters }) => {
-    const isWrite = toolInGroups(toolName, ['write']);
-    const isShell = toolInGroups(toolName, ['shell']);
-    if (!isWrite && !isShell) return;
+  ({ toolName, toolInput, parameters, cwd }) => {
+    let targets;
+    if (toolInGroups(toolName, ['write'])) {
+      const path = writtenPathOf(toolInput);
+      targets = path ? [{ target: path, isFolder: false }] : [];
+    } else if (toolInGroups(toolName, ['shell'])) {
+      targets = shellTargetsOf(shellCommandOf(toolInput));
+    } else {
+      return;
+    }
+    if (targets.length === 0) return;
 
-    // Windows filesystems are case-insensitive: 'Package.json' and 'package.json' are the same
-    // file. Comparing lowercase on both sides avoids a false positive on a case difference.
-    const filesWhitelist = new Set(
-      (parameters.rootFilesWhitelist ?? []).map((name) => name.toLowerCase()),
-    );
-    const foldersWhitelist = new Set(
-      (parameters.rootFoldersWhitelist ?? []).map((name) => name.toLowerCase()),
-    );
-
-    // The paths to judge: a write tool's target, OR every path a shell command creates via a
-    // redirection / touch / tee / cp / mv. The latter closes the hole where `> basura.txt`
-    // created a root file that a Write to the same name would have been denied. This does not
-    // resolve a dynamically built path (`> "$f"`) — that honest limitation is the boundary of
-    // a regex, and is why the write-tool path (which carries a concrete file_path) stays the
-    // primary, most reliable surface.
-    const targets = isShell
-      ? shellWrittenPaths(
-          String(toolInput?.command ?? toolInput?.CommandLine ?? ''),
-        )
-      : [writtenPathOf(toolInput)];
-
-    for (const target of targets) {
-      const reason = rootWhitelistViolation(
-        target,
-        filesWhitelist,
-        foldersWhitelist,
-      );
+    const lowered = (names) => new Set(names.map((name) => name.toLowerCase()));
+    const context = {
+      cwd,
+      root: projectRootOf(cwd) ?? cwd,
+      filesWhitelist: lowered(parameters.rootFilesWhitelist),
+      foldersWhitelist: lowered(parameters.rootFoldersWhitelist),
+    };
+    for (const entry of targets) {
+      const reason = whitelistViolation(entry, context);
       if (reason) deny(CONFIG_KEY, reason);
     }
   },
