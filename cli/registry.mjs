@@ -20,6 +20,7 @@ export const TOOL_GROUPS = [
   'delegation',
   'execution',
   'question',
+  'research',
 ];
 
 /** The kinds of value a gate param can take, so the CLI can describe and validate it. */
@@ -55,8 +56,17 @@ const gateSchema = z.object({
     .string()
     .regex(SCRIPT_PATTERN, 'script must be an .mjs path relative to hooks/'),
   description: z.string().min(1),
-  // Optional: a gate with no configurable params omits it.
   params: z.array(parameterSchema).optional(),
+  timeoutSeconds: z.number().int().positive().optional(),
+  extraScripts: z
+    .array(
+      z.object({
+        event: z.enum(HOOK_EVENTS),
+        script: z.string().regex(SCRIPT_PATTERN),
+        tools: z.array(z.enum(TOOL_GROUPS)).optional(),
+      }),
+    )
+    .optional(),
 });
 
 const familySchema = z.object({

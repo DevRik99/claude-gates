@@ -11,12 +11,17 @@ import {
 } from './config.mjs';
 import { EXIT_CODE } from './constants.mjs';
 import { installPlugin, pluginInstallCommands } from './install.mjs';
-import { materializeGates } from './materialize.mjs';
+import {
+  materializeGates,
+  plannedChanges,
+  revertChanges,
+} from './materialize.mjs';
 import { loadRegistry, allGates } from './registry.mjs';
 import {
   MODES,
   resolveSelection,
   adoptionOf,
+  namedGatesFor,
   summarize,
 } from './selection.mjs';
 
@@ -69,6 +74,7 @@ export function normalizeOptions(options = {}) {
     dryRun: Boolean(options.dryRun),
     install: options.install,
     removePrevious: options.removePrevious,
+    force: Boolean(options.force),
   };
 }
 
@@ -183,6 +189,58 @@ async function askRemovePrevious(io) {
   );
 }
 
+function stateLabel(value) {
+  if (value === 'default') return 'default';
+  return value ? 'on' : 'off';
+}
+
+function describeChange(change) {
+  return `${change.configKey}: ${stateLabel(change.from)} → ${stateLabel(change.to)}`;
+}
+
+async function askChanges(io, changes) {
+  const approved = bail(
+    await io.multiselect({
+      message:
+        'These gates are already in the file and would change. Keep checked the ones to apply:',
+      options: changes.map((change) => ({
+        value: change.configKey,
+        label: describeChange(change),
+      })),
+      initialValues: changes.map((change) => change.configKey),
+      required: false,
+    }),
+  );
+  return new Set(approved);
+}
+
+/** Existing gates only change when the user confirms (or passes --force); never silently. */
+async function settleChanges({ io, flags, interactive, existingGates, gates }) {
+  const changes = plannedChanges(existingGates, gates);
+  if (changes.length === 0) return { gates, kept: [] };
+  if (flags.force) return { gates, kept: [] };
+  if (interactive) {
+    const approved = await askChanges(io, changes);
+    const kept = changes.filter((change) => !approved.has(change.configKey));
+    return {
+      gates: revertChanges(
+        gates,
+        existingGates,
+        kept.map((change) => change.configKey),
+      ),
+      kept,
+    };
+  }
+  return {
+    gates: revertChanges(
+      gates,
+      existingGates,
+      changes.map((change) => change.configKey),
+    ),
+    kept: changes,
+  };
+}
+
 async function confirmWrite(io, fileExists) {
   const confirmed = bail(
     await io.confirm({
@@ -246,6 +304,22 @@ async function installGatesAfterWrite({
   return { path, config: merged, written: true, installed: result.installed };
 }
 
+function enabledOfEntry(entry, fallback) {
+  if (typeof entry === 'boolean') return entry;
+  if (entry && typeof entry === 'object') return entry.enabled !== false;
+  return fallback;
+}
+
+function adoptionOfEntries(registry, gateEntries) {
+  const map = {};
+  for (const gate of allGates(registry))
+    map[gate.configKey] = enabledOfEntry(
+      gateEntries[gate.configKey],
+      gate.default,
+    );
+  return adoptionOf(map);
+}
+
 export async function runInit(
   options,
   { cwd = process.cwd(), io = prompts } = {},
@@ -273,13 +347,33 @@ export async function runInit(
     process.exit(EXIT_CODE.FAILURE);
   }
 
+  const existingGates = existing.data.gates ?? {};
+  const settled = await settleChanges({
+    io,
+    flags,
+    interactive,
+    existingGates,
+    gates: materializeGates(
+      registry,
+      gates,
+      existingGates,
+      mode,
+      namedGatesFor(registry, mode, picks),
+    ),
+  });
   const merged = mergeConfig(existing.data, {
-    adopted: adoptionOf(gates),
-    gates: materializeGates(registry, gates, existing.data.gates ?? {}, mode),
+    adopted: adoptionOfEntries(registry, settled.gates),
+    gates: settled.gates,
     gateVersion: registry.gateVersion,
   });
 
   io.note(renderSummary(registry, gates), `Selection (${scope}) → ${path}`);
+  if (settled.kept.length > 0) {
+    io.log.warn(
+      `Kept as they were (not confirmed): ${settled.kept.map(describeChange).join('; ')}. ` +
+        'Use `claude-gates enable|disable <gate>` or re-run with --force to apply.',
+    );
+  }
 
   if (flags.dryRun) {
     io.outro('Dry run: nothing written.');

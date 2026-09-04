@@ -24,7 +24,7 @@ function pluginHooksDirectory(pluginName) {
  * errors for any other reason yields {} rather than aborting the whole init — the same
  * fallback already relied on before multi-plugin support.
  */
-function defaultParametersOf(gate) {
+export function defaultParametersOf(gate) {
   try {
     const out = execFileSync(
       process.execPath,
@@ -68,11 +68,17 @@ function existingParametersOf(existingEntry) {
  * mode. `mergeConfig` still does the key-by-key merge against the rest of the file
  * (unrelated top-level keys, gates the new registry dropped).
  */
+function namedByMode(registry, mode) {
+  if (mode === MODES.DEFAULTS) return new Set();
+  return new Set(allGates(registry).map((gate) => gate.configKey));
+}
+
 export function materializeGates(
   registry,
   enabledMap,
   existingGates = {},
   mode = MODES.DEFAULTS,
+  named = namedByMode(registry, mode),
 ) {
   const gates = {};
   for (const gate of allGates(registry)) {
@@ -81,7 +87,7 @@ export function materializeGates(
       gate.configKey,
     );
 
-    if (hasExisting && mode === MODES.DEFAULTS) {
+    if (hasExisting && !named.has(gate.configKey)) {
       gates[gate.configKey] = existingGates[gate.configKey];
       continue;
     }
@@ -100,4 +106,32 @@ export function materializeGates(
     gates[gate.configKey] = { enabled, ...parameters };
   }
   return gates;
+}
+
+function enabledStateOf(entry) {
+  if (typeof entry === 'boolean') return entry;
+  if (entry && typeof entry === 'object') {
+    return entry.enabled === undefined ? 'default' : entry.enabled !== false;
+  }
+  return 'default';
+}
+
+/** Gates whose `enabled` this run would flip relative to what the file already has. */
+export function plannedChanges(existingGates, materializedGates) {
+  const changes = [];
+  for (const [configKey, next] of Object.entries(materializedGates)) {
+    if (!Object.prototype.hasOwnProperty.call(existingGates, configKey))
+      continue;
+    const from = enabledStateOf(existingGates[configKey]);
+    const to = enabledStateOf(next);
+    if (from !== to) changes.push({ configKey, from, to });
+  }
+  return changes;
+}
+
+export function revertChanges(materializedGates, existingGates, configKeys) {
+  const reverted = { ...materializedGates };
+  for (const configKey of configKeys)
+    reverted[configKey] = existingGates[configKey];
+  return reverted;
 }

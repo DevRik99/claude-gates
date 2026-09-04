@@ -5,7 +5,13 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -83,12 +89,33 @@ test('task close WITHOUT --evidence fails and leaves the task active', () => {
   assert.equal(active.tasks.length, 1, 'the task must still be active');
 });
 
-test('task close WITH --evidence succeeds and moves the task to history', () => {
+test('task close with free-text --evidence alone is refused: text is not evidence', () => {
+  const project = makeProject();
+  runCli(['task', 'add', 'Has text only', '--id', 't1'], project);
+  const result = runCli(
+    ['task', 'close', 't1', '--evidence', 'npm test -> 5 passing'],
+    project,
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /--check|--exists/);
+});
+
+test('task close WITH a passing --check moves the task to history with verified evidence', () => {
   const project = makeProject();
   runCli(['task', 'add', 'Has evidence', '--id', 't1'], project);
 
   const result = runCli(
-    ['task', 'close', 't1', '--evidence', 'npm test -> 5 passing'],
+    [
+      'task',
+      'close',
+      't1',
+      '--check',
+      'node -e "console.log(42)"',
+      '--expect',
+      '42',
+      '--note',
+      'prints 42',
+    ],
     project,
   );
   assert.equal(result.code, 0, result.stderr);
@@ -97,7 +124,54 @@ test('task close WITH --evidence succeeds and moves the task to history', () => 
   const history = JSON.parse(readFileSync(historyPath, 'utf8'));
   assert.equal(history.tasks.length, 1);
   assert.equal(history.tasks[0].status, 'done');
-  assert.equal(history.tasks[0].evidence, 'npm test -> 5 passing');
+  assert.equal(history.tasks[0].evidence.verified, true);
+  assert.equal(history.tasks[0].evidence.kind, 'command');
+  assert.equal(history.tasks[0].evidence.note, 'prints 42');
+});
+
+test('task close with a failing --check keeps the task open', () => {
+  const project = makeProject();
+  runCli(['task', 'add', 'Fails check', '--id', 't1'], project);
+  const result = runCli(
+    ['task', 'close', 't1', '--check', 'node -e "process.exit(3)"'],
+    project,
+  );
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /exit code 3/);
+  const active = JSON.parse(
+    readFileSync(join(project, '.ai', 'tasks', 'active.json'), 'utf8'),
+  );
+  assert.equal(active.tasks.length, 1);
+});
+
+test('task close with --exists verifies a path (and --contains its content)', () => {
+  const project = makeProject();
+  runCli(['task', 'add', 'Has file', '--id', 't1'], project);
+  const missing = runCli(
+    ['task', 'close', 't1', '--exists', 'out/report.txt'],
+    project,
+  );
+  assert.notEqual(missing.code, 0);
+  mkdirSync(join(project, 'out'));
+  writeFileSync(join(project, 'out', 'report.txt'), 'all green');
+  const wrongText = runCli(
+    ['task', 'close', 't1', '--exists', 'out/report.txt', '--contains', 'red'],
+    project,
+  );
+  assert.notEqual(wrongText.code, 0);
+  const ok = runCli(
+    [
+      'task',
+      'close',
+      't1',
+      '--exists',
+      'out/report.txt',
+      '--contains',
+      'green',
+    ],
+    project,
+  );
+  assert.equal(ok.code, 0, ok.stderr);
 });
 
 test('task abandon needs no evidence and moves the task to history', () => {

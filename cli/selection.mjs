@@ -81,3 +81,21 @@ export function summarize(registry, gatesMap) {
     };
   });
 }
+
+/** Config keys a run explicitly decided about: only these may change an existing entry. */
+export function namedGatesFor(registry, mode, picks = {}) {
+  const gates = allGates(registry);
+  const keysOf = (predicate) =>
+    new Set(gates.filter(predicate).map((gate) => gate.configKey));
+  if (mode === MODES.ALL || mode === MODES.NONE) return keysOf(() => true);
+  if (mode === MODES.DEFAULTS) return new Set();
+  if (mode === MODES.FAMILIES) {
+    const chosen = new Set(picks.families ?? []);
+    return keysOf((gate) => chosen.has(gate.family));
+  }
+  if (mode === MODES.GRANULAR) {
+    const chosen = new Set(picks.gates ?? []);
+    return keysOf((gate) => chosen.has(gate.id));
+  }
+  throw new Error(`Unknown selection mode: ${mode}`);
+}

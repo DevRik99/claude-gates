@@ -12,6 +12,7 @@ import {
   STATUS,
 } from '../plugins/tasks/hooks/lib/task-store.mjs';
 import { EXIT_CODE } from './constants.mjs';
+import { verifyCommand, verifyPath } from './evidence.mjs';
 
 const DEFAULT_SIZE = 'unspecified';
 
@@ -64,19 +65,36 @@ function reportCloseResult(result) {
   process.stdout.write(`${JSON.stringify(result.task, null, 2)}\n`);
 }
 
+const EVIDENCE_USAGE =
+  'closing a task as done requires verified evidence: --check "<command>" ' +
+  '[--expect <text>] (the command must exit 0) or --exists <path> [--contains <text>]. ' +
+  'Free text (--evidence/--note) is only a note. Use `task abandon` if it will not be finished.';
+
+function collectEvidence(options, cwd) {
+  if (options.check) {
+    return verifyCommand(options.check, { cwd, expect: options.expect });
+  }
+  if (options.exists) {
+    return verifyPath(options.exists, { cwd, contains: options.contains });
+  }
+  return null;
+}
+
 function taskClose(id, options, { cwd = process.cwd() } = {}) {
-  if (!options.evidence || !options.evidence.trim()) {
+  const store = openStoreOrFail(cwd);
+  const evidence = collectEvidence(options, store.root);
+  if (!evidence) fail(EVIDENCE_USAGE);
+  if (!evidence.verified) {
+    const output = evidence.outputTail ? `\n${evidence.outputTail}` : '';
     fail(
-      'closing a task as done requires evidence that it was attended and resolved ' +
-        '(test output, a diff, a verification note). Pass --evidence, or use ' +
-        '`task abandon` if it will not be finished.',
+      `evidence did not verify (${evidence.failure}); the task stays open.${output}`,
     );
   }
-  const store = openStoreOrFail(cwd);
+  const note = options.note ?? options.evidence ?? '';
   reportCloseResult(
     store.close(id, STATUS.DONE, {
       reason: options.reason ?? '',
-      evidence: options.evidence,
+      evidence: note ? { ...evidence, note } : evidence,
     }),
   );
 }
@@ -117,10 +135,20 @@ export function registerTaskCommand(program) {
 
   task
     .command('close <id>')
-    .description('Close a task as done. Requires --evidence.')
+    .description(
+      'Close a task as done. Requires verified evidence: --check or --exists.',
+    )
+    .option(
+      '--check <command>',
+      'command that must exit 0 (run at the project root)',
+    )
+    .option('--expect <text>', 'text the --check output must contain')
+    .option('--exists <path>', 'file or directory that must exist')
+    .option('--contains <text>', 'text the --exists file must contain')
+    .option('--note <text>', 'free-text context stored with the evidence')
     .option(
       '--evidence <text>',
-      'proof the task was attended and resolved (required)',
+      'alias of --note (free text alone is not evidence)',
     )
     .option('--reason <text>', 'closing note')
     .action((id, options) => taskClose(id, options));

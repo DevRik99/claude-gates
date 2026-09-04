@@ -112,12 +112,13 @@ function closeTask(
   if (!TERMINAL_STATUSES.has(status)) {
     return { error: `invalid terminal status: ${status}` };
   }
-  if (STATUS_REQUIRING_EVIDENCE.has(status) && !String(evidence ?? '').trim()) {
+  if (STATUS_REQUIRING_EVIDENCE.has(status) && evidence?.verified !== true) {
     return {
       error:
-        'closing a task as done requires evidence that it was attended and resolved ' +
-        '(test output, a diff, a verification note). Provide --evidence, or close it as ' +
-        'abandoned with a reason if it will not be finished.',
+        'closing a task as done requires VERIFIED evidence: a command that passed ' +
+        '(--check "<command>" [--expect <text>]) or a path that exists (--exists <path> ' +
+        '[--contains <text>]). Free text is not evidence. Close it as abandoned with a ' +
+        'reason if it will not be finished.',
     };
   }
   const activeCollection = readCollection(activePath);
@@ -128,8 +129,7 @@ function closeTask(
   task.status = status;
   task.closedAt = new Date().toISOString();
   task.closeReason = reason ?? '';
-  if (STATUS_REQUIRING_EVIDENCE.has(status))
-    task.evidence = String(evidence).trim();
+  if (STATUS_REQUIRING_EVIDENCE.has(status)) task.evidence = evidence;
 
   const historyCollection = readCollection(historyPath);
   historyCollection.tasks.push(task);

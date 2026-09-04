@@ -70,11 +70,12 @@ test('close MOVES a task from active to history, never deletes', () => {
 
   const { task: closed } = store.close('t1', STATUS.DONE, {
     reason: 'finished',
-    evidence: 'npm test -> 12 passing',
+    evidence: { kind: 'command', command: 'npm test', verified: true },
   });
   assert.equal(closed.status, STATUS.DONE);
   assert.equal(closed.closeReason, 'finished');
-  assert.equal(closed.evidence, 'npm test -> 12 passing');
+  assert.equal(closed.evidence.verified, true);
+  assert.equal(closed.evidence.command, 'npm test');
   assert.ok(closed.closedAt);
 
   assert.deepEqual(
@@ -125,7 +126,9 @@ test('close rejects a non-terminal status and an unknown id', () => {
   const store = openTaskStore(makeProject());
   store.add(sampleTask('t1'));
   assert.ok(store.close('t1', STATUS.OPEN, { reason: 'x' }).error);
-  assert.ok(store.close('missing', STATUS.DONE, { evidence: 'x' }).error);
+  assert.ok(
+    store.close('missing', STATUS.DONE, { evidence: { verified: true } }).error,
+  );
   assert.equal(store.active().length, 1);
 });
 
@@ -140,7 +143,7 @@ test('history is append-only across multiple closes', () => {
   const store = openTaskStore(makeProject());
   store.add(sampleTask('t1'));
   store.add(sampleTask('t2'));
-  store.close('t1', STATUS.DONE, { reason: 'a', evidence: 'tests green' });
+  store.close('t1', STATUS.DONE, { reason: 'a', evidence: { verified: true } });
   store.close('t2', STATUS.ABANDONED, { reason: 'b' });
   assert.deepEqual(
     store.history().map((task) => task.id),

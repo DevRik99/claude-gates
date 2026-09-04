@@ -8,7 +8,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "git reset --hard HEAD~3" }
+        "tool_input": {
+          "command": "git reset --hard HEAD~3"
+        }
       },
       "needsState": false
     },
@@ -19,7 +21,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "git push origin main" }
+        "tool_input": {
+          "command": "git push origin main"
+        }
       },
       "needsState": false
     },
@@ -30,7 +34,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Write",
-        "tool_input": { "file_path": "/repo/.env" }
+        "tool_input": {
+          "file_path": "/repo/.env"
+        }
       },
       "needsState": false
     },
@@ -41,7 +47,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Write",
-        "tool_input": { "file_path": "random-orphan.txt" }
+        "tool_input": {
+          "file_path": "random-orphan.txt"
+        }
       },
       "needsState": true,
       "note": "file_path must resolve against the scratch project root; a literal alone does not reproduce root detection."
@@ -53,7 +61,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "sleep 30" }
+        "tool_input": {
+          "command": "sleep 30"
+        }
       },
       "needsState": false
     },
@@ -64,7 +74,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Agent",
-        "tool_input": { "prompt": "Fix the login bug please, thanks." }
+        "tool_input": {
+          "prompt": "Fix the login bug please, thanks."
+        }
       },
       "needsState": false
     },
@@ -101,7 +113,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Agent",
-        "tool_input": { "prompt": "fix the scoring threshold" }
+        "tool_input": {
+          "prompt": "fix the scoring threshold"
+        }
       },
       "needsState": true,
       "note": "stateful: denies only on the 3rd identical retry under the same session id."
@@ -114,7 +128,7 @@
       "payload": {
         "tool_name": "Agent",
         "tool_input": {
-          "prompt": "Acordate de lo que hablamos antes y aplica el mismo criterio."
+          "prompt": "Como te dije antes, aplica el mismo criterio al nuevo archivo."
         }
       },
       "needsState": false
@@ -124,7 +138,12 @@
       "configKey": "warnSequentialDelegations",
       "enabledByDefault": false,
       "type": "warn",
-      "payload": { "tool_name": "Task", "tool_input": { "prompt": "do work" } },
+      "payload": {
+        "tool_name": "Task",
+        "tool_input": {
+          "prompt": "do work"
+        }
+      },
       "needsState": true,
       "note": "stateful: warns only on the 3rd consecutive delegation under one session."
     },
@@ -178,7 +197,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Agent",
-        "tool_input": { "prompt": "Nivel: STANDARD\nImplementa el checkout." }
+        "tool_input": {
+          "prompt": "Nivel: STANDARD\nImplementa el checkout."
+        }
       },
       "needsState": false
     },
@@ -189,7 +210,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Agent",
-        "tool_input": { "prompt": "Nivel: STANDARD\nImplementa el checkout." }
+        "tool_input": {
+          "prompt": "Nivel: STANDARD\nImplementa el checkout."
+        }
       },
       "needsState": false
     },
@@ -242,7 +265,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Agent",
-        "tool_input": { "prompt": "create a new script that checks X" }
+        "tool_input": {
+          "prompt": "create a new script that checks X"
+        }
       },
       "needsState": false
     },
@@ -267,7 +292,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "echo hi" }
+        "tool_input": {
+          "command": "echo hi"
+        }
       },
       "needsState": true,
       "note": "needs a project rules/ or .claude/skills gate script present that exits non-zero."
@@ -279,7 +306,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "echo hi" }
+        "tool_input": {
+          "command": "echo hi"
+        }
       },
       "needsState": true,
       "note": "needs .ai/reincidencias.json with an open class at/above threshold."
@@ -307,7 +336,11 @@
       "payload": {
         "tool_name": "AskUserQuestion",
         "tool_input": {
-          "questions": [{ "question": "Should I migrate the auth schema?" }]
+          "questions": [
+            {
+              "question": "Should I migrate the auth schema?"
+            }
+          ]
         }
       },
       "needsState": true,
@@ -334,10 +367,11 @@
       "enabledByDefault": true,
       "type": "warn",
       "payload": {
-        "tool_name": "Write",
+        "tool_name": "Edit",
         "tool_input": {
           "file_path": "/repo/src/config.js",
-          "content": "const REQUEST_TIMEOUT_MS = 30000;"
+          "old_string": "const REQUEST_TIMEOUT_MS = 30000;",
+          "new_string": "const REQUEST_TIMEOUT_MS = 60000;"
         }
       },
       "needsState": false
@@ -349,7 +383,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "git commit -m x" }
+        "tool_input": {
+          "command": "git commit -m x"
+        }
       },
       "needsState": true,
       "note": "needs a project package.json whose lint script exits non-zero."
@@ -384,7 +420,10 @@
       "type": "deny",
       "payload": {
         "tool_name": "Write",
-        "tool_input": { "file_path": "src/x.js", "content": "x" }
+        "tool_input": {
+          "file_path": "src/x.js",
+          "content": "x"
+        }
       },
       "needsState": true,
       "note": "needs a forge adoption marker + sqlite db with no active run."
@@ -396,7 +435,13 @@
       "type": "deny",
       "payload": {
         "tool_name": "AskUserQuestion",
-        "tool_input": { "questions": [{ "question": "A or B?" }] }
+        "tool_input": {
+          "questions": [
+            {
+              "question": "A or B?"
+            }
+          ]
+        }
       },
       "needsState": false
     },
@@ -434,7 +479,9 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "git commit -m \"wip\"" }
+        "tool_input": {
+          "command": "git commit -m \"wip\""
+        }
       },
       "needsState": true,
       "note": "needs a git repo with a staged lintable file that fails lint and a resolvable linter; a bare payload cannot reproduce the staged-file scan."
@@ -446,10 +493,55 @@
       "type": "deny",
       "payload": {
         "tool_name": "Bash",
-        "tool_input": { "command": "git commit -m \"stuff\"" }
+        "tool_input": {
+          "command": "git commit -m \"stuff\""
+        }
       },
       "needsState": true,
       "note": "needs a git repo with a staged set that mixes >maxNatures natures or exceeds maxFiles; a bare payload cannot reproduce the staged-file scan."
+    },
+    {
+      "id": "engram-first",
+      "configKey": "requireEngramBeforeResearch",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "WebSearch",
+        "tool_input": {
+          "query": "how to use zod refine"
+        },
+        "session_id": "smoke-engram-first"
+      },
+      "needsState": false
+    },
+    {
+      "id": "library-docs",
+      "configKey": "requireDocsBeforeUsingNewLibrary",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/schema.ts",
+          "content": "import { z } from 'zod';\n"
+        },
+        "session_id": "smoke-library-docs"
+      },
+      "needsState": false
+    },
+    {
+      "id": "no-explanatory-comments",
+      "configKey": "blockExplanatoryComments",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/a.mjs",
+          "content": "// reads the config and returns it\nexport const x = 1;\n"
+        }
+      },
+      "needsState": false
     }
   ]
 }

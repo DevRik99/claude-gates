@@ -42,10 +42,11 @@ test('a warn gate fed its violation is REACTED (warn)', () => {
     enabledByDefault: true,
     type: 'warn',
     payload: {
-      tool_name: 'Write',
+      tool_name: 'Edit',
       tool_input: {
-        file_path: '/repo/config.js',
-        content: 'const REQUEST_TIMEOUT_MS = 30000;',
+        file_path: 'config.js',
+        old_string: 'const REQUEST_TIMEOUT_MS = 30000;',
+        new_string: 'const REQUEST_TIMEOUT_MS = 60000;',
       },
     },
     needsState: false,
