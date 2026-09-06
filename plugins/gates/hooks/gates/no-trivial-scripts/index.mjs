@@ -24,10 +24,10 @@ const NODE_FILE_OPS =
   /\b(?:writeFileSync|appendFileSync|mkdirSync|unlinkSync|renameSync|copyFileSync|fs\.writeFile|fs\.appendFile|fs\.unlink|fs\.rename|fs\.mkdir|fs\.copyFile|createWriteStream)\b/;
 
 // Python inline doing file operations
-const PYTHON_EVAL_PATTERN =
-  /\b(?:python3?)\b(?:\s+-\S+)*?\s+(?:-c)\b/i;
+const PYTHON_EVAL_PATTERN = /\bpython3?\b(?:\s+-\S+)*?\s+-c\b/i;
+const PYTHON_OPEN_FOR_WRITING = /\bopen\s*\([^)]*,\s*['"][wax]/;
 const PYTHON_FILE_OPS =
-  /\b(?:open\s*\([^)]*,\s*['"][wax]|\.write\s*\(|shutil\.|os\.rename|os\.remove|os\.unlink|os\.makedirs|pathlib\.Path\b[^)]*\.write_text)\b/;
+  /\.write\s*\(|\bshutil\.|\bos\.(?:rename|remove|unlink|makedirs)\b|\bpathlib\.Path\b[^)]*\.write_text/;
 
 // sed/awk/perl inline edits — these are always file edits
 const SED_INLINE_PATTERN = /\bsed\s+(?:-[^;\s]*\s+)*-i/;
@@ -59,7 +59,10 @@ function checkCommand(command) {
   const pythonMatch = PYTHON_EVAL_PATTERN.exec(command);
   if (pythonMatch) {
     const afterEval = command.slice(pythonMatch.index + pythonMatch[0].length);
-    if (PYTHON_FILE_OPS.test(afterEval)) {
+    if (
+      PYTHON_OPEN_FOR_WRITING.test(afterEval) ||
+      PYTHON_FILE_OPS.test(afterEval)
+    ) {
       deny(CONFIG_KEY, `${REMEDY} (detected: inline Python file operation)`);
     }
   }

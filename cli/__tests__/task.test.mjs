@@ -45,9 +45,9 @@ function runCli(arguments_, cwd) {
   }
 }
 
-function addTask(project, title, extraArgs = []) {
+function addTask(project, title, extraArguments = []) {
   return runCli(
-    ['task', 'add', title, '--verify-command', 'echo ok', ...extraArgs],
+    ['task', 'add', title, '--verify-command', 'echo ok', ...extraArguments],
     project,
   );
 }

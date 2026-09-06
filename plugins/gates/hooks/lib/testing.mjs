@@ -53,7 +53,7 @@ export function runGateProcess(
   } = {},
 ) {
   const root = project ?? makeProject({ config, files });
-  const opts = {
+  const options = {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     encoding: 'utf8',
     cwd: cwd ?? root,
@@ -67,7 +67,7 @@ export function runGateProcess(
     timeout,
   };
   try {
-    const out = execFileSync(process.execPath, [gatePath], opts);
+    const out = execFileSync(process.execPath, [gatePath], options);
     const trimmed = out.trim();
     return trimmed ? JSON.parse(trimmed) : null;
   } catch (error) {

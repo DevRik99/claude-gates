@@ -29,7 +29,8 @@
     "enroll",
     "heredoc",
     "heredocs",
-    "unstaged"
+    "unstaged",
+    "inplace"
   ],
   "ignorePaths": ["node_modules/**", "package-lock.json"]
 }

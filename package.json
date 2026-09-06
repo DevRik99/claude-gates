@@ -1,7 +1,7 @@
 {
   "name": "@devrik-tools/claude-gates",
-  "version": "0.8.0",
-  "description": "Installable, deterministic gates (hooks) for Claude Code: block destructive commands, protected paths, and enforce delegation/spec/quality rules. Configurable per project.",
+  "version": "0.9.0",
+  "description": "49 installable, deterministic gates (hooks) for Claude Code: block destructive commands and protected paths, enforce delegation/spec/quality/research rules, and track tasks that only close with verified evidence. Configurable per project.",
   "keywords": [
     "claude-code",
     "hooks",
@@ -9,7 +9,8 @@
     "guardrails",
     "pretooluse",
     "policy-enforcement",
-    "ai-agent"
+    "ai-agent",
+    "task-tracking"
   ],
   "type": "module",
   "bin": {

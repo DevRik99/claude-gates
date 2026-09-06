@@ -571,6 +571,19 @@
         }
       },
       "needsState": false
+    },
+    {
+      "id": "no-trivial-scripts",
+      "configKey": "blockTrivialInlineScripts",
+      "enabledByDefault": true,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "sed -i 's/old/new/' src/a.mjs"
+        }
+      },
+      "needsState": false
     }
   ]
 }

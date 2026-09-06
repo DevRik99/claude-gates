@@ -30,7 +30,7 @@ npx @devrik-tools/claude-gates init
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
 
-> **¿Por qué dos cosas?** El plugin **siempre trae los 44 gates**; la configuración decide
+> **¿Por qué dos cosas?** El plugin **siempre trae los 49 gates**; la configuración decide
 > **cuáles se ejecutan**. Así puedes prender uno sin reinstalar: es una línea en un JSON.
 
 ---
@@ -67,7 +67,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 
 ---
 
-## Los gates (44, en 10 familias)
+## Los gates (49, en 11 familias)
 
 `[on]` = encendidos por defecto; `[off]` = los prendes si los quieres.
 
@@ -79,6 +79,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `protected-paths` | on | Bloquea escrituras a `.env`, lockfiles y el propio harness. |
 | `root-whitelist` | on | Bloquea crear archivos/carpetas nuevos en la raíz fuera de la lista blanca. |
 | `no-blocking` | off | Bloquea `sleep`, `tail -f`, bucles de sondeo y servidores en primer plano. |
+| `require-monitor` | on | Bloquea un comando en background (`run_in_background: true`) que no declara su monitor con el marcador `MONITOR-PLANNED:`, y bloquea cualquier ejecución posterior mientras quede un background sin monitorear. |
 
 ### 🤝 Delegation — exigencias sobre el brief al delegar a un subagente
 | Gate | | Qué hace |
@@ -88,6 +89,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `risk-level` | off | Exige declarar el nivel (QUESTION/MICRO/STANDARD/HIGH-RISK). |
 | `circuit-breaker` | off | Corta la misma delegación reintentada sin cambios reales. |
 | `no-memory-dependency` | off | Bloquea un brief que depende de que el subagente "recuerde" la conversación (marcador `memory-not-needed` para un falso positivo). |
+| `force-parallel` | on | Bloquea la enésima delegación secuencial consecutiva dentro de una ventana de tiempo: las delegaciones independientes se lanzan juntas en un solo mensaje (marcador `SEQUENTIAL-JUSTIFIED` cuando la segunda depende de verdad de la primera). |
 
 ### 📋 Spec-driven flow — solo aplican si el proyecto adoptó desarrollo por specs
 | Gate | | Qué hace |
@@ -118,6 +120,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `no-coauthor` | on | Bloquea un `git commit` que lleve un trailer de atribución de IA (`Co-Authored-By`, `Generated with`, un trailer de sesión). Marcador `[allow-coauthor]` para un co-autor legítimo. |
 | `no-lint-suppression` | on | Bloquea una escritura que silencia el linter/type-checker (`eslint-disable`, `@ts-ignore`, una regla en `off`) en vez de arreglar el código. Marcador `lint-ok: <razón>` en la misma línea para un falso positivo documentado. |
 | `no-explanatory-comments`   | on  | Bloquea una escritura de código que agrega comentarios que narran qué hace el código. Solo pasan comentarios de decisión (el porqué, un trade-off, una limitación), directivas de herramientas, `TODO`/`FIXME` y etiquetas JSDoc con tipo. Juzga solo comentarios nuevos (diff contra disco). `comment-ok: <razón>` para una excepción documentada. |
+| `no-trivial-scripts` | on | Bloquea un script inline de intérprete que hace una operación de archivos que las herramientas `Edit`/`Write` resuelven directo (`node -e` con `writeFileSync`, `python -c` con `open(…, 'w')`, `sed -i`, `perl -i`, `Set-Content`/`Add-Content`). Los scripts inline que solo computan no caen. |
 
 ### 🔎 Tool discovery — no reinventar la rueda
 | Gate | | Qué hace |
@@ -136,6 +139,26 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | Gate | | Qué hace |
 |---|---|---|
 | `forge-flow` | off | En un proyecto que adoptó [forge](https://github.com/DevRik99/forge-mcp), bloquea editar/ejecutar si no hay un run de forge activo. Cierra el hueco que el MCP no puede: te obliga a pasar por el pipeline. |
+
+### 🤖 Autonomy — que una corrida sin supervisión decida en vez de preguntar
+
+| Gate | | Qué hace |
+|---|---|---|
+| `autonomous-mode` | off | Con el modo autónomo prendido, bloquea `AskUserQuestion` y bloquea que el turno termine solo para esperar: reinyecta, una vez por ciclo, la instrucción de decidir y seguir, dejando pendiente solo lo que de verdad necesita al usuario. |
+
+### ⏹️ Completion — el turno no termina con trabajo abierto
+
+| Gate | | Qué hace |
+|---|---|---|
+| `stop-pending` | on | Bloquea el evento Stop mientras el proyecto tiene tareas activas (`open`/`in_forge`); las lista y explica cómo cerrarlas con evidencia verificada o abandonarlas. Las tareas `blocked` no retienen el turno por defecto. |
+| `require-task-split` | on | Bloquea escrituras y ejecución mientras una tarea activa más grande que `small` no tenga sub-tareas registradas: primero se parte en piezas verificables por separado (`task add --parent <id>`). |
+
+### 🗂️ Task tracking — el plugin de tareas
+
+| Gate | | Qué hace |
+|---|---|---|
+| `remind-open-tasks` | on | Hace que el asistente clasifique y registre el trabajo nuevo por el CLI, y recita las tareas activas cada N mensajes. |
+| `list-tasks-on-session-start` | on | Lista las tareas activas del proyecto al abrir una sesión. Silencioso si no hay ninguna. |
 
 ### 🩺 Sesión y contexto — validaciones al arrancar e inyección de capacidades
 | Gate | | Qué hace |
@@ -160,7 +183,7 @@ ves y editas cada perilla:
 ```json
 {
   "adopted": "partial",
-  "gateVersion": "3.0.0",
+  "gateVersion": "3.1.0",
   "gates": {
     "blockDestructiveShellCommands": {
       "enabled": true,
@@ -194,7 +217,9 @@ ves y editas cada perilla:
   commit), `lint-ok: <razón>` (un falso positivo documentado del linter), `[skip-lint]`
   (saltea el chequeo de staged-lint por un commit), `[wip]` (permite un commit
   deliberadamente amplio, no atómico), `comment-ok: <razón>` (un comentario explicativo que
-  debe quedarse). `dependency-skills` se exime vía su lista `depsWithoutOwnApi`.
+  debe quedarse), `SEQUENTIAL-JUSTIFIED` (una delegación que sí depende de la anterior),
+  `MONITOR-PLANNED:` (el comando en background declara cómo se va a monitorear).
+  `dependency-skills` se exime vía su lista `depsWithoutOwnApi`.
 - **Inyección de capacidades:** `capability-map` (on por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
   (`maxClauseChars`, default 120), agregá raíces extra por tipo, regulá cada cuánto se
@@ -231,17 +256,33 @@ El archivo rota una vez a los 5 MB (`gates-log.1.jsonl`). `CLAUDE_GATES_LOG=0` l
 
 ---
 
-## Tareas: cerrar exige evidencia verificada
+## Tareas: se registran con criterio y se cierran con evidencia verificada
 
-`task close` rechaza texto libre. Una tarea está hecha solo cuando una verificación pasa:
+Una tarea lleva su criterio de verificación **desde que se crea** — `task add` rechaza una
+tarea que nadie puede probar terminada — y `task close` rechaza texto libre: está hecha solo
+cuando la verificación pasa de verdad.
 
 ```bash
+# Registrar: el criterio es obligatorio (--verify-command o --verify-path)
+claude-gates task add "migrar el cargador de configuración" \
+  --size medium --verify-command "npm test" --verify-expect "fail 0"
+claude-gates task add "escribir la guía de migración" \
+  --parent <id> --verify-path docs/migration.md --verify-contains "## Upgrading"
+
+claude-gates task list [--all]        # tareas activas (o todo el historial)
+
+# Cerrar: sin --check/--exists, se vuelve a correr el criterio propio de la tarea
+claude-gates task close <id>
 claude-gates task close <id> --check "npm test" --expect "fail 0" --note "suite en verde"
 claude-gates task close <id> --exists dist/report.html --contains "All green"
 claude-gates task abandon <id> --reason "obsoleta"
+claude-gates task promote <id> <runId>   # vincula la tarea a un run de forge
 ```
 
-El resultado verificado (comando, código de salida, cola de la salida, fecha) queda guardado con la tarea.
+El resultado verificado (comando, código de salida, cola de la salida, fecha) queda guardado
+con la tarea. Dos gates se apoyan en este store: `require-task-split` bloquea implementar una
+tarea más grande que `small` sin sub-tareas, y `stop-pending` impide que el turno termine
+mientras queden tareas abiertas.
 
 ---
 
@@ -263,11 +304,27 @@ claude-gates status                   # on/off efectivo por gate y su origen (pr
 claude-gates log [--tail N] [--deny] [--gate id] [--since iso] [--json]
 claude-gates doctor                   # ¿Claude Code corre ESTA versión del paquete?
 
+# Tareas (el store que leen los gates de completion):
+claude-gates task add <título> --size <tamaño> --verify-command <cmd>|--verify-path <ruta> [--parent <id>]
+claude-gates task list [--all]
+claude-gates task close <id> [--check <cmd> --expect <texto>] [--exists <ruta> --contains <texto>]
+claude-gates task abandon <id> --reason <texto>
+claude-gates task promote <id> <runId>
+
 # Inspeccionar el catálogo:
 claude-gates registry --list          # lista familias y gates
 claude-gates registry --check         # valida registry.json y que hooks.json esté sincronizado
 claude-gates registry --sync-hooks    # regenera el hooks.json de cada plugin desde el registry
+
+# Verificar que los gates realmente reaccionan (no solo que están enganchados):
+claude-gates smoke                    # le da a cada gate una violación conocida; sale distinto de 0 si alguno no bloquea/avisa
 ```
+
+`smoke` es el chequeo de comportamiento que `registry --check` (estructura) y el hook doctor
+(que los archivos existan) no hacen: le da a cada gate una violación conocida y confirma que
+de verdad deniega o avisa. Los gates cuya violación necesita estado sembrado (una db, un repo
+git, estado entre llamadas) reportan `skip`, nunca un falso pase. Se corre después de
+instalar, o en CI, para detectar un gate enganchado que en silencio deja pasar todo.
 
 ---
 
@@ -285,7 +342,8 @@ plugins/gates/                    El plugin de gates.
   hooks/hooks.json                Generado desde registry.json (`registry --sync-hooks`). Lo carga Claude Code.
   hooks/lib/                      Código compartido de los hooks (Node built-ins only).
   hooks/gates/<id>/               Un gate por carpeta: index.mjs (la regla) + test.mjs (su test).
-plugins/tasks/                    El plugin de tareas (en construcción): persiste tareas por proyecto.
+plugins/tasks/                    El plugin de tareas: persiste tareas por proyecto, recuerda las abiertas
+                                  y las lista al arrancar la sesión.
 .claude-plugin/marketplace.json   Lista los plugins del marketplace.
 ```
 

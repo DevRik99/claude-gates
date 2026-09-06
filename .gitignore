@@ -14,6 +14,12 @@ forge-mcp.db*
 # paths — it is per-machine dev state, not source.
 .ai/tool-map.json
 
+# Decision log appended by the gates at runtime (and its rotation), plus the capability map
+# they persist: per-machine session state, not source.
+.ai/gates-log.jsonl
+.ai/gates-log.*.jsonl
+.ai/capability-map.json
+
 # Keep .ai/config.json (the repo's own gate config for developing the gates) tracked.
 # It disables the gates that false-positive when editing the gates themselves, so the
 # repo builds the same way on any machine. Everything else under .ai/ that is runtime

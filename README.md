@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 44 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 49 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -65,7 +65,7 @@ works even if you install one on its own.
 
 ---
 
-## The gates (in families)
+## The gates (49, in 11 families)
 
 `[on]` = enabled by default; `[off]` = enable it if you want it.
 
@@ -78,6 +78,7 @@ works even if you install one on its own.
 | `protected-paths`      | on  | Blocks writes to `.env`, lockfiles and the harness itself.                                                                                        |
 | `root-whitelist`       | on  | Blocks new root-level files/folders outside a whitelist.                                                                                          |
 | `no-blocking`          | off | Blocks `sleep`, `tail -f`, polling loops and foreground servers.                                                                                  |
+| `require-monitor`      | on  | Blocks a background command (`run_in_background: true`) that does not declare its monitor with a `MONITOR-PLANNED:` marker, and blocks further execution while an unmonitored background command is still pending. |
 
 ### 🤝 Delegation — requirements on the brief when delegating to a subagent
 
@@ -88,6 +89,7 @@ works even if you install one on its own.
 | `risk-level`            | off | Requires a declared level (QUESTION/MICRO/STANDARD/HIGH-RISK).                                                         |
 | `circuit-breaker`       | off | Cuts the same delegation retried without real changes.                                                                 |
 | `no-memory-dependency`  | off | Blocks a brief that relies on the subagent "remembering" the chat (add `memory-not-needed` to allow a false positive). |
+| `force-parallel`        | on  | Blocks the Nth consecutive sequential delegation inside a time window: independent delegations must be launched together in one message (add `SEQUENTIAL-JUSTIFIED` when the second one really depends on the first). |
 
 ### 📋 Spec-driven flow — only relevant if the project adopted spec-driven development
 
@@ -120,6 +122,7 @@ works even if you install one on its own.
 | `no-coauthor`               | on  | Blocks a `git commit` carrying an AI/agent attribution trailer (`Co-Authored-By`, `Generated with`, a session trailer). Add `[allow-coauthor]` for one legitimate co-author. |
 | `no-lint-suppression`       | on  | Blocks a write that silences the linter/type-checker (`eslint-disable`, `@ts-ignore`, a rule set to `off`) instead of fixing the code. Add `lint-ok: <reason>` on the same line for a documented false positive. |
 | `no-explanatory-comments`   | on  | Blocks a code write that adds comments narrating what the code does. Only decision comments (why, trade-off, limitation), tool directives, `TODO`/`FIXME` and typed JSDoc tags pass. Judges only new comments (diff against disk). Add `comment-ok: <reason>` for a documented exception. |
+| `no-trivial-scripts`        | on  | Blocks an inline interpreter script that does a file operation the `Edit`/`Write` tool handles directly (`node -e` with `writeFileSync`, `python -c` with `open(…, 'w')`, `sed -i`, `perl -i`, `Set-Content`/`Add-Content`). Inline scripts that only compute are not caught. |
 
 ### 🔎 Tool discovery — don't reinvent the wheel
 
@@ -140,6 +143,26 @@ works even if you install one on its own.
 | Gate         |     | What it does                                                                                                                                                                                            |
 | ------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `forge-flow` | off | In a project that adopted [forge](https://github.com/DevRik99/forge-mcp), blocks editing/running unless an active forge run exists. Closes the hole the MCP cannot: it forces you through the pipeline. |
+
+### 🤖 Autonomy — let an unattended run decide instead of asking
+
+| Gate               |     | What it does                                                                                                                                                                                                       |
+| ------------------ | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `autonomous-mode`  | off | With autonomous mode on, blocks `AskUserQuestion` and blocks a turn that ends only to wait: it re-injects, once per cycle, the instruction to decide and proceed, leaving pending only what genuinely needs the user. |
+
+### ⏹️ Completion — a turn does not end with work still open
+
+| Gate                 |     | What it does                                                                                                                                                                                     |
+| -------------------- | --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stop-pending`       | on  | Blocks the Stop event while this project has active tasks (`open`/`in_forge`); lists them and how to close them with verified evidence or abandon them. `blocked` tasks don't hold the turn by default. |
+| `require-task-split` | on  | Blocks writes and execution while an active task larger than `small` has no sub-tasks registered: split it into independently verifiable pieces first (`task add --parent <id>`).                     |
+
+### 🗂️ Task tracking — the tasks plugin
+
+| Gate                          |     | What it does                                                                                             |
+| ----------------------------- | --- | ---------------------------------------------------------------------------------------------------------- |
+| `remind-open-tasks`           | on  | Makes the assistant classify and register new work via the CLI, and recites the active tasks every N messages. |
+| `list-tasks-on-session-start` | on  | Lists this project's active tasks when a session opens. Silent when there are none.                          |
 
 ### 🩺 Session & context — startup checks and capability injection
 
@@ -165,7 +188,7 @@ see and edit every knob:
 ```json
 {
   "adopted": "partial",
-  "gateVersion": "3.0.0",
+  "gateVersion": "3.1.0",
   "gates": {
     "blockDestructiveShellCommands": {
       "enabled": true,
@@ -206,7 +229,9 @@ see and edit every knob:
   non-memory phrase), `[allow-coauthor]` (one legitimate co-author on a commit),
   `lint-ok: <reason>` (a documented linter false positive), `[skip-lint]` (skip the
   staged-lint check for one commit), `[wip]` (allow one deliberately broad,
-  non-atomic commit), `comment-ok: <reason>` (one explanatory comment that must stay).
+  non-atomic commit), `comment-ok: <reason>` (one explanatory comment that must stay),
+  `SEQUENTIAL-JUSTIFIED` (a delegation that genuinely depends on the previous one),
+  `MONITOR-PLANNED:` (the background command declares how it will be monitored).
   `dependency-skills` opts out via its `depsWithoutOwnApi` list.
 - **Capability injection:** `capability-map` (on by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
@@ -243,17 +268,33 @@ The file rotates once at 5 MB (`gates-log.1.jsonl`). Set `CLAUDE_GATES_LOG=0` to
 
 ---
 
-## Tasks: closing needs verified evidence
+## Tasks: registered with a criterion, closed with verified evidence
 
-`task close` refuses free text. A task is done only when a check passes:
+A task carries its verification criterion **from the moment it is created** — `task add`
+refuses a task nobody can prove done — and `task close` refuses free text: it is done only
+when the check actually passes.
 
 ```bash
+# Register: the criterion is mandatory (--verify-command or --verify-path)
+claude-gates task add "migrate the config loader" \
+  --size medium --verify-command "npm test" --verify-expect "fail 0"
+claude-gates task add "write the migration guide" \
+  --parent <id> --verify-path docs/migration.md --verify-contains "## Upgrading"
+
+claude-gates task list [--all]        # active tasks (or the whole history)
+
+# Close: with no --check/--exists, the task's own verify criterion is re-run
+claude-gates task close <id>
 claude-gates task close <id> --check "npm test" --expect "fail 0" --note "suite green"
 claude-gates task close <id> --exists dist/report.html --contains "All green"
 claude-gates task abandon <id> --reason "obsolete"
+claude-gates task promote <id> <runId>   # link the task to a forge run
 ```
 
 The verified result (command, exit code, output tail, timestamp) is stored with the task.
+Two gates lean on this store: `require-task-split` blocks implementing a task bigger than
+`small` that has no sub-tasks, and `stop-pending` blocks the turn from ending while tasks
+are still open.
 
 ---
 
@@ -274,6 +315,13 @@ claude-gates disable <gate|family|all> [--project|--global]
 claude-gates status                   # effective on/off per gate and its source (project/global/default)
 claude-gates log [--tail N] [--deny] [--gate id] [--since iso] [--json]
 claude-gates doctor                   # is Claude Code running THIS package version of the plugins?
+
+# Tasks (the store the completion gates read):
+claude-gates task add <title> --size <size> --verify-command <cmd>|--verify-path <path> [--parent <id>]
+claude-gates task list [--all]
+claude-gates task close <id> [--check <cmd> --expect <text>] [--exists <path> --contains <text>]
+claude-gates task abandon <id> --reason <text>
+claude-gates task promote <id> <runId>
 
 # Inspect the catalog:
 claude-gates registry --list          # list families and gates
@@ -306,7 +354,8 @@ plugins/gates/                    The gates plugin.
   hooks/hooks.json                Generated from registry.json (`registry --sync-hooks`). Loaded by Claude Code.
   hooks/lib/                      Shared hook code (Node built-ins only).
   hooks/gates/<id>/               One gate per folder: index.mjs (the rule) + test.mjs (its test).
-plugins/tasks/                    The tasks plugin (work in progress): persists per-project tasks.
+plugins/tasks/                    The tasks plugin: persists per-project tasks, reminds of the open ones
+                                  and lists them on session start.
 .claude-plugin/marketplace.json   Lists the marketplace plugins.
 ```
 
