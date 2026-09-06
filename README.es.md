@@ -298,6 +298,8 @@ npx @devrik-tools/claude-gates init
 
 # Sin menú (para CI o scripts):
 claude-gates init --project|--global  --defaults|--all|--none|--families a,b|--gates x,y  --yes  --dry-run
+claude-gates init --new               # SOLO los gates sobre los que esta config nunca decidió:
+                                      # actualizás sin volver a contestar ni tocar lo ya definido
 claude-gates init --no-install        # escribe la configuración pero no instala el plugin
 claude-gates init --force             # aplica cambios a gates ya presentes sin preguntar
 
@@ -332,8 +334,6 @@ instalar, o en CI, para detectar un gate enganchado que en silencio deja pasar t
 
 ---
 
-## Estructura del repositorio
-
 ## Artefactos generados
 
 Todo lo que un agente produce que **no es código fuente** — un chequeo determinista que
@@ -362,6 +362,8 @@ front matter, en el directorio equivocado, sin una sección obligatoria, o un ch
 `passed` cuya evidencia sigue siendo el placeholder generado).
 
 ---
+
+## Estructura del repositorio
 
 ```
 registry.json                     Catálogo: familias → gates (id, configKey, default, tools, params).

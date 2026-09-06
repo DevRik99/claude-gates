@@ -19,6 +19,7 @@ import {
 import { loadRegistry, allGates } from './registry.mjs';
 import {
   MODES,
+  newGatesFor,
   resolveSelection,
   adoptionOf,
   namedGatesFor,
@@ -32,6 +33,11 @@ const MODE_OPTIONS = [
     hint: 'gates marked default in the registry',
   },
   { value: MODES.ALL, label: 'Everything', hint: 'every gate in every family' },
+  {
+    value: MODES.NEW,
+    label: 'Only what is new',
+    hint: 'lists just the gates this config has never decided about',
+  },
   { value: MODES.FAMILIES, label: 'By family', hint: 'pick whole families' },
   { value: MODES.GRANULAR, label: 'Granular', hint: 'pick individual gates' },
   {
@@ -46,6 +52,7 @@ const MODE_BY_OPTION = {
   defaults: MODES.DEFAULTS,
   all: MODES.ALL,
   none: MODES.NONE,
+  new: MODES.NEW,
   families: MODES.FAMILIES,
   gates: MODES.GRANULAR,
 };
@@ -153,21 +160,89 @@ async function askGates(registry) {
   );
 }
 
+/**
+ * The "only what is new" prompt: the same grouped picker as `askGates`, but built from
+ * `newGatesFor` so nothing already decided in this config is even shown — the point is to
+ * adopt what a release added without re-answering, or accidentally flipping, the rest.
+ * Everything starts checked when it is a recommended default, matching the other pickers.
+ */
+async function askNewGates(io, registry, existingGates) {
+  const fresh = newGatesFor(registry, existingGates);
+  if (fresh.length === 0) return { picks: [], none: true };
+
+  const options = {};
+  for (const gate of fresh) {
+    const family = registry.families.find((entry) => entry.id === gate.family);
+    const label = family?.name ?? gate.family;
+    options[label] ??= [];
+    options[label].push({
+      value: gate.id,
+      label: gate.id,
+      hint: gate.description,
+    });
+  }
+  const picks = bail(
+    await io.groupMultiselect({
+      message: `${fresh.length} gate(s) this config has never decided about (space to toggle, enter to confirm)`,
+      options,
+      initialValues: fresh
+        .filter((gate) => gate.default)
+        .map((gate) => gate.id),
+      required: false,
+    }),
+  );
+  return { picks, none: false };
+}
+
 /** `claude plugin install <plugin>@<marketplace>`, read from the marketplace manifest, never hard-coded. */
 
 /** Fills in whatever the flags left undecided, asking only when there is a TTY. */
-async function decide(flags, registry, cwd, interactive) {
+/**
+ * Fills `picks.gates` for the "only what is new" mode. Needs the config that is about to be
+ * written, so it is resolved here rather than in the generic prompt step: the list of new
+ * gates is a function of what that file already decided. Scripted runs (`--new --yes`) take
+ * the new gates that are recommended defaults — "adopt what the release added" is the only
+ * sensible unattended reading of the mode.
+ */
+async function decideNewPicks(io, registry, path, interactive) {
+  const existingGates = readConfig(path).data.gates ?? {};
+  if (!interactive)
+    return {
+      picks: newGatesFor(registry, existingGates)
+        .filter((gate) => gate.default)
+        .map((gate) => gate.id),
+      none: newGatesFor(registry, existingGates).length === 0,
+    };
+  return askNewGates(io, registry, existingGates);
+}
+
+/** Fills the picks the FAMILIES/GRANULAR modes need, when a flag did not already supply them. */
+async function askPicksFor(mode, registry, picks, interactive) {
+  if (!interactive) return;
+  if (mode === MODES.FAMILIES && picks.families.length === 0)
+    picks.families = await askFamilies(registry);
+  if (mode === MODES.GRANULAR && picks.gates.length === 0)
+    picks.gates = await askGates(registry);
+}
+
+async function decide(flags, registry, cwd, interactive, io) {
   const scope =
     flags.scope ?? (interactive ? await askScope(cwd) : SCOPES.PROJECT);
   const mode = flags.mode ?? (interactive ? await askMode() : MODES.DEFAULTS);
   const picks = { families: flags.families, gates: flags.gates };
-  if (interactive && mode === MODES.FAMILIES && picks.families.length === 0) {
-    picks.families = await askFamilies(registry);
-  }
-  if (interactive && mode === MODES.GRANULAR && picks.gates.length === 0) {
-    picks.gates = await askGates(registry);
-  }
-  return { scope, mode, picks };
+  await askPicksFor(mode, registry, picks, interactive);
+
+  if (mode !== MODES.NEW || picks.gates.length > 0)
+    return { scope, mode, picks, nothingNew: false };
+
+  const fresh = await decideNewPicks(
+    io,
+    registry,
+    configPathFor(scope, { cwd }),
+    interactive,
+  );
+  picks.gates = fresh.picks;
+  return { scope, mode, picks, nothingNew: fresh.none };
 }
 
 function renderSummary(registry, gatesMap) {
@@ -330,12 +405,23 @@ export async function runInit(
 
   if (interactive) io.intro('claude-gates');
 
-  const { scope, mode, picks } = await decide(
+  const { scope, mode, picks, nothingNew } = await decide(
     flags,
     registry,
     cwd,
     interactive,
+    io,
   );
+  if (nothingNew) {
+    io.outro(
+      'Nothing new: this config already decides about every gate in the registry.',
+    );
+    return {
+      path: configPathFor(scope, { cwd }),
+      config: null,
+      written: false,
+    };
+  }
   const gates = resolveSelection(registry, mode, picks);
   const path = configPathFor(scope, { cwd });
   const existing = readConfig(path);

@@ -5,10 +5,18 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { SCOPES } from './config.mjs';
 import { MARKETPLACE_PATH, REPOSITORY_ROOT } from './constants.mjs';
+import { compareVersions, parsePluginList } from './doctor.mjs';
 
 const CLAUDE_BIN = 'claude';
+
+/** The version of THIS package — what an install is expected to leave behind. */
+function packageVersion() {
+  return JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8'))
+    .version;
+}
 
 // Config scope decides where the plugin is installed: a project selection stays local to
 // this project (its .claude/settings.json); a global selection installs for every project.
@@ -199,6 +207,47 @@ function removePreviousInstalls(targets, scope, runClaude) {
 }
 
 /**
+ * Whether the install ACTUALLY took, described as a problem string (null when it did).
+ *
+ * `claude plugin install` exiting 0 is not evidence that anything changed: a marketplace
+ * still serving a stale path, a plugin that resolves but is never enabled, or an update
+ * that silently no-ops all exit 0 too. Reporting success on the exit code alone is what
+ * produced the "it says it worked but nothing updated" failure — the installer claimed a
+ * result it had not checked, and only `doctor`, run separately and later, ever noticed.
+ *
+ * So the post-condition is read back from Claude Code itself: the plugin must now appear
+ * in `plugin list`, at a version not older than this package's. Reuses doctor's parser
+ * rather than a second one, so what install verifies and what doctor reports can never
+ * disagree. A verification that cannot run (no `claude` on PATH, unparseable output) is
+ * NOT treated as failure — that would turn a working install into a false alarm; only a
+ * definite mismatch is reported.
+ */
+function installationProblem(runClaude, plugin) {
+  let listed;
+  try {
+    listed = parsePluginList(runClaude(['plugin', 'list']));
+  } catch {
+    return null;
+  }
+  if (listed.length === 0) return null;
+
+  const found = listed.filter((entry) => entry.plugin === plugin);
+  if (found.length === 0)
+    return 'the install reported success but the plugin is not in `claude plugin list`';
+
+  const expected = packageVersion();
+  const stale = found.filter(
+    (entry) => entry.version && compareVersions(entry.version, expected) < 0,
+  );
+  if (stale.length === found.length)
+    return (
+      `still running ${stale[0].version} after installing ${expected} — the marketplace is ` +
+      'serving a stale copy. Run `claude plugin marketplace remove`, then re-run init from this package.'
+    );
+  return null;
+}
+
+/**
  * Registers the marketplace (idempotent: a second add just reports it already exists, which
  * is not fatal) once, then installs EVERY plugin the manifest declares at the scope matching
  * the config choice. A project that adopts claude-gates gets all of its plugins (gates,
@@ -259,10 +308,13 @@ export function installPlugin(
         '--scope',
         scope,
       ]);
-      return { plugin, installed: true };
     } catch (error) {
       return { plugin, installed: false, reason: reasonFor(error) };
     }
+    const problem = installationProblem(runClaude, plugin);
+    return problem
+      ? { plugin, installed: false, reason: problem }
+      : { plugin, installed: true };
   });
 
   const installed = results.every((result) => result.installed);

@@ -53,7 +53,8 @@ function withoutTrailingSlashes(text) {
   return text.slice(0, end).toLowerCase();
 }
 
-function compareVersions(a, b) {
+/** Semver-ish numeric compare, shared with install.mjs so both judge staleness alike. */
+export function compareVersions(a, b) {
   const left = String(a).split('.').map(Number);
   const right = String(b).split('.').map(Number);
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {

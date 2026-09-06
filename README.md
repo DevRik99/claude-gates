@@ -339,6 +339,8 @@ npx @devrik-tools/claude-gates init
 
 # Non-interactive (for CI or scripts):
 claude-gates init --project|--global  --defaults|--all|--none|--families a,b|--gates x,y  --yes  --dry-run
+claude-gates init --new               # ONLY gates this config never decided about — upgrade
+                                      # without re-answering or changing anything already set
 claude-gates init --no-install        # write the config but do not install the plugin
 claude-gates init --force             # apply changes to gates already in the file without asking
 

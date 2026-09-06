@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { loadRegistry, validateRegistry, allGates } from '../registry.mjs';
 import {
   MODES,
+  namedGatesFor,
+  newGatesFor,
   resolveSelection,
   adoptionOf,
   summarize,
@@ -197,4 +199,49 @@ test('summarize counts per family', () => {
       .filter((row) => row.family !== 'security')
       .every((row) => row.enabled.length === 0),
   );
+});
+
+// ── MODES.NEW: adopt what a release added, without touching what is already decided ──
+test('newGatesFor lists only gates the config has never decided about', () => {
+  const every = allGates(registry);
+  const decided = { [every[0].configKey]: true, [every[1].configKey]: false };
+
+  const fresh = newGatesFor(registry, decided);
+  const freshKeys = new Set(fresh.map((gate) => gate.configKey));
+
+  assert.equal(fresh.length, every.length - 2);
+  assert.ok(!freshKeys.has(every[0].configKey), 'an enabled gate is decided');
+  assert.ok(
+    !freshKeys.has(every[1].configKey),
+    'a gate explicitly set to false is DECIDED, not new — offering it again is how a ' +
+      'deliberate opt-out gets undone by an upgrade',
+  );
+});
+
+test('newGatesFor with an empty config treats every gate as new', () => {
+  assert.equal(newGatesFor(registry, {}).length, allGates(registry).length);
+  assert.equal(
+    newGatesFor(registry, undefined).length,
+    allGates(registry).length,
+  );
+});
+
+test('MODES.NEW may only change the gates it explicitly picked', () => {
+  const picked = allGates(registry)[0];
+  const named = namedGatesFor(registry, MODES.NEW, { gates: [picked.id] });
+
+  assert.deepEqual([...named], [picked.configKey]);
+});
+
+test('MODES.NEW resolves the picked gates on, everything else off', () => {
+  const picked = allGates(registry)[0];
+  const resolved = resolveSelection(registry, MODES.NEW, {
+    gates: [picked.id],
+  });
+
+  assert.equal(resolved[picked.configKey], true);
+  const others = Object.entries(resolved).filter(
+    ([key]) => key !== picked.configKey,
+  );
+  assert.ok(others.every(([, enabled]) => enabled === false));
 });

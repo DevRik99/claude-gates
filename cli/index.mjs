@@ -182,6 +182,10 @@ program
   .option('--all', 'enable every gate')
   .option('--none', "record a 'no' so you are not asked again")
   .option(
+    '--new',
+    'only gates this config has never decided about; nothing already in the file is shown, asked about or changed',
+  )
+  .option(
     '--families <ids>',
     'enable whole families, comma-separated',
     splitList,
@@ -274,9 +278,6 @@ program
   )
   .action(() => smokeGates());
 
-registerTaskCommand(program);
-
-program.parseAsync(process.argv).catch((error) => fail(error.message));
 // Width the kind name is padded to in `new --help`, so the summaries line up.
 const ARTIFACT_KIND_COLUMN_WIDTH = 6;
 
@@ -318,3 +319,6 @@ program
   .option('--force', 'overwrite an existing file')
   .action((kind, slug, options) => newArtifact(kind, slug, options));
 
+registerTaskCommand(program);
+
+program.parseAsync(process.argv).catch((error) => fail(error.message));

@@ -4,6 +4,7 @@
 // `claude` binary, which would actually install plugins on the machine running the test.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -223,4 +224,81 @@ test('installPlugin degrades gracefully when the claude binary is entirely unrea
   assert.ok(
     result.results.every((entry) => /not found on PATH/.test(entry.reason)),
   );
+});
+
+// ── The install must VERIFY, not just trust the exit code ───────────────────────────
+// `claude plugin install` exiting 0 proved nothing: a stale marketplace, a plugin that
+// never got enabled, or a no-op update all exit 0 too, and installPlugin reported success
+// for every one of them. That is the "it says it worked but nothing updated" report.
+
+const PACKAGE_VERSION = JSON.parse(
+  readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8'),
+).version;
+
+/** A fake `claude` whose `plugin list` returns exactly the entries given. */
+function claudeListing(entries) {
+  const listing = entries
+    .map(
+      (entry) =>
+        `${entry.plugin}@claude-gates\n  Version: ${entry.version}\n  Scope: user`,
+    )
+    .join('\n');
+  return (arguments_) =>
+    arguments_[0] === 'plugin' && arguments_[1] === 'list' ? listing : '';
+}
+
+test('install exiting 0 while the plugin never appears is reported as NOT installed', () => {
+  const result = installPlugin(SCOPES.GLOBAL, {
+    cwd: REPOSITORY_ROOT,
+    runClaude: claudeListing([{ plugin: 'something-else', version: '9.9.9' }]),
+  });
+
+  assert.equal(result.installed, false);
+  for (const entry of result.results) {
+    assert.equal(
+      entry.installed,
+      false,
+      `${entry.plugin} must not claim success`,
+    );
+    assert.match(entry.reason, /not in `claude plugin list`/);
+  }
+});
+
+test('install that leaves an OLDER version behind is reported as NOT installed', () => {
+  const result = installPlugin(SCOPES.GLOBAL, {
+    cwd: REPOSITORY_ROOT,
+    runClaude: claudeListing([
+      { plugin: 'gates', version: '0.0.1' },
+      { plugin: 'tasks', version: '0.0.1' },
+    ]),
+  });
+
+  assert.equal(result.installed, false);
+  assert.match(result.results[0].reason, /still running 0\.0\.1/);
+  assert.match(result.results[0].reason, /stale copy/);
+});
+
+test('install that leaves the current version behind is reported as installed', () => {
+  const result = installPlugin(SCOPES.GLOBAL, {
+    cwd: REPOSITORY_ROOT,
+    runClaude: claudeListing([
+      { plugin: 'gates', version: PACKAGE_VERSION },
+      { plugin: 'tasks', version: PACKAGE_VERSION },
+    ]),
+  });
+
+  assert.equal(result.installed, true);
+});
+
+test('an unverifiable install is not turned into a false alarm', () => {
+  // `claude` unavailable / unparseable output: the verification must stay silent rather
+  // than report a working install as broken.
+  const result = installPlugin(SCOPES.GLOBAL, {
+    cwd: REPOSITORY_ROOT,
+    runClaude: (arguments_) => {
+      if (arguments_[1] === 'list') throw new Error('claude: not found');
+      return '';
+    },
+  });
+  assert.equal(result.installed, true);
 });

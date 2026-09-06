@@ -10,7 +10,24 @@ export const MODES = Object.freeze({
   GRANULAR: 'granular',
   DEFAULTS: 'defaults',
   NONE: 'none',
+  /**
+   * Only what this config has never decided about. Resolves exactly like GRANULAR — by the
+   * time picks arrive the user has already chosen from a list narrowed to the new gates —
+   * but the caller builds that list with `newGatesFor`, so an upgrade can adopt what a
+   * release added without re-answering, or silently flipping, anything already in the file.
+   */
+  NEW: 'new',
 });
+
+/**
+ * The gates a config has never decided about: no entry under `gates` for their configKey.
+ * An entry set to `false` counts as DECIDED — the user turned it off on purpose, and
+ * offering it again as "new" would be how a deliberate opt-out gets undone by an upgrade.
+ */
+export function newGatesFor(registry, existingGates = {}) {
+  const decided = new Set(Object.keys(existingGates ?? {}));
+  return allGates(registry).filter((gate) => !decided.has(gate.configKey));
+}
 
 function assertKnown(chosen, known, kind) {
   const unknown = [...chosen].filter((id) => !known.has(id));
@@ -34,6 +51,11 @@ const STRATEGIES = {
     return new Set(
       gates.filter((gate) => chosen.has(gate.family)).map((gate) => gate.id),
     );
+  },
+  [MODES.NEW]: (gates, _registry, picks) => {
+    const chosen = new Set(picks.gates ?? []);
+    assertKnown(chosen, new Set(gates.map((gate) => gate.id)), 'gate');
+    return chosen;
   },
   [MODES.GRANULAR]: (gates, _registry, picks) => {
     const chosen = new Set(picks.gates ?? []);
@@ -93,7 +115,7 @@ export function namedGatesFor(registry, mode, picks = {}) {
     const chosen = new Set(picks.families ?? []);
     return keysOf((gate) => chosen.has(gate.family));
   }
-  if (mode === MODES.GRANULAR) {
+  if (mode === MODES.GRANULAR || mode === MODES.NEW) {
     const chosen = new Set(picks.gates ?? []);
     return keysOf((gate) => chosen.has(gate.id));
   }
