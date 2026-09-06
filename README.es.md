@@ -334,6 +334,35 @@ instalar, o en CI, para detectar un gate enganchado que en silencio deja pasar t
 
 ## Estructura del repositorio
 
+## Artefactos generados
+
+Todo lo que un agente produce que **no es código fuente** — un chequeo determinista que
+escribió para que veas si algo funciona, una auditoría de lo que ya existe, una nota
+explicando qué hizo — tiene una sola forma y un solo lugar, así se encuentra por convención
+y se valida en CI en vez de caer donde al modelo se le ocurra.
+
+```bash
+claude-gates new check mi-afirmacion --title "..." --source "qué pidió esto"
+```
+
+| Tipo    | Vive en       | Para                                                                 |
+| ------- | ------------- | ---------------------------------------------------------------------- |
+| `check` | `.ai/checks/` | Una afirmación verificable: el comando, qué debe imprimir, y la evidencia que realmente imprimió. |
+| `audit` | `.ai/audits/` | Mirar antes de construir: buscado / existe / falta / decisión.       |
+| `note`  | `.ai/notes/`  | Razonamiento que si no quedaría solo en el chat.                     |
+
+Cuando la misma cosa sale mal dos veces, el registro es dato y no documento: se anota la
+**clase** de defecto en `.ai/reincidencias.json`, que `recurrence-lock` lee para bloquear
+trabajo mutante hasta que la clase se cierre de raíz.
+
+El contrato es `cli/artifacts.mjs`; las reglas completas están en
+[`.ai/README.md`](./.ai/README.md). Dos tests lo sostienen — uno cubre el módulo, el otro
+recorre el árbol `.ai/` real de este repo y falla ante cualquier artefacto desviado (sin
+front matter, en el directorio equivocado, sin una sección obligatoria, o un check marcado
+`passed` cuya evidencia sigue siendo el placeholder generado).
+
+---
+
 ```
 registry.json                     Catálogo: familias → gates (id, configKey, default, tools, params).
                                   Es la única fuente de verdad; el menú y los hooks derivan de él.

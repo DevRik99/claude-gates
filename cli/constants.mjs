@@ -23,6 +23,20 @@ export const CONFIG_FILE = 'config.json';
 /** Markers that identify a project root while climbing from the cwd. */
 export const PROJECT_ROOT_MARKERS = ['.git', PROJECT_STATE_DIRECTORY];
 
+/**
+ * Where each kind of GENERATED artifact lives, relative to the project's `.ai/` root.
+ * Declared here (not inside artifacts.mjs) for the same reason every other path is: one
+ * place to read, one place to change. These four directories are the whole answer to
+ * "where does this go" — an artifact that fits no kind does not get invented a home.
+ */
+export const ARTIFACT_DIRECTORIES = Object.freeze({
+  check: 'checks',
+  audit: 'audits',
+  note: 'notes',
+});
+export const RECURRENCES_FILE = 'reincidencias.json';
+export const ARTIFACT_EXTENSION = '.md';
+
 /** Global-scope config lives under Claude Code's own user directory. */
 export const CLAUDE_USER_DIRECTORY = '.claude';
 export const GLOBAL_STATE_DIRECTORY = 'claude-gates';

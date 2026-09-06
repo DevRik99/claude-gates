@@ -2,10 +2,17 @@
 // Entry point (commander). Commands:
 //   init      interactive (or flag-driven) selection of gates, per project or globally
 //   registry  --check validates registry.json; --list prints the catalog
+//   new       scaffold a generated artifact (check/audit/note) in the standard shape
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { Command } from 'commander';
+import {
+  ARTIFACT_KINDS,
+  KINDS,
+  artifactPathFor,
+  renderArtifact,
+} from './artifacts.mjs';
 import { SCOPES, configPathFor } from './config.mjs';
 import {
   EXIT_CODE,
@@ -270,3 +277,44 @@ program
 registerTaskCommand(program);
 
 program.parseAsync(process.argv).catch((error) => fail(error.message));
+// Width the kind name is padded to in `new --help`, so the summaries line up.
+const ARTIFACT_KIND_COLUMN_WIDTH = 6;
+
+function kindHelp() {
+  return ARTIFACT_KINDS.map(
+    (kind) =>
+      `  ${kind.padEnd(ARTIFACT_KIND_COLUMN_WIDTH)} ${KINDS[kind].summary}`,
+  ).join('\n');
+}
+
+function newArtifact(kind, slug, options) {
+  if (!ARTIFACT_KINDS.includes(kind))
+    return fail(`unknown kind "${kind}". Known kinds:\n${kindHelp()}`);
+  const title = options.title ?? slug.replaceAll('-', ' ');
+  const source = options.source ?? 'unspecified';
+
+  let relativePath;
+  try {
+    relativePath = artifactPathFor(kind, slug);
+  } catch (error) {
+    return fail(error.message);
+  }
+  const path = join(process.cwd(), relativePath);
+  if (existsSync(path) && !options.force)
+    return fail(`${relativePath} already exists. Pass --force to overwrite.`);
+
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, renderArtifact({ kind, slug, title, source }), 'utf8');
+  process.stdout.write(`Wrote ${relativePath}\n`);
+}
+
+program
+  .command('new <kind> <slug>')
+  .description(
+    `Create a generated artifact with the standard shape. Kinds:\n${kindHelp()}`,
+  )
+  .option('--title <text>', 'one-line title (default: the slug, spaced)')
+  .option('--source <text>', 'what asked for this artifact')
+  .option('--force', 'overwrite an existing file')
+  .action((kind, slug, options) => newArtifact(kind, slug, options));
+

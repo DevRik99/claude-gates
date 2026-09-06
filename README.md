@@ -256,6 +256,35 @@ see and edit every knob:
 
 ---
 
+## Generated artifacts
+
+Everything an agent produces that is **not source code** — a deterministic check it wrote
+so you can see whether something works, an audit of what already exists, a note explaining
+what it did — has one shape and one home, so it can be found by convention and validated
+in CI instead of landing wherever the model felt like.
+
+```bash
+claude-gates new check my-claim --title "..." --source "what asked for this"
+```
+
+| Kind    | Lives in      | For                                                              |
+| ------- | ------------- | ------------------------------------------------------------------ |
+| `check` | `.ai/checks/` | One verifiable claim: the command, what it must print, the evidence it actually printed. |
+| `audit` | `.ai/audits/` | Looking before building: searched / exists / missing / decision.  |
+| `note`  | `.ai/notes/`  | Reasoning that would otherwise live only in a chat log.           |
+
+When the same thing goes wrong twice, the record is data rather than a document: register
+the defect **class** in `.ai/reincidencias.json`, which `recurrence-lock` reads to block
+mutating work until the class is closed at the root.
+
+The contract is `cli/artifacts.mjs`; the full rules are in
+[`.ai/README.md`](./.ai/README.md). Two tests keep it honest — one covers the module, the
+other walks this repo's own `.ai/` tree and fails on any artifact that drifted (missing
+front matter, wrong directory, a missing section, or a check marked `passed` whose
+evidence is still the generated placeholder).
+
+---
+
 ## Decision log
 
 Every deny, warn and Stop-block is appended as one JSON line to

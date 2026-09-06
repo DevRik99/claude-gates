@@ -25,7 +25,9 @@ forge-mcp.db*
 # repo builds the same way on any machine. Everything else under .ai/ that is runtime
 # state is ignored above.
 
-# Worker residue, not source
+# Worker residue from before the artifact standard. Their content now lives under
+# .ai/checks|audits|notes, which ARE tracked on purpose: an audit result or the
+# evidence behind a check is worth keeping precisely so it is not redone.
 .ai/features/
 GATES.md
 
