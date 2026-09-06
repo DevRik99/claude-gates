@@ -414,6 +414,14 @@
       "note": "side-effect only: records to .ai/tool-map.json, never denies/warns."
     },
     {
+      "id": "skill-first",
+      "configKey": "requireSkillCheckBeforeActing",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": null,
+      "needsState": true
+    },
+    {
       "id": "forge-flow",
       "configKey": "requireForgeRunToEdit",
       "enabledByDefault": true,

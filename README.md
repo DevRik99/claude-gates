@@ -29,7 +29,7 @@ npx @devrik-tools/claude-gates init
 
 Restart the Claude Code session (or run `/plugin`) so the hooks load.
 
-> **Why two things?** The plugin **always ships all 49 gates**; the config decides **which
+> **Why two things?** The plugin **always ships all 50 gates**; the config decides **which
 > ones run**. So you can turn one on without reinstalling — it is one line in a JSON file.
 
 ---
@@ -65,7 +65,7 @@ works even if you install one on its own.
 
 ---
 
-## The gates (49, in 11 families)
+## The gates (50, in 11 families)
 
 `[on]` = enabled by default; `[off]` = enable it if you want it.
 
@@ -130,6 +130,7 @@ works even if you install one on its own.
 | -------------------- | --- | ------------------------------------------------------------------------------------------------------------ |
 | `reuse-before-build` | off | Before building a tool, consults the project tool map; blocks if you did not audit (local → Context7 → web). |
 | `tool-map`           | off | Records discovered tools in `.ai/tool-map.json` so exploration is not repeated.                              |
+| `skill-first`        | off | Blocks a write/command/delegation an available **skill** plausibly covers until the question was asked: load the skill, or say why it does not fit (`no skill covers this` / `using the <name> skill`). Reads the same catalog `capability-map` injects. |
 
 ### 🧠 Research flow — memory first, never guess a library
 
@@ -232,12 +233,15 @@ see and edit every knob:
   non-atomic commit), `comment-ok: <reason>` (one explanatory comment that must stay),
   `SEQUENTIAL-JUSTIFIED` (a delegation that genuinely depends on the previous one),
   `MONITOR-PLANNED:` (the background command declares how it will be monitored).
-  `dependency-skills` opts out via its `depsWithoutOwnApi` list.
+  `dependency-skills` opts out via its `depsWithoutOwnApi` list. `skill-first` clears on
+  one sentence in the content/prompt: `no skill covers this`, or `using the <name> skill`.
 - **Capability injection:** `capability-map` (on by default) is fully tunable — pick which
   kinds to surface (`"kinds": ["skills", "agents", "commands"]`), cap each blurb
   (`maxClauseChars`, default 120), add extra roots per kind, throttle how often the full
   catalog is re-injected (`injectEveryMessages`, default 10 — the persisted map file itself
-  still refreshes every message), or turn off persistence (`"persist": false`) and point the
+  still refreshes every message; the catalog is ALSO re-injected mid-throttle whenever the
+  prompt's kind of work changes, e.g. debugging → releasing, which you can turn off with
+  `"reinjectOnWorkNatureChange": false`), or turn off persistence (`"persist": false`) and point the
   map file elsewhere (`mapFile`). Skills are also scanned by default under `~/.agents/skills`,
   `<project>/.agents/skills`, `~/.ai/skills` and `<project>/.ai/skills` (skill-only roots some
   installers use besides `.claude/skills` — no config needed), in addition to any

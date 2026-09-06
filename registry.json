@@ -838,6 +838,59 @@
               "description": "Regex sources; a file whose basename matches any is a helper regardless of folder."
             }
           ]
+        },
+        {
+          "id": "skill-first",
+          "configKey": "requireSkillCheckBeforeActing",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["execution", "delegation"],
+          "script": "gates/skill-first/index.mjs",
+          "extraScripts": [
+            {
+              "event": "PostToolUse",
+              "script": "gates/skill-first/track.mjs",
+              "tools": ["skill"]
+            }
+          ],
+          "description": "Denies a write, command or delegation that an available skill plausibly covers until the question was asked: load the skill (the Skill tool, recorded by its tracker), or state the decision in the content/prompt (\"using the <name> skill\", \"no skill covers this\"). Relevance is lexical over the same catalog capability-map injects: the action names the skill, or shares minTokenOverlap distinctive tokens with its description. Silent when nothing matches.",
+          "params": [
+            {
+              "name": "kinds",
+              "type": "string[]",
+              "description": "Which capability kinds are judged for relevance: skills, agents, commands. Default skills only."
+            },
+            {
+              "name": "minTokenOverlap",
+              "type": "number",
+              "description": "How many distinctive tokens an action must share with a capability's description to count as relevant. Raise it to make the gate quieter. Default 3."
+            },
+            {
+              "name": "maxMatches",
+              "type": "number",
+              "description": "How many relevant capabilities the deny message lists. Default 3."
+            },
+            {
+              "name": "minTextChars",
+              "type": "number",
+              "description": "Actions with less text than this are never judged (a bare command has nothing to match). Default 40."
+            },
+            {
+              "name": "extraSkillsDirs",
+              "type": "string[]",
+              "description": "Extra skill roots scanned in addition to the default project and home roots."
+            },
+            {
+              "name": "extraAgentsDirs",
+              "type": "string[]",
+              "description": "Extra agent roots, used only when 'agents' is in kinds."
+            },
+            {
+              "name": "extraCommandsDirs",
+              "type": "string[]",
+              "description": "Extra command roots, used only when 'commands' is in kinds."
+            }
+          ]
         }
       ]
     },
@@ -1095,6 +1148,11 @@
               "name": "blurbOverridesFile",
               "type": "string",
               "description": "Path, relative to the project root, of a JSON map name -> hand-written blurb (default .ai/blurb-overrides.json)."
+            },
+            {
+              "name": "reinjectOnWorkNatureChange",
+              "type": "boolean",
+              "description": "Re-inject the catalog when the prompt's kind of work changes (debug -> design -> release), not only when the catalog itself changed. Default true; set false to fall back to the throttle alone."
             }
           ],
           "timeoutSeconds": 10

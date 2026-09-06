@@ -372,6 +372,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__ide__executeCode|Agent|Task|invoke_subagent|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/skill-first/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "WebSearch|WebFetch|mcp__.*",
         "hooks": [
           {
@@ -429,6 +439,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/circuit-breaker/track.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Skill|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/skill-first/track.mjs\"",
             "timeout": 30
           }
         ]

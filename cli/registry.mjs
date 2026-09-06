@@ -22,6 +22,7 @@ export const TOOL_GROUPS = [
   'question',
   'research',
   'monitor',
+  'skill',
 ];
 
 /** The kinds of value a gate param can take, so the CLI can describe and validate it. */

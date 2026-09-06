@@ -60,6 +60,9 @@ export const TOOL_GROUPS = Object.freeze({
   research: ['WebSearch', 'WebFetch'],
   // Observation tool for background processes.
   monitor: ['Monitor'],
+  // Loading a packaged capability. Tracked (not blocked) so a gate can tell whether the
+  // model actually reached for a skill during this session.
+  skill: ['Skill'],
 });
 
 /** Every concrete tool name a set of groups expands to, de-duplicated. */
@@ -94,6 +97,7 @@ const MCP_GROUP_SIGNALS = Object.freeze({
     /(?:write|edit|create|append|patch|replace|insert|modify|save|update|shell|bash|exec|run|command|terminal|process|spawn|cmd|powershell|sh)/i,
   research: /(?:search|fetch|browse|docs|documentation|library|lookup|query)/i,
   monitor: /(?:monitor|observe|watch|stream|tail|follow|subscribe)/i,
+  skill: /(?:skill|capability|playbook)/i,
 });
 
 const MCP_TOOL_PREFIX = 'mcp__';

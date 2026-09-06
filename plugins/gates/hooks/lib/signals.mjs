@@ -175,3 +175,94 @@ export function isBuildIntent(text) {
   }
   return false;
 }
+
+// ── WORK_NATURE: what KIND of work a prompt is asking for ───────────────────────────
+// Used by capability-map to answer "did the nature of the work change?" — the trigger the
+// catalog injection was missing. Its previous re-injection rule fired only when the
+// CATALOG changed on disk, so a session that pivoted from debugging to designing kept
+// whatever stale reminder the throttle had last emitted.
+//
+// This is a coarse lexical classifier, and deliberately so: a wrong answer costs one
+// extra (harmless, never-blocking) injection of a catalog the model can ignore, so the
+// bar for a term is "does it usually signal this kind of work", not certainty. Order
+// matters for ties — the more specific natures are declared before the generic ones,
+// because `implement`'s verbs (write/create/add) also appear inside every other nature.
+
+const WORK_NATURE_TERMS = [
+  [
+    'debug',
+    'debug|debugg\\p{L}*|depur\\p{L}*|bug|bugs|error|errores|falla|fallas|fallando|' +
+      'broken|roto|rota|crash|crashes|traceback|stacktrace|reproduce|reproducir|' +
+      'arregl\\p{L}*|corrig\\p{L}*|corregir|fix|fixes|fixing|diagnos\\p{L}*',
+  ],
+  [
+    'test',
+    'test|tests|testing|prueba|pruebas|probar|spec|specs|coverage|cobertura|' +
+      'assert|asserts|asercion\\p{L}*|jest|vitest|mocha|pytest|e2e|fixture|fixtures',
+  ],
+  [
+    'review',
+    'review|reviews|revis\\p{L}*|auditor\\p{L}*|audit|audita|lint|linter|' +
+      'code review|pull request|diff',
+  ],
+  [
+    'release',
+    'deploy|desplieg\\p{L}*|release|publica|publicar|publish|ship|version|versionar|' +
+      'changelog|commit|merge|tag|rollout',
+  ],
+  [
+    'refactor',
+    'refactor\\p{L}*|simplif\\p{L}*|clean up|limpi\\p{L}*|renombr\\p{L}*|rename|' +
+      'extract|extraer|deduplicat\\p{L}*|reorganiz\\p{L}*|migrate|migrar',
+  ],
+  [
+    'design',
+    'design|dise[nñ]\\p{L}*|mockup|wireframe|layout|maqueta|estilo|estilos|' +
+      'css|tailwind|figma|paleta|palette|tipograf\\p{L}*|responsive',
+  ],
+  [
+    'docs',
+    'readme|changelog|documenta\\p{L}*|documentation|docstring|tutorial|guide|gu[ií]a|' +
+      'manual|comentar|comment|comments',
+  ],
+  [
+    'research',
+    'research|investig\\p{L}*|explor\\p{L}*|explore|averigu\\p{L}*|analiz\\p{L}*|' +
+      'analyze|analysis|compare|comparar|evalu\\p{L}*|study|estudiar|find out|' +
+      'entender|understand|search|buscar',
+  ],
+  [
+    'implement',
+    'implement\\p{L}*|build|construi\\p{L}*|construye|create|crear|crea|' +
+      'write|escrib\\p{L}*|add|agreg\\p{L}*|a[nñ]ad\\p{L}*|feature|funcionalidad|' +
+      'endpoint|componente|component|integra\\p{L}*',
+  ],
+];
+
+const GENERAL_WORK_NATURE = 'general';
+
+const WORK_NATURE_PATTERNS = WORK_NATURE_TERMS.map(([nature, terms]) => [
+  nature,
+  new RegExp(withUnicodeWordBoundary(terms).source, 'giu'),
+]);
+
+/**
+ * The dominant kind of work a text is asking for, or 'general' when nothing matches.
+ * Scored by how many nature terms occur, so a passing mention loses to a sustained one;
+ * ties go to whichever nature is declared first (most specific wins).
+ */
+export function workNatureOf(text) {
+  const source = String(text ?? '');
+  if (!source.trim()) return GENERAL_WORK_NATURE;
+  let best = GENERAL_WORK_NATURE;
+  let bestScore = 0;
+  for (const [nature, pattern] of WORK_NATURE_PATTERNS) {
+    pattern.lastIndex = 0;
+    const score = [...source.matchAll(pattern)].length;
+    if (score > bestScore) {
+      best = nature;
+      bestScore = score;
+    }
+  }
+  return best;
+}

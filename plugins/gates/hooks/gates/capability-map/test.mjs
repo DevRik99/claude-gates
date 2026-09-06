@@ -446,3 +446,65 @@ test('dump-defaults protocol: prints the descriptor with every param', () => {
   assert.equal(descriptor.defaultParams.injectEveryMessages, 10);
   assert.ok(descriptor.defaultParams.blurbOverridesFile);
 });
+
+// ── Re-injection when the KIND of work changes ──────────────────────────────────────
+const THROTTLED = {
+  gates: { injectCapabilityMap: { enabled: true, injectEveryMessages: 50 } },
+};
+
+test('a prompt that pivots to a different kind of work re-injects mid-throttle', () => {
+  const project = makeProject({ prefix: 'capability-map-', config: THROTTLED });
+  seedProject(project, {
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  const run = runnerFor(project);
+  assert.match(run({ prompt: 'arregla el bug que rompe el login' }), /deploy/);
+  assert.equal(run({ prompt: 'y ahora arregla este otro error' }), '');
+  assert.match(
+    run({ prompt: 'ok, ahora publica la release y taggea la version' }),
+    /deploy — Deploys/,
+  );
+});
+
+test('staying on the same kind of work stays silent under the throttle', () => {
+  const project = makeProject({ prefix: 'capability-map-', config: THROTTLED });
+  seedProject(project, {
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  const run = runnerFor(project);
+  assert.match(run({ prompt: 'write the tests for the parser' }), /deploy/);
+  assert.equal(run({ prompt: 'add more tests and check coverage' }), '');
+  assert.equal(run({ prompt: 'one more spec please' }), '');
+});
+
+test('reinjectOnWorkNatureChange:false falls back to the throttle alone', () => {
+  const project = makeProject({
+    prefix: 'capability-map-',
+    config: {
+      gates: {
+        injectCapabilityMap: {
+          enabled: true,
+          injectEveryMessages: 50,
+          reinjectOnWorkNatureChange: false,
+        },
+      },
+    },
+  });
+  seedProject(project, {
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  const run = runnerFor(project);
+  assert.match(run({ prompt: 'arregla el bug del login' }), /deploy/);
+  assert.equal(run({ prompt: 'publica la release y taggea la version' }), '');
+});
+
+test('a payload with no prompt at all never counts as a pivot', () => {
+  const project = makeProject({ prefix: 'capability-map-', config: THROTTLED });
+  seedProject(project, {
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  const run = runnerFor(project);
+  assert.match(run(), /deploy/);
+  assert.equal(run(), '');
+  assert.equal(run(), '');
+});

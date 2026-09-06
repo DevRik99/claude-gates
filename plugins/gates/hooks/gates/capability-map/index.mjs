@@ -9,17 +9,21 @@
 // ~/.claude/blurb-overrides.json and <project>/<blurbOverridesFile> (project wins per key).
 // `.agents/skills` and `.ai/skills` (home and project) are scanned as skill-only roots:
 // other installers write there. Never blocks; any failure injects nothing.
+//
+// Discovery itself lives in lib/capabilities.mjs, shared with skill-first (the PreToolUse
+// half that judges whether an action has a skill covering it): one catalog definition, so
+// what the model is TOLD it has and what a gate CHECKS it has can never disagree.
 
 import { createHash } from 'node:crypto';
-import {
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join } from 'node:path';
+import { dirname, join } from 'node:path';
+import {
+  buildRawCatalog,
+  firstClause,
+  mtimeMsOf,
+  truncateAtWordBoundary,
+} from '../../lib/capabilities.mjs';
 import {
   loadGateConfig,
   projectRootOf,
@@ -30,6 +34,7 @@ import {
   readSessionState,
   writeSessionState,
 } from '../../lib/session-state.mjs';
+import { workNatureOf } from '../../lib/signals.mjs';
 
 const STDIN_FILE_DESCRIPTOR = 0;
 const GATE_ID = 'capability-map';
@@ -48,12 +53,8 @@ const DEFAULT_PARAMS = Object.freeze({
   mapFile: join('.ai', 'capability-map.json'),
   blurbOverridesFile: join('.ai', 'blurb-overrides.json'),
   injectEveryMessages: 10,
+  reinjectOnWorkNatureChange: true,
 });
-
-const KIND_EXTENSIONS = {
-  agents: ['.md'],
-  commands: ['.md', '.toml'],
-};
 
 function readPayload() {
   try {
@@ -61,193 +62,6 @@ function readPayload() {
   } catch {
     return {};
   }
-}
-
-function isDirectory(path) {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function mtimeMsOf(path) {
-  try {
-    return statSync(path).mtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-// ── Front matter ────────────────────────────────────────────────────────────────────
-// A bare block-scalar indicator (`>`, `>-`, `|`, `|-`) means the value is on the following
-// indented lines; without this the blurb rendered as ">".
-const BLOCK_SCALAR_INDICATOR_PATTERN = /^[|>][+-]?\d*$/;
-
-function readBlockScalarValue(lines, startIndex) {
-  const parts = [];
-  for (let index = startIndex; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.trim() === '---') break;
-    if (!/^[ \t]+\S/.test(line)) break;
-    parts.push(line.trim());
-  }
-  return parts.join(' ');
-}
-
-// Parsed line by line (no multi-line regex) so a large body can never backtrack.
-function parseFrontMatter(fileText) {
-  const lines = fileText.split(/\r?\n/);
-  if (lines[0]?.trim() !== '---') return { name: '', description: '' };
-  let name = '';
-  let description = '';
-  for (let index = 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line.trim() === '---') break;
-    const separator = line.indexOf(':');
-    if (separator < 0) continue;
-    const key = line.slice(0, separator).trim();
-    let value = line
-      .slice(separator + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '');
-    if (BLOCK_SCALAR_INDICATOR_PATTERN.test(value)) {
-      value = readBlockScalarValue(lines, index + 1);
-    }
-    if (key === 'name') name = value;
-    else if (key === 'description') description = value;
-  }
-  return { name, description };
-}
-
-function truncateAtWordBoundary(text, maxChars) {
-  if (text.length <= maxChars) return text;
-  const budget = text.slice(0, maxChars - 1);
-  const lastSpace = budget.lastIndexOf(' ');
-  const cut = lastSpace > 0 ? budget.slice(0, lastSpace) : budget;
-  return `${cut.trimEnd()}…`;
-}
-
-function firstClause(description, maxClauseChars) {
-  if (!description) return '';
-  const sentenceEnd = description.indexOf('. ');
-  const clause =
-    sentenceEnd > 0 ? description.slice(0, sentenceEnd) : description;
-  return truncateAtWordBoundary(clause, maxClauseChars);
-}
-
-// ── Discovery ───────────────────────────────────────────────────────────────────────
-function filesUnder(directory, extensions) {
-  let names;
-  try {
-    names = readdirSync(directory);
-  } catch {
-    return [];
-  }
-  const files = [];
-  for (const name of names) {
-    const full = join(directory, name);
-    if (isDirectory(full)) files.push(...filesUnder(full, extensions));
-    else if (extensions.includes(extname(name).toLowerCase())) files.push(full);
-  }
-  return files;
-}
-
-function entryFor(file, fallbackName) {
-  const mtimeMs = mtimeMsOf(file);
-  if (mtimeMs === null) return null;
-  let content;
-  try {
-    content = readFileSync(file, 'utf8');
-  } catch {
-    return null;
-  }
-  const { name, description } = parseFrontMatter(content);
-  return {
-    name: name || fallbackName,
-    description,
-    stamp: `${file}:${mtimeMs}`,
-  };
-}
-
-function skillEntriesUnder(skillsRoot) {
-  let names;
-  try {
-    names = readdirSync(skillsRoot);
-  } catch {
-    return [];
-  }
-  return names
-    .filter((name) => isDirectory(join(skillsRoot, name)))
-    .map((name) => entryFor(join(skillsRoot, name, 'SKILL.md'), name))
-    .filter(Boolean);
-}
-
-function fileEntriesUnder(directory, extensions) {
-  return filesUnder(directory, extensions)
-    .map((file) => entryFor(file, basename(file, extname(file))))
-    .filter(Boolean);
-}
-
-function resolveExtra(root, directory) {
-  return isAbsolute(directory) ? directory : join(root, directory);
-}
-
-function skillRootsFor(root, extraDirectories) {
-  return [
-    join(root, '.claude', 'skills'),
-    join(root, '.agents', 'skills'),
-    join(root, '.ai', 'skills'),
-    join(homedir(), '.claude', 'skills'),
-    join(homedir(), '.agents', 'skills'),
-    join(homedir(), '.ai', 'skills'),
-    ...extraDirectories.map((directory) => resolveExtra(root, directory)),
-  ];
-}
-
-function fileRootsFor(root, kind, extraDirectories) {
-  return [
-    join(root, '.claude', kind),
-    join(homedir(), '.claude', kind),
-    ...extraDirectories.map((directory) => resolveExtra(root, directory)),
-  ];
-}
-
-function collectKind(kind, root, settings) {
-  if (kind === 'skills') {
-    return skillRootsFor(root, settings.extraSkillsDirs).flatMap(
-      skillEntriesUnder,
-    );
-  }
-  const extensions = KIND_EXTENSIONS[kind];
-  if (!extensions) return [];
-  const extra =
-    kind === 'agents' ? settings.extraAgentsDirs : settings.extraCommandsDirs;
-  return fileRootsFor(root, kind, extra).flatMap((directory) =>
-    fileEntriesUnder(directory, extensions),
-  );
-}
-
-// First occurrence wins, and project roots come first: a project capability shadows a
-// global one of the same name.
-function entriesForKind(kind, root, settings) {
-  const seen = new Set();
-  const unique = [];
-  for (const entry of collectKind(kind, root, settings)) {
-    if (seen.has(entry.name)) continue;
-    seen.add(entry.name);
-    unique.push(entry);
-  }
-  return unique.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-function buildRawCatalog(root, settings) {
-  const catalog = {};
-  for (const kind of settings.kinds) {
-    const entries = entriesForKind(kind, root, settings);
-    if (entries.length > 0) catalog[kind] = entries;
-  }
-  return catalog;
 }
 
 // ── Blurbs, overrides and the fingerprint ───────────────────────────────────────────
@@ -355,12 +169,20 @@ function renderCatalog(catalog, kinds) {
   return `[capabilities] available (check before improvising something one of these covers):\n${sections.join('\n')}\n`;
 }
 
-// A changed catalog (or the first message of a session) injects immediately; otherwise
-// every Nth message.
-function injectionDecision(session, fingerprint, injectEveryMessages) {
+// Three reasons to inject, then the throttle. The catalog changing on disk was the only
+// content-driven trigger the gate had, which left the case the reminder is actually for:
+// the session PIVOTING to a different kind of work (debugging → designing → releasing)
+// with a catalog that never moved, so the model kept whatever the throttle last emitted
+// and the skills that matter for the new nature were never re-surfaced. The nature is a
+// coarse lexical read of the prompt (lib/signals.mjs), and being wrong costs one extra
+// injection of a never-blocking catalog — cheap enough to prefer over staying silent.
+function injectionDecision(session, fingerprint, nature, settings) {
   const changed = session.fingerprint !== fingerprint;
+  const pivoted =
+    settings.reinjectOnWorkNatureChange && session.workNature !== nature;
   const nextCount = (Number(session.messageCount) || 0) + 1;
-  const shouldInject = changed || nextCount >= injectEveryMessages;
+  const shouldInject =
+    changed || pivoted || nextCount >= settings.injectEveryMessages;
   return { shouldInject, messageCount: shouldInject ? 0 : nextCount };
 }
 
@@ -417,20 +239,26 @@ function syncMap(mapPath, rawCatalog, fingerprint, root, settings) {
   return catalog;
 }
 
-function shouldInjectNow(sessionId, root, fingerprint, injectEveryMessages) {
+function shouldInjectNow(sessionId, root, fingerprint, nature, settings) {
   const session = readSessionState(GATE_ID, sessionId, {}, { cwd: root });
   const { shouldInject, messageCount } = injectionDecision(
     session,
     fingerprint,
-    injectEveryMessages,
+    nature,
+    settings,
   );
   writeSessionState(
     GATE_ID,
     sessionId,
-    { fingerprint, messageCount },
+    { fingerprint, messageCount, workNature: nature },
     { cwd: root },
   );
   return shouldInject;
+}
+
+function promptOf(payload) {
+  const prompt = payload?.prompt ?? payload?.user_prompt ?? payload?.message;
+  return typeof prompt === 'string' ? prompt : '';
 }
 
 function run() {
@@ -455,7 +283,8 @@ function run() {
     payload.session_id ?? null,
     root,
     fingerprint,
-    settings.injectEveryMessages,
+    workNatureOf(promptOf(payload)),
+    settings,
   );
   if (inject) process.stdout.write(renderCatalog(catalog, settings.kinds));
 }

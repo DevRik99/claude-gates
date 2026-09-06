@@ -30,7 +30,7 @@ npx @devrik-tools/claude-gates init
 
 Reinicia la sesión de Claude Code (o ejecuta `/plugin`) para que los hooks carguen.
 
-> **¿Por qué dos cosas?** El plugin **siempre trae los 49 gates**; la configuración decide
+> **¿Por qué dos cosas?** El plugin **siempre trae los 50 gates**; la configuración decide
 > **cuáles se ejecutan**. Así puedes prender uno sin reinstalar: es una línea en un JSON.
 
 ---
@@ -67,7 +67,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 
 ---
 
-## Los gates (49, en 11 familias)
+## Los gates (50, en 11 familias)
 
 `[on]` = encendidos por defecto; `[off]` = los prendes si los quieres.
 
@@ -127,6 +127,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 |---|---|---|
 | `reuse-before-build` | off | Antes de construir una herramienta, consulta el mapa de herramientas del proyecto; bloquea si no auditaste (local → Context7 → web). |
 | `tool-map` | off | Registra las herramientas descubiertas en `.ai/tool-map.json` para no volver a explorar. |
+| `skill-first` | off | Bloquea una escritura/comando/delegación que una **skill** disponible cubre de forma plausible hasta que la pregunta se haya hecho: cargar la skill, o decir por qué no aplica (`no skill covers this` / `using the <name> skill`). Lee el mismo catálogo que inyecta `capability-map`. |
 
 ### 🧠 Research flow — la memoria primero, nunca adivinar una librería
 
@@ -219,12 +220,15 @@ ves y editas cada perilla:
   deliberadamente amplio, no atómico), `comment-ok: <razón>` (un comentario explicativo que
   debe quedarse), `SEQUENTIAL-JUSTIFIED` (una delegación que sí depende de la anterior),
   `MONITOR-PLANNED:` (el comando en background declara cómo se va a monitorear).
-  `dependency-skills` se exime vía su lista `depsWithoutOwnApi`.
+  `dependency-skills` se exime vía su lista `depsWithoutOwnApi`. `skill-first` se despeja
+  con una frase en el contenido/prompt: `no skill covers this`, o `using the <name> skill`.
 - **Inyección de capacidades:** `capability-map` (on por defecto) es totalmente ajustable —
   elegí qué tipos exponer (`"kinds": ["skills", "agents", "commands"]`), limitá cada blurb
   (`maxClauseChars`, default 120), agregá raíces extra por tipo, regulá cada cuánto se
   re-inyecta el catálogo completo (`injectEveryMessages`, default 10 — el archivo persistido
-  se refresca igual en cada mensaje), o apagá la persistencia (`"persist": false`) y apuntá
+  se refresca igual en cada mensaje; el catálogo TAMBIÉN se re-inyecta a mitad del throttle
+  cuando cambia el tipo de trabajo del prompt, por ejemplo depurar → publicar, lo que podés
+  apagar con `"reinjectOnWorkNatureChange": false`), o apagá la persistencia (`"persist": false`) y apuntá
   el mapa a otro archivo (`mapFile`). Las skills también se escanean por defecto en
   `~/.agents/skills`, `<proyecto>/.agents/skills`, `~/.ai/skills` y `<proyecto>/.ai/skills`
   (raíces exclusivas de skills que usan otros instaladores además de `.claude/skills` — sin

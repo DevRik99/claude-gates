@@ -8,6 +8,7 @@ import {
   CONJECTURE,
   PERSISTENCE_VERB,
   withUnicodeWordBoundary,
+  workNatureOf,
 } from '../signals.mjs';
 
 // ── RISK_SIGNAL ──────────────────────────────────────────────────────────────────────
@@ -118,4 +119,38 @@ test('withUnicodeWordBoundary rejects a substring match', () => {
   const pattern = withUnicodeWordBoundary('auth');
   assert.ok(pattern.test('auth required'));
   assert.equal(pattern.test('autor'), false);
+});
+
+// -- workNatureOf: the "what KIND of work is this" classifier --------------------------
+test('workNatureOf reads the dominant kind of work, in Spanish and English', () => {
+  const cases = [
+    ['arregla el bug que hace crashear el login', 'debug'],
+    ['fix the broken parser and reproduce the crash', 'debug'],
+    ['write the tests and check the coverage of the spec', 'test'],
+    [
+      'deploy to production, tag the version and publish the release',
+      'release',
+    ],
+    ['investiga y analiza como funciona esta libreria', 'research'],
+    ['refactor this to simplify and rename the helper', 'refactor'],
+    ['build a new endpoint component and integrate it', 'implement'],
+  ];
+  for (const [text, expected] of cases)
+    assert.equal(workNatureOf(text), expected, `for: ${text}`);
+});
+
+test('workNatureOf falls back to general for empty or unclassifiable text', () => {
+  assert.equal(workNatureOf(''), 'general');
+  assert.equal(workNatureOf('   '), 'general');
+  assert.equal(workNatureOf(null), 'general');
+  assert.equal(workNatureOf('hola que tal'), 'general');
+});
+
+test('workNatureOf weighs how often a nature occurs, not just that it occurs once', () => {
+  assert.equal(
+    workNatureOf(
+      'write the tests, more tests, and a spec for the coverage report',
+    ),
+    'test',
+  );
 });
