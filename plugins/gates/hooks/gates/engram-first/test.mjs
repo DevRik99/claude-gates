@@ -5,11 +5,35 @@ import { fileURLToPath } from 'node:url';
 import {
   isBlock,
   isDeny,
+  isWarn,
   makeProject,
   messageOf,
   runGateProcess,
   withSession,
 } from '../../lib/testing.mjs';
+
+/*
+ * The gate only enforces memory-first where an engram MCP server is declared,
+ * so an enforcement test has to declare one. `.mcp.json` in the project is the
+ * cheapest of the three places the gate reads, and it needs no network: a probe
+ * would be flaky anyway, since a sandboxed child cannot reach a live server.
+ */
+function projectWithEngram() {
+  return makeProject({
+    config: { gates: { requireEngramBeforeResearch: { enabled: true } } },
+    files: {
+      '.mcp.json': JSON.stringify({
+        mcpServers: { engram: { command: 'engram' } },
+      }),
+    },
+  });
+}
+
+function projectWithoutEngram() {
+  return makeProject({
+    config: { gates: { requireEngramBeforeResearch: { enabled: true } } },
+  });
+}
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GATE = join(HERE, 'index.mjs');
@@ -47,7 +71,7 @@ function memSave(title) {
 }
 
 test('denies WebSearch when no mem_search happened in the session', () => {
-  const project = makeProject();
+  const project = projectWithEngram();
   const session = freshSession();
   const result = runGateProcess(
     GATE,
@@ -61,7 +85,7 @@ test('denies WebSearch when no mem_search happened in the session', () => {
 });
 
 test('denies context7 lookups before engram, like any research tool', () => {
-  const project = makeProject();
+  const project = projectWithEngram();
   const result = runGateProcess(
     GATE,
     withSession(context7('zod'), freshSession()),
@@ -70,6 +94,21 @@ test('denies context7 lookups before engram, like any research tool', () => {
     },
   );
   assert.ok(isDeny(result));
+});
+
+test('no engram server: research is allowed with a warning, never denied', () => {
+  const project = projectWithoutEngram();
+  const result = runGateProcess(
+    GATE,
+    withSession(webSearch('zod refine'), freshSession()),
+    { project },
+  );
+  assert.ok(
+    !isDeny(result),
+    'a gate whose precondition cannot be met must not block',
+  );
+  assert.ok(isWarn(result));
+  assert.match(messageOf(result), /degraded/);
 });
 
 test('allows research once a mem_search was tracked for the session', () => {
@@ -99,13 +138,21 @@ test('engram tools themselves are never research: mem_search is allowed first', 
 });
 
 test('Stop is blocked when research happened and nothing was saved afterwards', () => {
-  const project = makeProject();
+  const project = projectWithEngram();
   const session = freshSession();
   runGateProcess(TRACK, withSession(memSearch('x'), session), { project });
   runGateProcess(TRACK, withSession(webSearch('x'), session), { project });
   const stop = runGateProcess(STOP, { session_id: session }, { project });
   assert.ok(isBlock(stop));
   assert.match(messageOf(stop), /mem_save/);
+});
+
+test('no engram server: Stop is not blocked over a save nothing can perform', () => {
+  const project = projectWithoutEngram();
+  const session = freshSession();
+  runGateProcess(TRACK, withSession(webSearch('x'), session), { project });
+  const stop = runGateProcess(STOP, { session_id: session }, { project });
+  assert.equal(stop, null);
 });
 
 test('Stop is allowed after a mem_save that follows the research', () => {

@@ -1,7 +1,8 @@
-import { deny, runGate } from '../../lib/hook-io.mjs';
+import { deny, runGate, warn } from '../../lib/hook-io.mjs';
 import {
   DEFAULT_PARAMS,
   GATE_ID,
+  engramConfigured,
   isResearchTool,
   queryOf,
   readState,
@@ -36,6 +37,18 @@ runGate(
     if (!isResearchTool(toolName, parameters)) return;
     const state = readState(sessionId, cwd);
     if (state.memSearchCount > 0) return;
+
+    if (!engramConfigured(parameters, cwd)) {
+      warn(
+        CONFIG_KEY,
+        'memory-first enforcement is degraded: no engram MCP server is declared for this machine ' +
+          `(looked for ${parameters.engramServers.join(' or ')}), so mem_search does not exist and ` +
+          'this gate would deny every research call with no way out. Allowing this one. Install ' +
+          'engram, or turn this gate off if it is not intended here.',
+      );
+      return;
+    }
+
     denyResearchWithoutMemory(toolName, toolInput);
   },
 );
