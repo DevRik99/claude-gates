@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { rmSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -213,5 +214,134 @@ test('without a session id the count is keyed by project, not shared globally', 
         force: true,
       });
     }
+  }
+});
+
+// ── Segundo disparador: el principal trabajando en serie sin delegar nunca ────────────
+// El primer disparador es ciego a esto: solo corre si YA hay una delegacion.
+const MAIN_TRANSCRIPT = join(
+  homedir(),
+  '.claude',
+  'projects',
+  'p',
+  'session-1.jsonl',
+);
+const SUBAGENT_TRANSCRIPT = join(
+  homedir(),
+  '.claude',
+  'projects',
+  'p',
+  'session-1',
+  'subagents',
+  'agent-abc.jsonl',
+);
+
+function writePayload(sessionId, path, transcript = MAIN_TRANSCRIPT) {
+  return {
+    tool_name: 'Write',
+    session_id: sessionId,
+    transcript_path: transcript,
+    tool_input: { file_path: path, content: 'x' },
+  };
+}
+
+function editSpree(run, sessionId, count, transcript) {
+  let last = null;
+  for (let index = 0; index < count; index++) {
+    last = run(writePayload(sessionId, `src/f${String(index)}.ts`, transcript));
+  }
+  return last;
+}
+
+test('el principal editando 11 ficheros distintos sin delegar es denegado', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    assert.equal(editSpree(run, sessionId, 10), null);
+    const eleventh = run(writePayload(sessionId, 'src/f10.ts'));
+    assert.ok(isDeny(eleventh));
+    assert.match(messageOf(eleventh), /11 DIFFERENT files/);
+    assert.match(messageOf(eleventh), /SINGLE message/);
+  } finally {
+    cleanup();
+  }
+});
+
+// Editar diez veces el mismo fichero es iterar, y eso no se reparte entre subagentes.
+test('repetir el MISMO fichero no cuenta como trabajo repartible', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    for (let index = 0; index < 20; index++) {
+      assert.equal(run(writePayload(sessionId, 'src/uno.ts')), null);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+// Un subagente haciendo muchas ediciones es justo lo que se queria conseguir.
+test('un SUBAGENTE editando muchos ficheros nunca se bloquea', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    const last = editSpree(run, sessionId, 25, SUBAGENT_TRANSCRIPT);
+    assert.equal(last, null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('delegar reinicia la racha, de modo que la salida sea la conducta que se pide', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    editSpree(run, sessionId, 10);
+    assert.equal(run(delegationPayload(sessionId)), null);
+    assert.equal(editSpree(run, sessionId, 10), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('un payload sin transcript_path no se trata como el principal', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    for (let index = 0; index < 15; index++) {
+      const payload = writePayload(sessionId, `src/g${String(index)}.ts`);
+      delete payload.transcript_path;
+      assert.equal(run(payload), null);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('maxSelfEditsBeforeDelegating en 0 apaga el segundo disparador', () => {
+  const { sessionId, run, cleanup } = session({
+    gates: {
+      warnSequentialDelegations: {
+        enabled: true,
+        maxSelfEditsBeforeDelegating: 0,
+      },
+    },
+  });
+  try {
+    assert.equal(editSpree(run, sessionId, 30), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('un comando de solo lectura nunca cuenta ni se deniega', () => {
+  const { sessionId, run, cleanup } = session();
+  try {
+    for (let index = 0; index < 20; index++) {
+      const result = run({
+        tool_name: 'Bash',
+        session_id: sessionId,
+        transcript_path: MAIN_TRANSCRIPT,
+        tool_input: { command: 'git status' },
+      });
+      assert.equal(result, null);
+    }
+  } finally {
+    cleanup();
   }
 });

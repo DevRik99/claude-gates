@@ -70,7 +70,8 @@
     "texto",
     "falta",
     "caso",
-    "generado"
+    "generado",
+    "suya"
   ],
   "ignorePaths": ["node_modules/**", "package-lock.json"]
 }

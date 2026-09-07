@@ -439,6 +439,23 @@
       "remindEveryMessages": 5
     },
     "listTasksOnSessionStart": true,
-    "requireTaskSplitBeforeImplementing": true
+    "requireTaskSplitBeforeImplementing": true,
+    "requireAdversarialTests": {
+      "enabled": true,
+      "requiredCategories": [
+        "boundary",
+        "invalid-input",
+        "missing-empty",
+        "invalid-state",
+        "dependency-failure",
+        "idempotency-order",
+        "invariant",
+        "security"
+      ],
+      "minMutations": 3,
+      "minAdversarialRatio": 0.5,
+      "testPathPattern": "(?:\\.(?:test|spec)\\.[cm]?[jt]sx?|(?:^|[\\\\/])tests?\\.[cm]?[jt]sx?)$",
+      "escapeHatch": "adversarial-tests:allow"
+    }
   }
 }

@@ -24,30 +24,83 @@
 //   A claim EXPIRES. An agent that dies without releasing would otherwise hold the backlog
 //   hostage forever; past the TTL the task is free again with nobody having to intervene.
 
-const CLAIM_TTL_HOURS = 8;
-const MINUTES_PER_HOUR = 60;
+import { statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { readJsonOrNull } from './config.mjs';
+
+const DEFAULT_IDLE_MINUTES = 60;
 const SECONDS_PER_MINUTE = 60;
 const MS_PER_SECOND = 1000;
+const MS_PER_MINUTE = SECONDS_PER_MINUTE * MS_PER_SECOND;
 
-export const CLAIM_TTL_MS =
-  CLAIM_TTL_HOURS * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND;
+export const DEFAULT_IDLE_MS = DEFAULT_IDLE_MINUTES * MS_PER_MINUTE;
+
+/**
+ * Cuánto silencio convierte una reserva en libre. Vive en la RAÍZ de `.ai/config.json` y no
+ * como param de cada gate porque los tres que leen reservas tienen que coincidir: repetirlo
+ * por gate deja al usuario con tres sitios donde desincronizarlo.
+ *
+ *   { "claimIdleMinutes": 60, "gates": { ... } }
+ */
+export function idleWindowMs(root) {
+  const declared = root
+    ? readJsonOrNull(join(root, '.ai', 'config.json'))?.claimIdleMinutes
+    : undefined;
+  const minutes = Number(declared);
+  return Number.isFinite(minutes) && minutes > 0
+    ? minutes * MS_PER_MINUTE
+    : DEFAULT_IDLE_MS;
+}
+
+// Porque un TTL fijo es un mal sustituto de la pregunta real, se consulta si la sesión dueña
+// SIGUE ahí: con 8 horas, una sesión muerta hace un minuto retiene su trabajo el resto del
+// día, y una que lleva 9 horas trabajando lo pierde.
+//
+// Claude Code escribe el transcript de cada sesión en
+// ~/.claude/projects/<raiz-con-separadores-como-guiones>/<session-id>.jsonl y lo toca en cada
+// turno, de modo que su mtime es una señal de vida real, barata y sin protocolo nuevo.
+//
+// Tres estados en vez de dos: un transcript ausente NO se lee como sesión muerta, porque la
+// derivación de la ruta podría fallar en otra plataforma y robar una reserva por eso sería
+// peor que esperar. Ese caso cae al TTL de siempre.
+function transcriptPathFor(owner, root) {
+  const slug = String(root).replace(/[:\\/]/g, '-');
+  return join(homedir(), '.claude', 'projects', slug, `${owner}.jsonl`);
+}
+
+export function ownerSessionState(owner, root, now = Date.now()) {
+  if (!owner || !root) return 'unknown';
+  try {
+    const stamp = statSync(transcriptPathFor(owner, root)).mtimeMs;
+    return now - stamp < idleWindowMs(root) ? 'active' : 'gone';
+  } catch {
+    return 'unknown';
+  }
+}
 
 export function ownerOf(task) {
   const owner = task?.owner;
   return typeof owner === 'string' && owner.length > 0 ? owner : null;
 }
 
-export function claimIsLive(task, now = Date.now()) {
-  if (!ownerOf(task)) return false;
+export function claimIsLive(task, now = Date.now(), root = null) {
+  const owner = ownerOf(task);
+  if (!owner) return false;
+
+  const session = ownerSessionState(owner, root, now);
+  if (session === 'gone') return false;
+  if (session === 'active') return true;
+
   const claimedAt = Date.parse(String(task?.claimedAt ?? ''));
   // Porque una reserva sin fecha viene de una tarea escrita antes de este campo, se respeta
   // en vez de caducar al instante: tratarla como libre se la quitaría a quien la trabaja.
   if (Number.isNaN(claimedAt)) return true;
-  return now - claimedAt < CLAIM_TTL_MS;
+  return now - claimedAt < idleWindowMs(root);
 }
 
-export function blocksCaller(task, caller, now = Date.now()) {
-  if (!claimIsLive(task, now)) return true;
+export function blocksCaller(task, caller, now = Date.now(), root = null) {
+  if (!claimIsLive(task, now, root)) return true;
   return Boolean(caller) && ownerOf(task) === caller;
 }
 

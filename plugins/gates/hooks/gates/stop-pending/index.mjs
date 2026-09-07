@@ -26,9 +26,9 @@ function readActiveTasks(root) {
 // Porque esperar por la tarea viva de OTRO agente dejaba a este sin poder terminar por algo
 // que no empezó y que además no podía cerrar honestamente, solo retiene el turno el trabajo
 // del que responde quien actúa.
-function blockingTasksFrom(tasks, allowBlocked, caller) {
+function blockingTasksFrom(tasks, allowBlocked, caller, root) {
   return tasks.filter((task) => {
-    if (!blocksCaller(task, caller)) return false;
+    if (!blocksCaller(task, caller, Date.now(), root)) return false;
     if (BLOCKING_STATUSES.has(task.status)) return true;
     return !allowBlocked && task.status === BLOCKED_STATUS;
   });
@@ -56,6 +56,7 @@ runStopHook(
       readActiveTasks(root),
       parameters.allowStopWithBlockedTasks !== false,
       sessionId,
+      root,
     );
     if (blockingTasks.length === 0) return;
 

@@ -19,7 +19,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { openTaskStore } from './lib/task-store.mjs';
+import {
+  isFree,
+  isOwnedBy,
+  openTaskStore,
+  ownerOf,
+} from './lib/task-store.mjs';
 
 const STDIN_FILE_DESCRIPTOR = 0;
 const CONFIG_KEY = 'remindOpenTasks';
@@ -116,17 +121,58 @@ const CLASSIFY_PROMPT =
   'this, do not decide to register it "later", do not silently skip it because the answer seems ' +
   "obvious. The user's flow takes priority over your judgment of what deserves tracking.";
 
-function formatReminder(tasks) {
+/**
+ * Reparte las tareas en lo que puedes hacer TÚ y lo que no. Antes la lista era plana y se
+ * truncaba a las primeras N, así que el backlog de otro agente empujaba tu propio trabajo
+ * fuera del recordatorio: veías tareas que no puedes cerrar y no veías las que sí. Ordenar
+ * por accionabilidad es lo que hace que el recordatorio EMPUJE en vez de solo informar.
+ */
+function categorize(tasks, caller) {
+  const mine = [];
+  const free = [];
+  const others = [];
+  for (const task of tasks) {
+    if (isOwnedBy(task, caller)) mine.push(task);
+    else if (isFree(task)) free.push(task);
+    else others.push(task);
+  }
+  return { mine, free, others };
+}
+
+function describe(task) {
+  const blocked =
+    task.status === 'blocked' && task.blockedReason
+      ? ` — blocked: ${task.blockedReason}`
+      : '';
+  return `  - [${task.status}] ${task.id}: ${task.title}${blocked}`;
+}
+
+// El truncado se aplica por grupo y no al total, de modo que un backlog ajeno largo nunca
+// pueda esconder lo tuyo.
+function section(heading, tasks) {
+  if (tasks.length === 0) return [];
   const shown = tasks.slice(0, MAX_TASKS_SHOWN);
-  const lines = shown.map(
-    (task) => `  - [${task.status}] ${task.id}: ${task.title}`,
-  );
+  const lines = [`${heading} (${tasks.length}):`, ...shown.map(describe)];
   const extra = tasks.length - shown.length;
   if (extra > 0) lines.push(`  - …and ${extra} more`);
-  return (
-    '[remindOpenTasks] OPEN TASKS — recite these pending tasks to the user and confirm whether any ' +
-    `should be dropped:\n${lines.join('\n')}`
-  );
+  return lines;
+}
+
+function formatReminder(tasks, caller) {
+  const { mine, free, others } = categorize(tasks, caller);
+  const lines = [
+    '[remindOpenTasks] OPEN TASKS — advance these, and tell the user which (if any) to drop.',
+    ...section('YOURS to finish or park', mine),
+    ...section('FREE to take (`claude-gates task claim <id>`)', free),
+  ];
+  if (others.length > 0) {
+    const held = new Set(others.map((task) => ownerOf(task)));
+    lines.push(
+      `HELD by ${held.size} other agent(s): ${others.length} task(s) — not yours to close, ` +
+        'and they do not block you.',
+    );
+  }
+  return lines.join('\n');
 }
 
 function main() {
@@ -163,7 +209,7 @@ function main() {
     const next = store.counter() + 1;
     const forced = next >= remindEveryMessages;
     store.setCounter(forced ? 0 : next);
-    if (forced) lines.push(formatReminder(tasks));
+    if (forced) lines.push(formatReminder(tasks, payload.session_id));
   }
 
   process.stdout.write(`${lines.join('\n')}\n`);

@@ -51,12 +51,12 @@ function hasChildren(tasks, parentId) {
 // La regla completa (por qué una tarea libre sí bloquea, por qué la reserva caduca) vive en
 // lib/task-claims.mjs, compartida con stop-pending: una segunda copia es donde las dos se
 // separan en silencio, que es justo lo que lib/shell-safety.mjs documenta haber pasado ya.
-function unsplitLargeTasks(tasks, owner) {
+function unsplitLargeTasks(tasks, owner, root) {
   return tasks.filter((task) => {
     if (!IMPLEMENTATION_STATUSES.has(task.status)) return false;
     if (task.parentId) return false;
     if (SIZES_EXEMPT_FROM_SPLIT.has(task.size)) return false;
-    if (!blocksCaller(task, owner)) return false;
+    if (!blocksCaller(task, owner, Date.now(), root)) return false;
     return !hasChildren(tasks, task.id);
   });
 }
@@ -109,7 +109,7 @@ runGate(
     const tasks = readActiveTasks(root);
     if (tasks.length === 0) return;
 
-    const unsplit = unsplitLargeTasks(tasks, sessionId);
+    const unsplit = unsplitLargeTasks(tasks, sessionId, root);
     if (unsplit.length === 0) return;
 
     const lines = unsplit

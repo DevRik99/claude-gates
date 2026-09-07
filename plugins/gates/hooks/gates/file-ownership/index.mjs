@@ -85,10 +85,10 @@ function everyWrittenPath(toolName, toolInput) {
   return paths;
 }
 
-function conflictFor(tasks, caller, writtenPaths) {
+function conflictFor(tasks, caller, writtenPaths, root) {
   for (const task of tasks) {
     if (!ACTIVE_STATUSES.has(task.status)) continue;
-    if (blocksCaller(task, caller)) continue;
+    if (blocksCaller(task, caller, Date.now(), root)) continue;
     for (const owned of ownedPathsOf(task).map(normalize)) {
       const hit = writtenPaths.find((path) => claimCovers(owned, path));
       if (hit) return { task, owned, path: hit };
@@ -143,6 +143,7 @@ runGate(
       readActiveTasks(root),
       sessionId,
       writtenPaths,
+      root,
     );
     if (conflict) deny(CONFIG_KEY, denyMessage(conflict));
   },

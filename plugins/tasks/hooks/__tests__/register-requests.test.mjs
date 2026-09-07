@@ -102,3 +102,72 @@ test('defaults-dump mode reports remindEveryMessages default without touching st
   assert.equal(parsed.configKey, 'remindOpenTasks');
   assert.equal(parsed.defaultParams.remindEveryMessages, 5);
 });
+
+// ── El recordatorio reparte por accionabilidad, no por orden de llegada ───────────────
+const ME = 'agent-yo';
+const OTHER = 'agent-otro';
+
+function runHookAs(cwd, sessionId) {
+  return execFileSync(process.execPath, [HOOK_PATH], {
+    input: JSON.stringify({ cwd, session_id: sessionId }),
+    encoding: 'utf8',
+  });
+}
+
+function claimedTask(id, owner) {
+  return {
+    ...sampleTask(id),
+    owner,
+    claimedAt: new Date().toISOString(),
+  };
+}
+
+function forceReminder(project, tasks) {
+  const store = openTaskStore(project);
+  for (const task of tasks) store.add(task);
+  store.setCounter(99);
+  return runHookAs(project, ME);
+}
+
+test('el recordatorio separa lo tuyo, lo libre y lo de otros', () => {
+  const project = makeProject();
+  const output = forceReminder(project, [
+    claimedTask('mia', ME),
+    sampleTask('libre'),
+    claimedTask('suya', OTHER),
+  ]);
+
+  assert.match(output, /YOURS to finish or park \(1\)/);
+  assert.match(output, /FREE to take/);
+  assert.match(output, /HELD by 1 other agent\(s\): 1 task\(s\)/);
+});
+
+// Antes la lista era plana y se truncaba al total, asi que el backlog ajeno empujaba
+// tu propio trabajo fuera del recordatorio.
+test('un backlog ajeno grande no esconde tus tareas', () => {
+  const project = makeProject();
+  const theirs = Array.from({ length: 30 }, (_, index) =>
+    claimedTask(`suya-${String(index)}`, OTHER),
+  );
+  const output = forceReminder(project, [...theirs, claimedTask('mia', ME)]);
+
+  assert.match(output, /mia/);
+  assert.match(output, /HELD by 1 other agent\(s\): 30 task\(s\)/);
+});
+
+test('las tareas de otro no se listan una a una: solo se cuentan', () => {
+  const project = makeProject();
+  const output = forceReminder(project, [claimedTask('suya', OTHER)]);
+
+  assert.doesNotMatch(output, /- \[open\] suya/);
+  assert.match(output, /not yours to close/);
+});
+
+test('una tarea aparcada muestra su causa, de modo que se sepa si ya se puede retomar', () => {
+  const project = makeProject();
+  const parked = { ...claimedTask('parada', ME), status: 'blocked' };
+  parked.blockedReason = 'esperando al usuario';
+  const output = forceReminder(project, [parked]);
+
+  assert.match(output, /blocked: esperando al usuario/);
+});
