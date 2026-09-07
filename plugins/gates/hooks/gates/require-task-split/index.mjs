@@ -30,17 +30,30 @@ const GATE_ID = 'require-task-split';
 const CONFIG_KEY = 'requireTaskSplitBeforeImplementing';
 
 const ACTIVE_TASKS_FILE = join('.ai', 'tasks', 'active.json');
+const HISTORY_TASKS_FILE = join('.ai', 'tasks', 'history.json');
 const SIZES_EXEMPT_FROM_SPLIT = new Set(['small', 'trivial']);
 const IMPLEMENTATION_STATUSES = new Set(['open', 'in_forge']);
 
-function readActiveTasks(root) {
-  const parsed = readJsonOrNull(join(root, ACTIVE_TASKS_FILE));
+function readTasksFrom(root, file) {
+  const parsed = readJsonOrNull(join(root, file));
   const tasks = Array.isArray(parsed?.tasks) ? parsed.tasks : [];
   return tasks.filter((task) => task && typeof task === 'object');
 }
 
-function hasChildren(tasks, parentId) {
-  return tasks.some((task) => task.parentId === parentId);
+function readActiveTasks(root) {
+  return readTasksFrom(root, ACTIVE_TASKS_FILE);
+}
+
+/**
+ * Children are looked for in history as well as in active, because closing one MOVES it out
+ * of active. Reading active alone meant a parent whose sub-tasks were all finished counted as
+ * unsplit again — and it fired at the worst moment, the instant you went to close the parent,
+ * denying the very command that would have resolved it. A task that WAS split stays split.
+ */
+function hasChildren(root, active, parentId) {
+  const isChild = (task) => task.parentId === parentId;
+  if (active.some(isChild)) return true;
+  return readTasksFrom(root, HISTORY_TASKS_FILE).some(isChild);
 }
 
 // Only the caller's own work counts, because with several agents in one project this gate
@@ -57,7 +70,7 @@ function unsplitLargeTasks(tasks, owner, root) {
     if (task.parentId) return false;
     if (SIZES_EXEMPT_FROM_SPLIT.has(task.size)) return false;
     if (!blocksCaller(task, owner, Date.now(), root)) return false;
-    return !hasChildren(tasks, task.id);
+    return !hasChildren(root, tasks, task.id);
   });
 }
 

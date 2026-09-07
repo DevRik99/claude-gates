@@ -191,3 +191,64 @@ test('a task with no recorded owner counts for everyone', () => {
     'ignoring ownerless tasks would quietly switch the gate off for older projects',
   );
 });
+
+// ── A parent stays split once its sub-tasks are closed ────────────────────────────────
+function projectWithHistory(active, history) {
+  return makeProject({
+    prefix: 'require-task-split-history-',
+    config: ENABLED,
+    files: {
+      '.ai/tasks/active.json': JSON.stringify({ tasks: active }),
+      '.ai/tasks/history.json': JSON.stringify({ tasks: history }),
+    },
+  });
+}
+
+const PARENT = {
+  id: 'parent-1',
+  title: 'a large task that was split',
+  status: 'open',
+  size: 'large',
+};
+
+test('closing every sub-task does not resurrect the parent as unsplit', () => {
+  // Because closing MOVES a task out of active, reading active alone made a finished split
+  // look like no split at all -- and it fired the instant you went to close the parent.
+  const project = projectWithHistory(
+    [PARENT],
+    [{ id: 'child-1', parentId: 'parent-1', status: 'done' }],
+  );
+  const result = runGateProcess(GATE, write('src/x.js', 'x'), { project });
+  assert.equal(result, null);
+});
+
+test('a parent that never had sub-tasks is still denied', () => {
+  const project = projectWithHistory(
+    [PARENT],
+    [{ id: 'unrelated', parentId: 'someone-else', status: 'done' }],
+  );
+  const result = runGateProcess(GATE, write('src/x.js', 'x'), { project });
+  assert.equal(decisionOf(result), 'deny');
+});
+
+test('an active sub-task still counts, with no history file present', () => {
+  const project = projectWithTasks([
+    PARENT,
+    { id: 'child-1', parentId: 'parent-1', status: 'open', size: 'small' },
+  ]);
+  const result = runGateProcess(GATE, write('src/x.js', 'x'), { project });
+  assert.equal(result, null);
+});
+
+test('a corrupt history.json is treated as empty, not as proof of a split', () => {
+  const project = makeProject({
+    prefix: 'require-task-split-corrupt-',
+    config: ENABLED,
+    files: {
+      '.ai/tasks/active.json': JSON.stringify({ tasks: [PARENT] }),
+      '.ai/tasks/history.json': '{ not json',
+    },
+  });
+  const result = runGateProcess(GATE, write('src/x.js', 'x'), { project });
+  assert.equal(decisionOf(result), 'deny');
+});
