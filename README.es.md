@@ -111,6 +111,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 | `rule-skill-autodiscovery` | off | Carga los gates que el proyecto declara en sus `rules/` y `skills/`. |
 | `recurrence-lock` | on | La segunda aparición de un defecto exige su bloqueo determinista. |
 | `test-after-implementation` | off | Bloquea un test escrito después de su implementación pareja (marcador `test-after-impl:allow` para un test de regresión). |
+| `adversarial-tests` | off | Bloquea un fichero de tests sin evidencia adversarial comprobable: una fila de `ATTACK MATRIX` por categoría (borde, entrada inválida, ausente/vacío, estado inválido, fallo de dependencia, idempotencia/orden, invariante, seguridad), un caso del propio fichero que respalde cada fila `COVERED`, y las mutaciones que la suite mata. `claude-gates tests [rutas…]` vuelve a correr el mismo juicio sobre lo que ya está en disco. El marcador `adversarial-tests:allow` en un comentario exime al fichero cuando la excepción es deliberada. |
 | `no-reconfirm` | on | Nunca vuelve a preguntar lo que ya respondiste. |
 | `neutral-spanish` | on | Bloquea voseo o léxico regional en el texto escrito (marcador `neutral-spanish:allow` para una cita/fixture deliberada). |
 | `diagnosis-before-patch` | on | Avisa cuando se cambian timeouts/reintentos sin evidencia. |
@@ -324,6 +325,9 @@ claude-gates registry --sync-hooks    # regenera el hooks.json de cada plugin de
 
 # Verificar que los gates realmente reaccionan (no solo que están enganchados):
 claude-gates smoke                    # le da a cada gate una violación conocida; sale distinto de 0 si alguno no bloquea/avisa
+
+# Verificar que los tests fueron escritos con intención de romper el código:
+claude-gates tests [rutas...]         # el juicio de adversarial-tests sobre lo que ya está en disco; sale distinto de 0 si alguno no trae evidencia
 ```
 
 `smoke` es el chequeo de comportamiento que `registry --check` (estructura) y el hook doctor

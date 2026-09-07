@@ -113,6 +113,7 @@ works even if you install one on its own.
 | `rule-skill-autodiscovery`  | off | Loads gates the project declares in its `rules/` and `skills/`.                                                |
 | `recurrence-lock`           | on  | A second occurrence of a defect class requires its deterministic block.                                        |
 | `test-after-implementation` | off | Blocks a test written after its paired implementation (add `test-after-impl:allow` for a regression test).     |
+| `adversarial-tests`         | off | Blocks a test file with no checkable adversarial evidence: an `ATTACK MATRIX` row per category (boundary, invalid input, missing/empty, invalid state, dependency failure, idempotency/order, invariant, security), a case in the file backing each `COVERED` row, and the mutations the suite kills. `claude-gates tests [paths…]` re-runs the same check over files already on disk. Add `adversarial-tests:allow` in a comment for a deliberate exception. |
 | `no-reconfirm`              | on  | Never re-ask what you already answered.                                                                        |
 | `neutral-spanish`           | on  | Blocks voseo or regional lexicon in written text (add `neutral-spanish:allow` for a deliberate quote/fixture). |
 | `diagnosis-before-patch`    | on  | Warns when timeouts/retries change without evidence.                                                           |
@@ -365,6 +366,9 @@ claude-gates registry --sync-hooks    # regenerate each plugin's hooks.json from
 
 # Verify the gates actually react (not just that they are wired):
 claude-gates smoke                    # feed each gate a known violation; exits non-zero if any does not block/warn
+
+# Verify the tests themselves were written to break the code, not to watch it work:
+claude-gates tests [paths...]         # the adversarial-tests check over files already on disk; exits non-zero on any without evidence
 ```
 
 `smoke` is the behavioral check `registry --check` (structure) and the doctor hook (files

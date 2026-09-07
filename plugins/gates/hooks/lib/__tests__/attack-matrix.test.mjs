@@ -17,10 +17,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DEFAULT_REQUIRED_CATEGORIES,
+  ESCAPE_HATCH,
   attackMatrixProblems,
   attackMatrixSkeleton,
   caseTitles,
   countCases,
+  hasEscapeHatch,
+  isTestPath,
   parseAttackMatrix,
 } from '../attack-matrix.mjs';
 
@@ -300,6 +303,21 @@ test('el orden de las filas no altera el resultado', () => {
 test('juzgar dos veces el mismo texto da exactamente el mismo resultado', () => {
   const text = suite({ rows: rowsWithout('invariant') });
   assert.deepEqual(attackMatrixProblems(text), attackMatrixProblems(text));
+});
+
+test('el marcador de excepcion en un literal nunca exime: solo cuenta en un comentario', () => {
+  assert.equal(hasEscapeHatch(`const fixture = "${ESCAPE_HATCH}";`), false);
+  assert.equal(hasEscapeHatch(`// ${ESCAPE_HATCH} — fixture generado`), true);
+  assert.equal(hasEscapeHatch(`// ${ESCAPE_HATCH}`, ''), false);
+  assert.equal(hasEscapeHatch(null), false);
+});
+
+test('el borde del patron de rutas: test.mjs es un test y testing.mjs no', () => {
+  assert.equal(isTestPath('src/thing.test.mjs'), true);
+  assert.equal(isTestPath('gates/x/test.mjs'), true);
+  assert.equal(isTestPath('lib/testing.mjs'), false);
+  assert.equal(isTestPath(''), false);
+  assert.equal(isTestPath('src/thing.test.mjs', '([a-z'), true);
 });
 
 test('el esqueleto que se ofrece al denegar contiene todas las filas exigidas', () => {

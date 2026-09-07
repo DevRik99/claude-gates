@@ -7,7 +7,7 @@
 // can hold the line without the harness being installed at all.
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import {
   attackMatrixProblems,
   hasEscapeHatch,
@@ -58,8 +58,10 @@ function filesUnder(target) {
 export function checkTestFiles(targets, { cwd = process.cwd() } = {}) {
   const seen = new Set();
   const results = [];
-  for (const target of targets.length > 0 ? targets : [cwd]) {
-    for (const file of filesUnder(join(cwd, target))) {
+  for (const target of targets.length > 0 ? targets : ['.']) {
+    for (const file of filesUnder(
+      isAbsolute(target) ? target : join(cwd, target),
+    )) {
       if (seen.has(file)) continue;
       seen.add(file);
       let content;
