@@ -277,9 +277,20 @@ export default [
         },
       ],
 
+      // Because a string is DATA — a term library the gates match against a user's own
+      // words, a fixture, a rendered message — spellchecking it turns every legitimate
+      // foreign term into an error, which is what pushed those terms into a global
+      // dictionary where they also silenced real typos. `checkStringTemplates` defaults to
+      // TRUE and is a separate switch from `checkStrings`, so omitting it kept flagging
+      // exactly the strings that happened to be templates.
       '@cspell/spellchecker': [
         'error',
-        { checkIdentifiers: true, checkStrings: false, checkComments: false },
+        {
+          checkIdentifiers: true,
+          checkStrings: false,
+          checkStringTemplates: false,
+          checkComments: false,
+        },
       ],
     },
   },

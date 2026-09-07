@@ -21,8 +21,9 @@
 //   the harmless case (untidy bookkeeping elsewhere) while never guarding the dangerous one
 //   (two agents editing the same file).
 //
-//   A claim EXPIRES. An agent that dies without releasing would otherwise hold the backlog
-//   hostage forever; past the TTL the task is free again with nobody having to intervene.
+//   A claim dies with its SESSION. An agent that stops without releasing would otherwise
+//   hold the backlog hostage; once its session goes quiet the task is free again with nobody
+//   having to intervene.
 
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -37,9 +38,9 @@ const MS_PER_MINUTE = SECONDS_PER_MINUTE * MS_PER_SECOND;
 export const DEFAULT_IDLE_MS = DEFAULT_IDLE_MINUTES * MS_PER_MINUTE;
 
 /**
- * Cuánto silencio convierte una reserva en libre. Vive en la RAÍZ de `.ai/config.json` y no
- * como param de cada gate porque los tres que leen reservas tienen que coincidir: repetirlo
- * por gate deja al usuario con tres sitios donde desincronizarlo.
+ * How much silence turns a claim back into a free task. It lives at the ROOT of
+ * `.ai/config.json` rather than as a per-gate param because the three gates that read claims
+ * have to agree: one setting per gate gives the user three places to drift out of sync.
  *
  *   { "claimIdleMinutes": 60, "gates": { ... } }
  */
@@ -53,17 +54,15 @@ export function idleWindowMs(root) {
     : DEFAULT_IDLE_MS;
 }
 
-// Porque un TTL fijo es un mal sustituto de la pregunta real, se consulta si la sesión dueña
-// SIGUE ahí: con 8 horas, una sesión muerta hace un minuto retiene su trabajo el resto del
-// día, y una que lleva 9 horas trabajando lo pierde.
+// Because a fixed clock answers the wrong question, this asks whether the owning session is
+// STILL there: on a flat 8h TTL a session that died a minute ago kept its work all day, and
+// one still working after nine hours lost it. Claude Code touches
+// ~/.claude/projects/<root-with-separators-as-dashes>/<session-id>.jsonl every turn, so that
+// mtime is real liveness — free, and with no protocol to invent.
 //
-// Claude Code escribe el transcript de cada sesión en
-// ~/.claude/projects/<raiz-con-separadores-como-guiones>/<session-id>.jsonl y lo toca en cada
-// turno, de modo que su mtime es una señal de vida real, barata y sin protocolo nuevo.
-//
-// Tres estados en vez de dos: un transcript ausente NO se lee como sesión muerta, porque la
-// derivación de la ruta podría fallar en otra plataforma y robar una reserva por eso sería
-// peor que esperar. Ese caso cae al TTL de siempre.
+// Three states rather than two, because a transcript that is NOT found must not be read as a
+// dead session: the path derivation could differ on another platform, and stealing a claim
+// over that is worse than waiting, so that case falls back to the claim's own age.
 function transcriptPathFor(owner, root) {
   const slug = String(root).replace(/[:\\/]/g, '-');
   return join(homedir(), '.claude', 'projects', slug, `${owner}.jsonl`);
@@ -93,8 +92,9 @@ export function claimIsLive(task, now = Date.now(), root = null) {
   if (session === 'active') return true;
 
   const claimedAt = Date.parse(String(task?.claimedAt ?? ''));
-  // Porque una reserva sin fecha viene de una tarea escrita antes de este campo, se respeta
-  // en vez de caducar al instante: tratarla como libre se la quitaría a quien la trabaja.
+  // Because a claim with no date comes from a task written before this field existed, it is
+  // honoured instead of expiring at once: treating it as free would take it from whoever
+  // is working it.
   if (Number.isNaN(claimedAt)) return true;
   return now - claimedAt < idleWindowMs(root);
 }

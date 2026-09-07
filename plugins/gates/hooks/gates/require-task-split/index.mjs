@@ -48,9 +48,9 @@ function hasChildren(tasks, parentId) {
 // everyone, while nobody was touching the same file. It blocked the harmless case (untidy
 // bookkeeping elsewhere) and never guarded the dangerous one (two agents editing one file).
 //
-// La regla completa (por qué una tarea libre sí bloquea, por qué la reserva caduca) vive en
-// lib/task-claims.mjs, compartida con stop-pending: una segunda copia es donde las dos se
-// separan en silencio, que es justo lo que lib/shell-safety.mjs documenta haber pasado ya.
+// The full rule (why a free task still blocks, why a claim dies with its session) lives in
+// lib/task-claims.mjs, shared with stop-pending: a second copy is where the two silently
+// drift apart, which is exactly what lib/shell-safety.mjs documents having already happened.
 function unsplitLargeTasks(tasks, owner, root) {
   return tasks.filter((task) => {
     if (!IMPLEMENTATION_STATUSES.has(task.status)) return false;

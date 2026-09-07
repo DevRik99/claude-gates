@@ -143,8 +143,8 @@ test('dump-defaults protocol: prints the descriptor with allowStopWithBlockedTas
   assert.deepEqual(result.defaultParams, { allowStopWithBlockedTasks: true });
 });
 
-// ── Aislamiento entre agentes: no retengo el turno por trabajo de otro ────────────────
-const ME = 'agent-yo';
+// ── Agent isolation: another agent's work never holds this turn open ──────────────────
+const ME = 'agent-one';
 const STALE_CLAIM_HOURS = 9;
 
 function claimed(id, owner, claimedAt = new Date().toISOString()) {
@@ -158,36 +158,36 @@ function runAs(tasks, sessionId = ME) {
   });
 }
 
-test('la tarea viva de OTRO agente no me impide terminar el turno', () => {
-  assert.equal(runAs([claimed('t1', 'agent-otro')]), null);
+test("ANOTHER agent's live task does not stop this one from ending its turn", () => {
+  assert.equal(runAs([claimed('t1', 'agent-two')]), null);
 });
 
-test('mi propia tarea si me retiene', () => {
+test('your own task does hold the turn', () => {
   const result = runAs([claimed('t1', ME)]);
   assert.ok(isBlock(result));
   assert.match(messageOf(result), /t1/);
 });
 
-test('una tarea sin reclamar retiene a quien actua', () => {
-  // Porque libre significa "aun no la tomo nadie" y no "no bloquea a nadie": exentarla
-  // apagaria el gate en silencio en cualquier proyecto anterior a las reservas.
+test('an unclaimed task holds whoever is acting', () => {
+  // Because free means "nobody has taken it yet", not "blocks no one": exempting it would
+  // switch the gate off silently for any project written before claims existed.
   const result = runAs([{ id: 't1', title: 'suelta', status: 'open' }]);
   assert.ok(isBlock(result));
   assert.match(messageOf(result), /unclaimed/);
 });
 
-test('una reserva caducada de otro agente vuelve a retenerme', () => {
-  // Porque un agente que muere sin liberar retendria la cola para siempre.
+test("another agent's expired claim holds this one again", () => {
+  // Because an agent that stops without releasing would hold the queue forever.
   const stale = new Date(
     Date.now() - STALE_CLAIM_HOURS * 60 * 60 * 1000,
   ).toISOString();
-  const result = runAs([claimed('t1', 'agent-muerto', stale)]);
+  const result = runAs([claimed('t1', 'agent-gone', stale)]);
   assert.ok(isBlock(result));
 });
 
-test('solo se listan las mias cuando conviven con las de otro', () => {
-  const result = runAs([claimed('mia', ME), claimed('suya', 'agent-otro')]);
+test('only your own are listed when both agents have tasks', () => {
+  const result = runAs([claimed('ours', ME), claimed('theirs', 'agent-two')]);
   assert.ok(isBlock(result));
-  assert.match(messageOf(result), /mia/);
-  assert.doesNotMatch(messageOf(result), /suya/);
+  assert.match(messageOf(result), /ours/);
+  assert.doesNotMatch(messageOf(result), /theirs/);
 });

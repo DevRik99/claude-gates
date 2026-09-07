@@ -132,9 +132,9 @@ function forceReminder(project, tasks) {
 test('el recordatorio separa lo tuyo, lo libre y lo de otros', () => {
   const project = makeProject();
   const output = forceReminder(project, [
-    claimedTask('mia', ME),
-    sampleTask('libre'),
-    claimedTask('suya', OTHER),
+    claimedTask('ours', ME),
+    sampleTask('free'),
+    claimedTask('theirs', OTHER),
   ]);
 
   assert.match(output, /YOURS to finish or park \(1\)/);
@@ -147,19 +147,19 @@ test('el recordatorio separa lo tuyo, lo libre y lo de otros', () => {
 test('un backlog ajeno grande no esconde tus tareas', () => {
   const project = makeProject();
   const theirs = Array.from({ length: 30 }, (_, index) =>
-    claimedTask(`suya-${String(index)}`, OTHER),
+    claimedTask(`theirs-${String(index)}`, OTHER),
   );
-  const output = forceReminder(project, [...theirs, claimedTask('mia', ME)]);
+  const output = forceReminder(project, [...theirs, claimedTask('ours', ME)]);
 
-  assert.match(output, /mia/);
+  assert.match(output, /ours/);
   assert.match(output, /HELD by 1 other agent\(s\): 30 task\(s\)/);
 });
 
 test('las tareas de otro no se listan una a una: solo se cuentan', () => {
   const project = makeProject();
-  const output = forceReminder(project, [claimedTask('suya', OTHER)]);
+  const output = forceReminder(project, [claimedTask('theirs', OTHER)]);
 
-  assert.doesNotMatch(output, /- \[open\] suya/);
+  assert.doesNotMatch(output, /- \[open\] theirs/);
   assert.match(output, /not yours to close/);
 });
 

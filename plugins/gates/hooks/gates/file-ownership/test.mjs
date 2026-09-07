@@ -1,6 +1,6 @@
-// Cada caso va con su contrario (bloquea la del otro / deja pasar la mía), porque un gate que
-// dejara de disparar por completo pasaría la mitad de esta suite sin que nadie lo notara.
-// Los tres invariantes que cumple cada gate se re-comprueban aquí: este toca la escritura.
+// Every case ships with its opposite (blocks the other agent's file / lets your own through),
+// because a gate that stopped firing entirely would pass half of this suite unnoticed.
+// The three gate invariants are re-checked here: this one guards the write surface.
 
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
@@ -18,8 +18,8 @@ import {
 
 const GATE = join(dirname(fileURLToPath(import.meta.url)), 'index.mjs');
 
-const ME = 'agent-yo';
-const OTHER = 'agent-otro';
+const ME = 'agent-one';
+const OTHER = 'agent-two';
 const STALE_HOURS = 9;
 const MS_PER_HOUR = 60 * 60 * 1000;
 
@@ -50,36 +50,36 @@ function run(payload, options = {}) {
   );
 }
 
-test('un write a un fichero reclamado por OTRO agente se deniega', () => {
+test('a write to a file ANOTHER agent claimed is denied', () => {
   const result = run(write('src/auth.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.ok(isDeny(result));
 });
 
-test('un write a MI propio fichero reclamado pasa', () => {
+test('a write to a file YOU claimed goes through', () => {
   const result = run(write('src/auth.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], ME)],
   });
   assert.equal(result, null);
 });
 
-test('un fichero que nadie reclamo se edita libremente', () => {
-  const result = run(write('src/otro.ts', 'x'), {
+test('a file nobody claimed is edited freely', () => {
+  const result = run(write('src/other.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.equal(result, null);
 });
 
-test('una tarea de otro SIN owns no bloquea nada', () => {
+test("another agent's task with no `owns` blocks nothing", () => {
   const result = run(write('src/auth.ts', 'x'), {
-    tasks: [{ id: 't-1', title: 'sin owns', status: 'open', owner: OTHER }],
+    tasks: [{ id: 't-1', title: 'no owns', status: 'open', owner: OTHER }],
   });
   assert.equal(result, null);
 });
 
-test('una reserva caducada libera el fichero', () => {
-  // Porque un agente que muere sin liberar retendria sus ficheros para siempre.
+test('an expired claim frees the file', () => {
+  // Because an agent that stops without releasing would hold its files forever.
   const stale = new Date(Date.now() - STALE_HOURS * MS_PER_HOUR).toISOString();
   const result = run(write('src/auth.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], OTHER, stale)],
@@ -87,35 +87,35 @@ test('una reserva caducada libera el fichero', () => {
   assert.equal(result, null);
 });
 
-test('reclamar un directorio cubre lo que cuelga de el', () => {
+test('claiming a directory covers everything beneath it', () => {
   const result = run(write('src/lib/deep/util.ts', 'x'), {
     tasks: [claimed(['src/lib'], OTHER)],
   });
   assert.ok(isDeny(result));
 });
 
-test('un directorio reclamado no cubre a un hermano con prefijo parecido', () => {
-  const result = run(write('src/libro.ts', 'x'), {
+test('a claimed directory does not cover a sibling with a similar prefix', () => {
+  const result = run(write('src/library.ts', 'x'), {
     tasks: [claimed(['src/lib'], OTHER)],
   });
   assert.equal(result, null);
 });
 
-test('un Edit se juzga igual que un Write', () => {
-  const result = run(edit('src/auth.ts', 'nuevo'), {
+test('an Edit is judged the same as a Write', () => {
+  const result = run(edit('src/auth.ts', 'new'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.ok(isDeny(result));
 });
 
-test('una redireccion de shell a un fichero reclamado tambien se deniega', () => {
-  const result = run(bash('echo hola > src/auth.ts'), {
+test('a shell redirection into a claimed file is denied too', () => {
+  const result = run(bash('echo hello > src/auth.ts'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.ok(isDeny(result));
 });
 
-test('la denegacion nombra el fichero, la tarea, el dueno y la salida', () => {
+test('the denial names the file, the task, the holder and the way out', () => {
   const message = messageOf(
     run(write('src/auth.ts', 'x'), {
       tasks: [claimed(['src/auth.ts'], OTHER)],
@@ -128,28 +128,28 @@ test('la denegacion nombra el fichero, la tarea, el dueno y la salida', () => {
   assert.match(message, /task claim t-1/);
 });
 
-test('una tarea cerrada ya no reserva sus ficheros', () => {
+test('a closed task no longer reserves its files', () => {
   const result = run(write('src/auth.ts', 'x'), {
     tasks: [{ ...claimed(['src/auth.ts'], OTHER), status: 'done' }],
   });
   assert.equal(result, null);
 });
 
-test('un comando de solo lectura nunca se deniega', () => {
+test('a read-only command is never denied', () => {
   const result = run(bash('cat src/auth.ts'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.equal(result, null);
 });
 
-test('el remedio del propio toolkit nunca se deniega', () => {
+test("this toolkit's own remedy is never denied", () => {
   const result = run(bash('claude-gates task list --free'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.equal(result, null);
 });
 
-test('el gate apagado no dice nada', () => {
+test('the gate stays silent when it is turned off', () => {
   const result = run(write('src/auth.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
     enabled: false,
@@ -157,9 +157,9 @@ test('el gate apagado no dice nada', () => {
   assert.equal(result, null);
 });
 
-test('un write fuera del proyecto no se compara contra owns', () => {
-  // Porque `owns` solo puede nombrar rutas de dentro del proyecto.
-  const result = run(write('../fuera.ts', 'x'), {
+test('a write outside the project is not compared against owns', () => {
+  // Because `owns` can only name paths inside the project.
+  const result = run(write('../outside.ts', 'x'), {
     tasks: [claimed(['src/auth.ts'], OTHER)],
   });
   assert.equal(result, null);

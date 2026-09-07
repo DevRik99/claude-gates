@@ -94,14 +94,55 @@ export const ATTACK_CATEGORIES = Object.freeze([
       'privile\\p{L}*|secret|credential|credencial|sandbox|escalad[ao]',
     why: 'the guard being walked around rather than triggered',
   },
+  {
+    id: 'decision-table',
+    signals:
+      'decision table|tabla de decisi[oó]n|combinaci\\p{L}*|combination|combined|' +
+      'precedence|precedencia|both|ambos|neither|ninguno de los dos|excluyente|' +
+      'mutually|overlap|solapa\\p{L}*|gana|wins|takes priority|tiene prioridad',
+    why: 'every meaningful combination of the conditions, including the ones that collide',
+  },
+  {
+    id: 'metamorphic',
+    signals:
+      'metamorphic|metam[oó]rfic[ao]s?|equivalen\\p{L}*|same result|mismo resultado|' +
+      'does not change|no cambia|no altera|unchanged|sin cambiar|reorder|' +
+      'reordena\\p{L}*|otro orden|irrelevant|irrelevante|scal(?:e|es|ed|ing)|escala\\p{L}*',
+    why: 'a relation between two runs, when the exact expected output cannot be stated',
+  },
+  {
+    id: 'partial-write',
+    signals:
+      'rollback|revert|revierte|atomic|at[oó]mic[ao]s?|partial write|escritura parcial|' +
+      'a medias|half[- ]written|leftover|residuo|sobrante|side[- ]effect|' +
+      'efecto secundario|never writes|no escribe|nunca escribe|cleanup|limpieza|' +
+      'dirty|estado sucio',
+    why: 'a failed operation leaving no half-written state and no leaked side effect',
+  },
 ]);
 
 const CATEGORY_BY_ID = new Map(
   ATTACK_CATEGORIES.map((category) => [category.id, category]),
 );
 
-/** The rows a file must account for when a project declares nothing else. */
-export const DEFAULT_REQUIRED_CATEGORIES = Object.freeze(
+/**
+ * The rows a file must account for when a project declares nothing else. Listed by hand and
+ * never derived from ATTACK_CATEGORIES, because adding a category to the catalog would
+ * otherwise retroactively refuse every test file already on disk; a new row becomes
+ * available to whoever asks for it by name, and widening this list stays a deliberate act.
+ */
+export const DEFAULT_REQUIRED_CATEGORIES = Object.freeze([
+  'boundary',
+  'invalid-input',
+  'missing-empty',
+  'invalid-state',
+  'dependency-failure',
+  'idempotency-order',
+  'invariant',
+  'security',
+]);
+
+export const KNOWN_CATEGORIES = Object.freeze(
   ATTACK_CATEGORIES.map((category) => category.id),
 );
 
@@ -295,7 +336,7 @@ export function corroborates(texts, id) {
 }
 
 function isAdversarial(title) {
-  return DEFAULT_REQUIRED_CATEGORIES.some((id) => corroborates([title], id));
+  return KNOWN_CATEGORIES.some((id) => corroborates([title], id));
 }
 
 function rowProblems(id, entry, evidence) {

@@ -56,16 +56,17 @@ function nextCount(previous, now, windowMs) {
 }
 
 // ── Segundo disparador: el principal trabajando en serie ─────────────────────────────
-// El primer disparador solo corre si YA estás delegando, así que un agente que lo hacía por
-// su cuenta era invisible: medía el espaciado entre delegaciones, nunca su ausencia. Esto
-// observa lo contrario — cuántos ficheros DISTINTOS toca el principal sin repartir nada.
+// The first trigger only runs once you are ALREADY delegating, so an agent doing everything
+// itself was invisible to it: it measured the spacing between delegations, never their
+// absence. This watches the opposite — how many DIFFERENT files the main agent touches
+// without handing any of it out.
 //
-// Ficheros distintos y no llamadas: editar diez veces el mismo fichero es iterar, y eso no
-// se reparte. Diez ficheros distintos sí son trabajo independiente.
+// Distinct files rather than calls: editing one file ten times is iterating, and that does
+// not split. Ten different files is independent work.
 //
-// Cualquier delegación REINICIA la cuenta, de modo que la salida del bloqueo sea exactamente
-// la conducta que se pide. Y solo cuenta el PRINCIPAL: un subagente haciendo diez ediciones
-// es justo lo que se quería conseguir.
+// Any delegation RESETS the count, so the way out of the block is exactly the behavior being
+// asked for. And only the MAIN agent counts: a subagent making ten edits is the goal, not
+// the offense.
 const DEFAULT_MAX_SELF_EDITS = 10;
 
 function writtenPathFor(toolName, toolInput) {
@@ -107,8 +108,8 @@ function judgeDelegation({
     lastAt: Number(stored.lastAt) || 0,
   };
   const count = nextCount(previous, now, parameters.sequentialWindowMs);
-  // Porque delegar es justamente la salida que pide el otro disparador, hacerlo limpia la
-  // racha en serie en la misma escritura de estado.
+  // Because delegating is exactly the way out the other trigger asks for, doing it clears
+  // the serial streak in the same state write.
   writeSessionState(
     GATE_ID,
     sessionId,

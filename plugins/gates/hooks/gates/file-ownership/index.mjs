@@ -64,14 +64,14 @@ function projectRelative(root, path) {
   const text = String(path ?? '');
   if (text === '') return '';
   const candidate = relative(root, join(root, text));
-  // Porque una ruta que se sale del root está fuera del proyecto, y el `owns` de una tarea
-  // solo puede nombrar rutas de dentro, se descarta en vez de compararla.
+  // Because a path that climbs out of the root is outside the project, and a task's `owns`
+  // can only name paths inside it, it is dropped rather than compared.
   return candidate.startsWith('..') ? '' : normalize(candidate);
 }
 
 function claimCovers(owned, written) {
-  // Porque reclamar un directorio sin cubrir su contenido no protegería nada, una reserva
-  // sobre `src/lib` alcanza cuanto cuelga de él.
+  // Because claiming a directory without covering what is under it would protect nothing, a
+  // claim on `src/lib` reaches everything beneath it.
   return written === owned || written.startsWith(`${owned}/`);
 }
 
@@ -121,7 +121,8 @@ runGate(
   ({ toolName, toolInput, sessionId, cwd }) => {
     if (!toolInGroups(toolName, ['write', 'shell'])) return;
 
-    // Invariante que cumple cada gate: diagnosticar y el remedio propio nunca se deniegan.
+    // The invariant every gate honours: diagnosis and this toolkit's own remedy are never
+    // denied (see cli/__tests__/gate-invariants.test.mjs).
     if (toolInGroups(toolName, ['shell'])) {
       const command = shellCommandOf(toolInput);
       if (isSelfRemedyCommand(command)) return;

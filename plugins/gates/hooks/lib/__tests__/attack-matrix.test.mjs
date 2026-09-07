@@ -18,6 +18,7 @@ import { test } from 'node:test';
 import {
   DEFAULT_REQUIRED_CATEGORIES,
   ESCAPE_HATCH,
+  KNOWN_CATEGORIES,
   attackMatrixProblems,
   attackMatrixSkeleton,
   caseTitles,
@@ -326,4 +327,104 @@ test('el esqueleto que se ofrece al denegar contiene todas las filas exigidas', 
     assert.ok(skeleton.includes(id), `falta la fila ${id}`);
   }
   assert.match(skeleton, /mutations-killed/);
+});
+
+test('el catalogo crece y lo exigido por defecto no: nunca se rechaza lo que ya pasaba', () => {
+  assert.ok(KNOWN_CATEGORIES.length > DEFAULT_REQUIRED_CATEGORIES.length);
+  for (const id of DEFAULT_REQUIRED_CATEGORIES) {
+    assert.ok(KNOWN_CATEGORIES.includes(id), `${id} salio del catalogo`);
+  }
+  for (const id of ['decision-table', 'metamorphic', 'partial-write']) {
+    assert.equal(
+      DEFAULT_REQUIRED_CATEGORIES.includes(id),
+      false,
+      `${id} se exige por defecto`,
+    );
+  }
+  assert.deepEqual(attackMatrixProblems(suite()), []);
+});
+
+// "nunca escribe cuando deniega" names an invariant AND a partial write that never happens,
+// so it would corroborate an opt-in row this fixture needs left uncorroborated.
+const CASES_WITHOUT_OPT_IN = CASE_LINES.map((line) =>
+  line.includes('nunca escribe')
+    ? "test('el invariante se mantiene siempre', () => {});"
+    : line,
+);
+
+test('una fila opt-in declarada COVERED sin caso que la nombre no pasa', () => {
+  for (const id of ['decision-table', 'metamorphic', 'partial-write']) {
+    const problems = attackMatrixProblems(
+      suite({
+        rows: [...COVERED_ROWS, [id, 'COVERED — el caso que lo hace']],
+        cases: CASES_WITHOUT_OPT_IN,
+      }),
+      { requiredCategories: [...DEFAULT_REQUIRED_CATEGORIES, id] },
+    );
+    assert.equal(problems.length, 1, `${id}: ${joined(problems)}`);
+    assert.match(problems[0], new RegExp(id));
+  }
+});
+
+test('la fila opt-in con su caso presente pasa: la corroboracion existe, no se concede', () => {
+  const opted = [
+    [
+      'decision-table',
+      "test('cuando ambos flags estan activos gana el ultimo', () => {});",
+    ],
+    [
+      'metamorphic',
+      "test('un dato irrelevante no cambia el resultado', () => {});",
+    ],
+    [
+      'partial-write',
+      "test('un fallo a medias hace rollback y no deja residuo', () => {});",
+    ],
+  ];
+  for (const [id, line] of opted) {
+    const problems = attackMatrixProblems(
+      suite({
+        rows: [...COVERED_ROWS, [id, 'COVERED — el caso que lo hace']],
+        cases: [...CASE_LINES, line],
+      }),
+      { requiredCategories: [...DEFAULT_REQUIRED_CATEGORIES, id] },
+    );
+    assert.deepEqual(problems, [], `${id}: ${joined(problems)}`);
+  }
+});
+
+test('una fila opt-in nunca cubre a otra: rollback no es una dependencia que falla', () => {
+  const problems = attackMatrixProblems(
+    suite({
+      cases: [
+        ...casesWithout('la dependencia lanza'),
+        "test('hace rollback y revierte lo escrito', () => {});",
+      ],
+    }),
+  );
+  assert.equal(problems.length, 1, joined(problems));
+  assert.match(problems[0], /dependency-failure/);
+});
+
+test('un titulo de una categoria opt-in ya cuenta como adversarial en el ratio', () => {
+  const onlyRatio = { requiredCategories: [] };
+  const happy = "test('devuelve el valor', () => {});";
+  const metamorphic = attackMatrixProblems(
+    suite({
+      rows: [],
+      cases: [
+        "test('reordenar las entradas no altera el resultado', () => {});",
+        happy,
+      ],
+    }),
+    onlyRatio,
+  );
+  assert.deepEqual(metamorphic, [], joined(metamorphic));
+
+  const neither = attackMatrixProblems(
+    suite({ rows: [], cases: [happy, "test('lee el fichero', () => {});"] }),
+    onlyRatio,
+  );
+  assert.equal(neither.length, 1, joined(neither));
+  assert.match(neither[0], /0 of 2/);
 });

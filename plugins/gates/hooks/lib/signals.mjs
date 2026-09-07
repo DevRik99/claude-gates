@@ -3,6 +3,9 @@
 // content). Written once here; gates import instead of keeping their own monolingual or
 // partially-bilingual copy.
 //
+// The Spanish below is DATA, not prose: these are the terms the gates match against a user's
+// own words, so they cannot be translated without making every gate monolingual.
+//
 // ── Scope: lexical only ──────────────────────────────────────────────────────────────
 // A gate whose real signal lives in the ACTION (a shell command, a tool name, a file
 // path) keeps using structural detection for that part — this module does not replace
@@ -121,6 +124,53 @@ export const CONJECTURE_SOURCES = [
 ];
 
 export const CONJECTURE = withUnicodeWordBoundary(CONJECTURE_SOURCES.join('|'));
+
+// ── UNVERIFIED_CLAIM: asserting DONE or CORRECT, which conjecture phrasing misses ────
+// "probably" announces itself as a guess. "already works" does the opposite: it states a
+// fact nobody checked, and reads as settled to whoever comes next. That is the assumption
+// that actually costs — a brief telling a subagent the parser is done sends it to build on
+// something that may not exist.
+//
+// Deliberately narrower than CONJECTURE: these fire only on a claim about STATE (done,
+// works, fine, correct), never on ordinary description, because a false positive here
+// blocks rather than advises.
+export const UNVERIFIED_CLAIM_SOURCES = [
+  'already (?:works|done|fixed|implemented|handled|covered)',
+  "it'?s (?:done|fixed|working|fine)",
+  'works (?:fine|now|correctly)',
+  'looks (?:good|fine|correct|right)',
+  'lgtm',
+  'all (?:set|good)',
+  'no issues',
+  'everything (?:works|passes)',
+  'tested and working',
+  'ya (?:funciona|est[aá] (?:hecho|listo|resuelto))',
+  'est[aá] (?:bien|correcto|hecho|listo|resuelto)',
+  'se ve bien',
+  'parece correcto',
+  'todo (?:bien|listo|funciona)',
+  'sin problemas',
+  'funciona correctamente',
+];
+
+export const UNVERIFIED_CLAIM = withUnicodeWordBoundary(
+  UNVERIFIED_CLAIM_SOURCES.join('|'),
+);
+
+// What turns a claim into a report: something a reader could re-check. Kept tight on
+// purpose — a backtick or the word "ran" would match almost any prose and void the rule.
+export const EVIDENCE_SOURCES = [
+  'exit\\s*(?:code\\s*)?[0-9]+',
+  '[0-9]+\\s*/\\s*[0-9]+',
+  'tests?\\s+(?:pass|passed|passing)',
+  'verified',
+  'verificad[oa]',
+  '--check',
+  '--exists',
+  'npm (?:test|run lint)',
+];
+
+export const EVIDENCE = withUnicodeWordBoundary(EVIDENCE_SOURCES.join('|'));
 
 // ── PERSISTENCE_VERB: an instruction to save/persist/store something ────────────────
 // Used to detect a REAL persistence instruction nearby a memory-dependency phrase (see

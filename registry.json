@@ -561,7 +561,7 @@
             {
               "name": "requiredCategories",
               "type": "string[]",
-              "description": "Matrix rows a test file must account for (boundary, invalid-input, missing-empty, invalid-state, dependency-failure, idempotency-order, invariant, security). A category the gate does not know is accepted as declared, since nothing can corroborate it."
+              "description": "Matrix rows a test file must account for. Required by default: boundary, invalid-input, missing-empty, invalid-state, dependency-failure, idempotency-order, invariant, security. Also corroborable when named here: decision-table, metamorphic, partial-write. A category the gate does not know is accepted as declared, since nothing can corroborate it."
             },
             {
               "name": "minMutations",

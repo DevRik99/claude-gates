@@ -23,9 +23,9 @@ function readActiveTasks(root) {
   return tasks.filter((task) => task && typeof task === 'object');
 }
 
-// Porque esperar por la tarea viva de OTRO agente dejaba a este sin poder terminar por algo
-// que no empezó y que además no podía cerrar honestamente, solo retiene el turno el trabajo
-// del que responde quien actúa.
+// Because waiting on ANOTHER agent's live task left this one unable to finish over work it
+// never started and could not honestly close, only work the acting agent answers for holds
+// the turn open.
 function blockingTasksFrom(tasks, allowBlocked, caller, root) {
   return tasks.filter((task) => {
     if (!blocksCaller(task, caller, Date.now(), root)) return false;
