@@ -111,3 +111,66 @@ test('a corrupt existing config aborts without writing', () => {
   );
   assert.equal(readFileSync(path, 'utf8'), '{broken');
 });
+
+// ── init deja CLAUDE.md alineado con los gates activos ────────────────────────────────
+function initProject(project, extra = []) {
+  execFileSync(
+    process.execPath,
+    [CLI, 'init', '--project', '--defaults', '--yes', '--no-install', ...extra],
+    { cwd: project, encoding: 'utf8' },
+  );
+}
+
+function scratchProject(claudeMd) {
+  const project = mkdtempSync(join(tmpdir(), 'init-claude-md-'));
+  mkdirSync(join(project, '.git'));
+  if (claudeMd !== undefined) {
+    writeFileSync(join(project, 'CLAUDE.md'), claudeMd, 'utf8');
+  }
+  return project;
+}
+
+function readClaudeMdOf(project) {
+  return readFileSync(join(project, 'CLAUDE.md'), 'utf8');
+}
+
+test('init escribe el bloque de gates en el CLAUDE.md del proyecto', () => {
+  const project = scratchProject();
+  initProject(project);
+
+  const content = readClaudeMdOf(project);
+  assert.match(content, /<!-- claude-gates:start -->/);
+  assert.match(content, /<!-- claude-gates:end -->/);
+  assert.match(content, /How this project expects you to work/);
+});
+
+test('init preserva lo que el usuario ya habia escrito', () => {
+  // Porque este edita un fichero del usuario, mangonearlo seria peor que no correr nunca.
+  const project = scratchProject('# Mio\n\nUna nota que nadie debe tocar.\n');
+  initProject(project);
+
+  const content = readClaudeMdOf(project);
+  assert.match(content, /Una nota que nadie debe tocar\./);
+  assert.match(content, /# Mio/);
+});
+
+test('init dos veces no duplica el bloque', () => {
+  const project = scratchProject('# Mio\n');
+  initProject(project);
+  initProject(project);
+
+  const content = readClaudeMdOf(project);
+  assert.equal(content.split('<!-- claude-gates:start -->').length - 1, 1);
+  assert.equal(content.split('# Mio').length - 1, 1);
+});
+
+test('--dry-run no toca CLAUDE.md', () => {
+  const project = scratchProject();
+  execFileSync(
+    process.execPath,
+    [CLI, 'init', '--project', '--all', '--yes', '--dry-run'],
+    { cwd: project, encoding: 'utf8' },
+  );
+
+  assert.equal(existsSync(join(project, 'CLAUDE.md')), false);
+});
