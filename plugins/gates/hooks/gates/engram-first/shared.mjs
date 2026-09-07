@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { readJsonOrNull } from '../../lib/config.mjs';
 import {
   mcpActionSegment,
   mcpServerSegment,
@@ -31,6 +33,17 @@ export const EMPTY_STATE = Object.freeze({
   lastResearchAt: 0,
   lastMemSaveAt: 0,
 });
+
+/**
+ * Mirrors the normalization the tool namespace applies, because a server
+ * configured as `Engram AI` reaches transcripts as `engram_ai`: matching the
+ * raw configured name would miss it.
+ */
+function normalizeServerName(name) {
+  return String(name)
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9_-]/g, '_');
+}
 
 function serverMatches(toolName, servers) {
   const server = mcpServerSegment(String(toolName ?? '')).toLowerCase();
@@ -75,6 +88,50 @@ export function rememberQuery(state, query) {
     String(query ?? '').slice(0, MAX_QUERY_LENGTH),
   ];
   return queries.slice(-MAX_RECORDED_QUERIES);
+}
+
+function declaredMcpServerNames(cwd) {
+  const names = [];
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+
+  const userConfig = readJsonOrNull(join(home, '.claude.json'));
+  if (userConfig) {
+    names.push(...Object.keys(userConfig.mcpServers ?? {}));
+    for (const project of Object.values(userConfig.projects ?? {})) {
+      names.push(...Object.keys(project?.mcpServers ?? {}));
+    }
+  }
+
+  const projectConfig = readJsonOrNull(join(String(cwd ?? '.'), '.mcp.json'));
+  if (projectConfig) {
+    names.push(...Object.keys(projectConfig.mcpServers ?? {}));
+  }
+
+  return names;
+}
+
+/**
+ * A gate whose precondition cannot be satisfied must not block: with no engram
+ * server declared anywhere, `mem_search` does not exist as a tool, so denying
+ * research closes a loop with no exit. Same stance as forge-flow, which warns
+ * and allows when its DB cannot be read.
+ *
+ * Declaration and not reachability, because a network probe is the wrong
+ * instrument: it costs a timeout on every research call, and under process
+ * sandboxing a child cannot reach even a server that is running, so a live
+ * engram would read as absent. Whether it is DECLARED separates the case where
+ * nothing can be called (allow) from the case where it is merely stopped, which
+ * the deny message already tells the user how to fix.
+ */
+export function engramConfigured(parameters, cwd) {
+  const wanted = new Set(
+    (parameters.engramServers ?? []).map((name) => String(name).toLowerCase()),
+  );
+  if (wanted.size === 0) return false;
+
+  return declaredMcpServerNames(cwd).some((name) =>
+    wanted.has(normalizeServerName(name)),
+  );
 }
 
 export function queryOf(toolInput) {
