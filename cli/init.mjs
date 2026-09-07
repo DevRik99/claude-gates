@@ -430,15 +430,38 @@ function adoptionOfEntries(registry, gateEntries) {
   return adoptionOf(map);
 }
 
+/**
+ * `stdin.isTTY` alone is not enough to prompt: a stream can carry the flag and still not be a
+ * tty.ReadStream that takes raw mode (a bare VPS shell, `docker exec` without -t, a web
+ * terminal), and @clack then paints a picker whose keys do nothing — the run looks frozen
+ * right after the intro with no way out but Ctrl-C. Both ends have to be a real terminal,
+ * because falling back to the scripted path is always recoverable and a hang never is.
+ */
+export function terminalCanPrompt(
+  stdin = process.stdin,
+  stdout = process.stdout,
+) {
+  return Boolean(
+    stdin?.isTTY && stdout?.isTTY && typeof stdin.setRawMode === 'function',
+  );
+}
+
 export async function runInit(
   options,
   { cwd = process.cwd(), io = prompts } = {},
 ) {
   const flags = normalizeOptions(options);
   const registry = loadRegistry();
-  const interactive = !flags.yes && Boolean(process.stdin.isTTY);
+  const interactive = !flags.yes && terminalCanPrompt();
 
   if (interactive) io.intro('claude-gates');
+  else if (!flags.yes) {
+    io.log.info(
+      'No terminal to prompt on, so nothing is being asked. Running scripted with what the ' +
+        'flags decided. Choose explicitly with --project|--global, --defaults|--all|--new|' +
+        '--families <ids>|--gates <ids>, and add --yes to silence this.',
+    );
+  }
 
   const { scope, mode, picks, nothingNew } = await decide(
     flags,

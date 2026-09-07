@@ -1,6 +1,6 @@
 {
   "name": "gates",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Deterministic gates for Claude Code: destructive-command blocks, protected paths, delegation briefs, spec-driven flow and session-start validation. Selection lives in config, not in code.",
   "author": {
     "name": "Devrik"

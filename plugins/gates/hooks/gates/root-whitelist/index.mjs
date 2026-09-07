@@ -226,17 +226,57 @@ function folderTargetsOf(command) {
   return folders;
 }
 
-function shellTargetsOf(command) {
-  const folders = folderTargetsOf(command);
-  const targets = shellWrittenPaths(command).map((path) => ({
+const CD_PREFIX = /^cd(?=\s|$)/i;
+const UNRESOLVED_PATH = /[$`%]/;
+
+/**
+ * Where a `cd` leaves the shell, or `null` when that cannot be known (a variable, `cd -`,
+ * or bare `cd` to the home directory). `undefined` means the segment was not a `cd` at all,
+ * which is why this never collapses the two into one falsy answer.
+ */
+function cdDestinationOf(segment, base) {
+  const argumentText = argumentsAfter(CD_PREFIX, segment);
+  if (argumentText === null) return undefined;
+  const [destination] = nonFlagArguments(argumentText);
+  if (!destination || destination === '-' || UNRESOLVED_PATH.test(destination))
+    return null;
+  return base === null ? null : resolve(base, toNativePath(destination));
+}
+
+function segmentTargets(segment, base) {
+  const folders = folderTargetsOf(segment);
+  const targets = shellWrittenPaths(segment).map((path) => ({
     target: path,
     isFolder: folders.has(path) || /[\\/]$/.test(path),
+    base,
   }));
   for (const folder of folders) {
     if (!targets.some((entry) => entry.target === folder))
-      targets.push({ target: folder, isFolder: true });
+      targets.push({ target: folder, isFolder: true, base });
   }
-  return targets.filter((entry) => !/[$`%]/.test(entry.target));
+  return targets;
+}
+
+/**
+ * `cd scratchpad && mkdir report` creates nothing at the project root, but resolving every
+ * target against the hook's cwd said it did — the gate denied work happening in a temp
+ * directory. Targets are resolved against where the command has walked to by that point, and
+ * once a `cd` lands somewhere unknowable the rest is left alone: an unknown base cannot
+ * honestly be called the root, and this gate already refuses to resolve variables.
+ */
+function shellTargetsOf(command, cwd) {
+  const targets = [];
+  let base = cwd;
+  for (const rawSegment of String(command).split(SEGMENT_SEPARATOR)) {
+    const segment = rawSegment.trim();
+    const destination = cdDestinationOf(segment, base);
+    if (destination !== undefined) {
+      base = destination;
+      continue;
+    }
+    if (base !== null) targets.push(...segmentTargets(segment, base));
+  }
+  return targets.filter((entry) => !UNRESOLVED_PATH.test(entry.target));
 }
 
 runGate(

@@ -7,7 +7,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { findUpSync } from 'find-up';
+import { findUpSync, findUpStop } from 'find-up';
 import {
   CLAUDE_USER_DIRECTORY,
   CONFIG_FILE,
@@ -26,6 +26,17 @@ export const SCOPES = Object.freeze({ GLOBAL: 'global', PROJECT: 'project' });
  * `~/.ai` would otherwise turn every folder under home into "the project" and the
  * config would land in the wrong place silently. `.git` may be a file (worktrees),
  * so the matcher checks existence, not type.
+ *
+ * `stopAt` is deliberately NOT passed to find-up. Its loop breaks only on
+ * `directory === stopAt` and has no filesystem-root guard, so a home that is not an
+ * ancestor of `startDirectory` (`/home/code/app` under a `/home/ubuntu` home — an
+ * ordinary VPS layout) never matches and `dirname('/')` spins forever, hanging the CLI
+ * before it prints anything. Stopping at home is the matcher's job, and find-up defaults
+ * to stopping at the filesystem root, which always terminates.
+ *
+ * The sentinel is find-up's exported `findUpStop` symbol. Spelled `findUpSync.stop` it
+ * evaluates to undefined, which find-up cannot distinguish from an unmatched directory,
+ * so the guard silently climbed straight past home instead of stopping there.
  */
 export function findProjectRoot(
   startDirectory,
@@ -34,13 +45,13 @@ export function findProjectRoot(
   if (startDirectory === home) return startDirectory;
   const markerDirectory = findUpSync(
     (directory) => {
-      if (directory === home) return findUpSync.stop;
+      if (directory === home) return findUpStop;
       const hasMarker = PROJECT_ROOT_MARKERS.some((marker) =>
         existsSync(join(directory, marker)),
       );
       return hasMarker ? directory : undefined;
     },
-    { cwd: startDirectory, stopAt: home, type: 'directory' },
+    { cwd: startDirectory, type: 'directory' },
   );
   return markerDirectory ?? startDirectory;
 }
