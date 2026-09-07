@@ -44,16 +44,16 @@ export const STATUS = Object.freeze({
 });
 
 // ── Propiedad de una tarea ──────────────────────────────────────────────────────────
-// Varios agentes comparten este fichero, y hasta ahora una tarea no tenía dueño: los gates
-// no podían distinguir "hay una tarea sin dividir" de "hay una tarea sin dividir MÍA", así
-// que la tarea de un agente congelaba a todos los demás. `owner` es lo que rompe eso.
+// Several agents share this file, and until now a task had no owner: the gates could not
+// tell an unsplit task from an unsplit task OF THEIR OWN, so one agent's task froze all the
+// others. `owner` is what breaks that.
 //
-// El dueño es el id de sesión de Claude Code (CLAUDE_CODE_SESSION_ID): una sesión es un
-// agente. Sin dueño vivo la tarea está LIBRE y cualquiera puede reclamarla — libre no
-// significa "de nadie y por tanto bloquea a todos", significa "todavía no la tomó nadie".
+// The owner is the Claude Code session id (CLAUDE_CODE_SESSION_ID): a session is an agent.
+// With no live owner the task is FREE and anyone may claim it — free does not mean it belongs
+// to no one and therefore blocks everyone, it means nobody has taken it yet.
 //
-// La reserva CADUCA porque un agente que muere sin liberar retendría su trabajo para
-// siempre; pasado el TTL la tarea vuelve a estar libre sin que nadie tenga que intervenir.
+// A claim EXPIRES, because an agent that stops without releasing would hold its work
+// forever; past the window the task is free again with nobody having to intervene.
 const CLAIM_TTL_HOURS = 8;
 const MINUTES_PER_HOUR = 60;
 const SECONDS_PER_MINUTE = 60;
@@ -74,8 +74,9 @@ export function claimIsLive(
 ) {
   if (!ownerOf(task)) return false;
   const claimedAt = Date.parse(String(task.claimedAt ?? ''));
-  // Porque una reserva sin fecha viene de una tarea escrita antes de este campo, se respeta
-  // en vez de caducar al instante: tratarla como libre se la quitaría a quien la trabaja.
+  // Because a claim with no date comes from a task written before this field existed, it is
+  // honoured instead of expiring at once: treating it as free would take it from whoever is
+  // working it.
   if (Number.isNaN(claimedAt)) return true;
   return now - claimedAt < ttlMs;
 }
@@ -96,8 +97,9 @@ export function ownedPathsOf(task) {
 
 const TERMINAL_STATUSES = new Set([STATUS.DONE, STATUS.ABANDONED]);
 // A task closed as done must carry evidence it was actually attended and resolved — the
-// project rule "ningún pedido se marca hecho sin evidencia válida" made mechanical. Abandoned
-// needs only a reason (it is a deliberate drop, not a claim of completion), so it is exempt.
+// project rule that no request is marked done without valid evidence, made mechanical.
+// Abandoned needs only a reason (a deliberate drop, not a claim of completion), so it is
+// exempt.
 const STATUS_REQUIRING_EVIDENCE = new Set([STATUS.DONE]);
 
 /** Climbs to the nearest project root (a dir holding `.git` or `.ai/`); null when none. */
@@ -208,15 +210,6 @@ function closeTask(
   return { task };
 }
 
-/**
- * Toma una tarea para `owner`. Se rechaza SOLO si otro agente la tiene con reserva viva: una
- * tarea libre, una caducada, y la que ya es tuya se conceden — reclamar lo tuyo otra vez es
- * renovar, no un conflicto. El error nombra al dueño actual porque "está ocupada" sin decir
- * por quién no deja hacer nada al respecto.
- *
- * Módulo aparte y no método del handle por lo mismo que `closeTask`: mantener `openTaskStore`
- * dentro del presupuesto de líneas del proyecto.
- */
 function updateTask(activePath, id, fields) {
   const collection = readCollection(activePath);
   const task = collection.tasks.find((entry) => entry.id === id);
@@ -226,13 +219,22 @@ function updateTask(activePath, id, fields) {
   return task;
 }
 
-// undefined y no null, para que JSON.stringify borre las claves en vez de dejar lápidas.
+// undefined rather than null, so JSON.stringify drops the keys instead of leaving tombstones.
 const RELEASED = Object.freeze({ owner: undefined, claimedAt: undefined });
 
 function activeMatching(activePath, predicate) {
   return readCollection(activePath).tasks.filter(predicate);
 }
 
+/**
+ * Takes a task for `owner`. Refused ONLY when another agent holds a live claim: a free task,
+ * an expired one, and one that is already yours are all granted — re-claiming your own is
+ * renewing, not a conflict. The error names the current holder, because saying it is taken
+ * without saying by whom leaves the caller nothing to act on.
+ *
+ * A module function rather than a handle method for the same reason as `closeTask`: keeping
+ * `openTaskStore` inside the project's line budget.
+ */
 function claimTask(activePath, id, owner, options) {
   if (!owner) return { error: 'claim needs an owner id' };
   const task = readCollection(activePath).tasks.find(

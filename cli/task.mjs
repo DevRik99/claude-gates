@@ -18,7 +18,8 @@ import { verifyCommand, verifyPath } from './evidence.mjs';
 
 const DEFAULT_SIZE = 'unspecified';
 
-// Porque una sesión de Claude Code ES un agente, su id sirve de dueño sin plomería extra.
+// Because a Claude Code session IS an agent, its id serves as the owner with no extra
+// plumbing to thread through.
 const OWNER_ENVIRONMENT_VARIABLE = 'CLAUDE_CODE_SESSION_ID';
 
 function callerOwner(options = {}) {
@@ -114,7 +115,8 @@ function selectTasks(store, options, caller) {
   return store.active();
 }
 
-// Porque la pregunta real al mirar la lista es "¿puedo tomar esta?", el dueño va en cada línea.
+// Because the real question when reading the list is "can I take this one?", the holder is
+// named on every line.
 function claimNote(task, caller) {
   const owner = ownerOf(task);
   if (!owner) return ' · free';
@@ -154,8 +156,8 @@ function taskRelease(id, { cwd = process.cwd() } = {}) {
   process.stdout.write(`${JSON.stringify(task, null, 2)}\n`);
 }
 
-// Porque registerTaskCommand excedería el presupuesto de líneas del proyecto, el registro de
-// claim/release vive aparte. Mismo comportamiento, mismo orden.
+// Because registerTaskCommand would blow the project's line budget, the claim/release
+// registration lives apart. Same behavior, same order.
 function registerClaimCommands(task) {
   task
     .command('list')

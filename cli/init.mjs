@@ -341,8 +341,8 @@ async function confirmWrite(io, fileExists) {
  * falls back to printing the manual command. Extracted from `runInit` purely to keep that
  * function's branching within the project's complexity budget — same behavior, same order.
  */
-// Porque una regla global escrita en el CLAUDE.md de un proyecto (o al revés) alinearía al
-// modelo en el sitio equivocado, el bloque va al del MISMO scope que la config.
+// Because a global rule written into a project's CLAUDE.md (or the reverse) would align the
+// model in the wrong place, the block goes to the one matching the config's OWN scope.
 function claudeMdPathFor(scope, cwd) {
   return scope === SCOPES.GLOBAL
     ? join(homedir(), '.claude', 'CLAUDE.md')
@@ -350,10 +350,10 @@ function claudeMdPathFor(scope, cwd) {
 }
 
 /**
- * Deja en CLAUDE.md lo que los gates ACTIVOS esperan, de modo que el modelo llegue ya alineado
- * en vez de descubrir cada regla al ser denegado. Falla suave a propósito: la config ya quedó
- * escrita y los gates ya funcionan, así que no poder tocar un fichero del usuario avisa y
- * sigue, nunca aborta el init.
+ * Puts what the ACTIVE gates expect into CLAUDE.md, so the model arrives already aligned
+ * instead of learning each rule by being denied. It fails soft on purpose: the config is
+ * already written and the gates already work, so being unable to touch a file the user owns
+ * warns and continues rather than aborting the init.
  */
 function alignClaudeMd(registry, gatesConfig, { scope, cwd, io }) {
   const path = claudeMdPathFor(scope, cwd);

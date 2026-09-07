@@ -122,10 +122,10 @@ const CLASSIFY_PROMPT =
   "obvious. The user's flow takes priority over your judgment of what deserves tracking.";
 
 /**
- * Reparte las tareas en lo que puedes hacer TÚ y lo que no. Antes la lista era plana y se
- * truncaba a las primeras N, así que el backlog de otro agente empujaba tu propio trabajo
- * fuera del recordatorio: veías tareas que no puedes cerrar y no veías las que sí. Ordenar
- * por accionabilidad es lo que hace que el recordatorio EMPUJE en vez de solo informar.
+ * Splits the tasks into what YOU can act on and what you cannot. The list used to be flat and
+ * truncated at the first N, so another agent's backlog pushed your own work out of the
+ * reminder: you saw tasks you cannot close and missed the ones you can. Ordering by what is
+ * actionable is what makes the reminder PUSH rather than merely inform.
  */
 function categorize(tasks, caller) {
   const mine = [];
