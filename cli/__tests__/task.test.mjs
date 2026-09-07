@@ -220,3 +220,90 @@ test('task promote links a forge run and keeps the task active as in_forge', () 
   assert.equal(active.tasks[0].status, 'in_forge');
   assert.equal(active.tasks[0].forgeRunId, 'run-42');
 });
+
+// ── claim / release / filtros: quien sostiene que, sin bloquearse entre agentes ───────
+const AGENT_A = 'agent-a';
+const AGENT_B = 'agent-b';
+
+function activeTasks(project) {
+  return JSON.parse(
+    readFileSync(join(project, '.ai', 'tasks', 'active.json'), 'utf8'),
+  ).tasks;
+}
+
+test('task add reclama la tarea para el agente que la registra', () => {
+  const project = makeProject();
+  addTask(project, 'mine', ['--session', AGENT_A]);
+
+  const [task] = activeTasks(project);
+  assert.equal(task.owner, AGENT_A);
+  assert.equal(task.claimedAt, task.createdAt);
+});
+
+test('task add --owns guarda los ficheros como lista, no enterrados en la descripcion', () => {
+  const project = makeProject();
+  addTask(project, 'owns files', ['--owns', 'src/a.ts, src/b.ts']);
+
+  assert.deepEqual(activeTasks(project)[0].owns, ['src/a.ts', 'src/b.ts']);
+});
+
+test('task list muestra quien sostiene cada tarea', () => {
+  const project = makeProject();
+  addTask(project, 'suya', ['--session', AGENT_B]);
+
+  const mine = runCli(['task', 'list', '--session', AGENT_A], project);
+  assert.match(mine.stdout, new RegExp(`held by ${AGENT_B}`));
+
+  const theirs = runCli(['task', 'list', '--session', AGENT_B], project);
+  assert.match(theirs.stdout, /yours/);
+});
+
+test('task list --mine y --free se reparten las tareas sin solaparse', () => {
+  const project = makeProject();
+  addTask(project, 'de A', ['--session', AGENT_A]);
+  addTask(project, 'de B', ['--session', AGENT_B]);
+
+  const mine = runCli(
+    ['task', 'list', '--mine', '--session', AGENT_A],
+    project,
+  );
+  assert.match(mine.stdout, /de A/);
+  assert.doesNotMatch(mine.stdout, /de B/);
+
+  const free = runCli(['task', 'list', '--free'], project);
+  assert.match(free.stdout, /No tasks/);
+});
+
+test('task release devuelve la tarea al pool y --free la ve', () => {
+  const project = makeProject();
+  addTask(project, 'soltable', ['--session', AGENT_A]);
+  const id = activeTasks(project)[0].id;
+
+  assert.equal(runCli(['task', 'release', id], project).code, 0);
+  assert.match(runCli(['task', 'list', '--free'], project).stdout, /soltable/);
+});
+
+test('task claim toma una libre y la rechaza si otro la sostiene', () => {
+  const project = makeProject();
+  addTask(project, 'disputada', ['--session', AGENT_A]);
+  const id = activeTasks(project)[0].id;
+
+  const stolen = runCli(['task', 'claim', id, '--session', AGENT_B], project);
+  assert.notEqual(stolen.code, 0);
+  assert.match(stolen.stderr, new RegExp(AGENT_A));
+
+  runCli(['task', 'release', id], project);
+  const taken = runCli(['task', 'claim', id, '--session', AGENT_B], project);
+  assert.equal(taken.code, 0, taken.stderr);
+  assert.equal(activeTasks(project)[0].owner, AGENT_B);
+});
+
+test('task claim sin identidad falla en vez de escribir un dueno vacio', () => {
+  const project = makeProject();
+  addTask(project, 'sin dueno', ['--session', AGENT_A]);
+  const id = activeTasks(project)[0].id;
+
+  const result = runCli(['task', 'claim', id, '--session', ''], project);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /CLAUDE_CODE_SESSION_ID|--session/);
+});

@@ -80,7 +80,7 @@ function readPayload() {
 // e.g. evidence on close). Default to registering: the USER defines what is a task, not
 // the model. The model must not use judgment to skip what the user considers actionable.
 const CLASSIFY_PROMPT =
-  "[tasks] MANDATORY — before writing your reply, you MUST register the user's message as a " +
+  "[remindOpenTasks] MANDATORY — before writing your reply, you MUST register the user's message as a " +
   'task unless it is UNAMBIGUOUSLY one of these: (a) pure small talk with no request ("hello", ' +
   '"thanks"), (b) a yes/no answer to a question YOU asked, (c) a message that says only "continue" ' +
   'or "go ahead". Everything else is a task — including questions that require research, review ' +
@@ -124,7 +124,7 @@ function formatReminder(tasks) {
   const extra = tasks.length - shown.length;
   if (extra > 0) lines.push(`  - …and ${extra} more`);
   return (
-    '[tasks] OPEN TASKS — recite these pending tasks to the user and confirm whether any ' +
+    '[remindOpenTasks] OPEN TASKS — recite these pending tasks to the user and confirm whether any ' +
     `should be dropped:\n${lines.join('\n')}`
   );
 }

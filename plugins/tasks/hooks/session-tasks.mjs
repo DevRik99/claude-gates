@@ -75,7 +75,7 @@ function formatActiveTasks(tasks) {
   });
   const extra = tasks.length - shown.length;
   if (extra > 0) lines.push(`  - …and ${extra} more`);
-  return `[tasks] Active tasks for this project:\n${lines.join('\n')}`;
+  return `[listTasksOnSessionStart] Active tasks for this project:\n${lines.join('\n')}`;
 }
 
 function speak(context) {

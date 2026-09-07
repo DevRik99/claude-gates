@@ -90,12 +90,25 @@ function hasTextExtension(path, textExtensions) {
   );
 }
 
+// Diacritics are stripped from BOTH sides before matching because the regional forms are
+// typed without accents more often than with them ("tenes", "mira", "fijate"), and a marker
+// list that only catches the correctly accented spelling misses the common case. Case and
+// spacing were already handled; this was the axis that leaked.
+function withoutDiacritics(text) {
+  return String(text)
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+}
+
 function markerHits(text, markers) {
+  const plainText = withoutDiacritics(text);
   const hits = [];
   for (const marker of markers) {
     if (typeof marker !== 'string' || marker.length === 0) continue;
-    if (withUnicodeWordBoundary(escapeRegExp(marker)).test(text))
-      hits.push(marker);
+    const pattern = withUnicodeWordBoundary(
+      escapeRegExp(withoutDiacritics(marker)),
+    );
+    if (pattern.test(plainText)) hits.push(marker);
   }
   return hits;
 }

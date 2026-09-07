@@ -216,7 +216,7 @@ function main() {
   if (problems.length === 0) return; // everything consistent: stay silent
 
   speak(
-    `[wiring-check] claude-gates wiring inconsistencies found:\n- ${problems.join('\n- ')}`,
+    `[${CONFIG_KEY}] claude-gates wiring inconsistencies found:\n- ${problems.join('\n- ')}`,
   );
 }
 

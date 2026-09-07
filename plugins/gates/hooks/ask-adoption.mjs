@@ -111,7 +111,7 @@ function markAsked(projectRoot) {
 }
 
 const ADOPTION_PROMPT =
-  '[ask-adoption] This project has not adopted claude-gates yet (no .ai/config.json found). ' +
+  `[${CONFIG_KEY}] This project has not adopted claude-gates yet (no .ai/config.json found). ` +
   'Ask the user, once, whether they want to adopt it and with which mode: ' +
   '"defaults" (recommended gates only), "all" (every gate in every family), or "none" ' +
   '(record a no so this is not asked again). Record whatever they choose by running ' +

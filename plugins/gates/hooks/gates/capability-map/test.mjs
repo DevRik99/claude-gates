@@ -103,7 +103,7 @@ test('injects skills, agents and commands grouped by kind', () => {
     agents: [{ file: 'backend', name: 'backend', description: 'Server code.' }],
     commands: [{ file: 'review', description: 'Reviews the diff.' }],
   });
-  assert.match(out, /\[capabilities\] available/);
+  assert.match(out, /\[injectCapabilityMap\] available capabilities/);
   assert.match(out, /skills:/);
   assert.match(out, /deploy — Deploys the app/);
   assert.doesNotMatch(out, /Extra detail/);

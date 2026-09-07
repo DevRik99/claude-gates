@@ -318,11 +318,9 @@ export default [
     // lags), and that `n` still flags as experimental. It is core and npm-free, so the
     // self-contained contract holds; both checks are relaxed only for this gate and its
     // test, which use node:sqlite deliberately.
-    files: [
-      'plugins/*/hooks/gates/forge-flow/index.mjs',
-      'plugins/*/hooks/gates/forge-flow/test.mjs',
-      'plugins/*/hooks/gates/forge-flow/forge-flow.edge.test.mjs',
-    ],
+    // Scoped to the whole gate directory rather than a list of filenames, so a new test
+    // beside the gate does not silently fail lint for using the same built-in.
+    files: ['plugins/*/hooks/gates/forge-flow/*.mjs'],
     rules: {
       'boundaries/dependencies': 'off',
       'n/no-unsupported-features/node-builtins': 'off',

@@ -27,12 +27,20 @@
 // are matched with an optional accent (`sesi[oó]n`) because normalized/ASCII input is
 // common in prompts and commit messages.
 
+// A literal space becomes `\s+` because a multi-word marker written with two spaces, or
+// wrapped across a line, is the same phrase to a reader and evaded the pattern entirely —
+// cli/__tests__/gate-evasion.test.mjs found three gates losing their match to exactly that.
+// `\s+` still matches the single space, so no existing hit is lost.
+export function withFlexibleSpaces(source) {
+  return String(source).replace(/ +/g, String.raw`\s+`);
+}
+
 /** Unicode-aware word boundary: matches only when the alternation is not adjacent to
  * another letter/digit/underscore, so short terms cannot match as a substring of a
  * longer unrelated word. */
 export function withUnicodeWordBoundary(alternatives) {
   return new RegExp(
-    `(?<![\\p{L}\\p{N}_])(?:${alternatives})(?![\\p{L}\\p{N}_])`,
+    `(?<![\\p{L}\\p{N}_])(?:${withFlexibleSpaces(alternatives)})(?![\\p{L}\\p{N}_])`,
     'iu',
   );
 }

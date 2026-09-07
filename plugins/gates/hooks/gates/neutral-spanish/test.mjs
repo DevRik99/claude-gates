@@ -123,3 +123,33 @@ test('a configured escapeHatch replaces the default marker', () => {
     isDeny(runGate(writeNotes('dale, neutral-spanish:allow'), { config })),
   );
 });
+
+test('a regional marker typed without accents is still caught', () => {
+  const ENABLED = { gates: { warnNonNeutralSpanish: true } };
+  for (const phrase of [
+    'tenes razon',
+    'TENES RAZON',
+    'mira esto',
+    'fijate bien',
+  ])
+    assert.ok(
+      isDeny(
+        runGate(writeNotes(`${phrase} y algo mas de texto`), {
+          config: ENABLED,
+        }),
+      ),
+      `"${phrase}" must be caught: the unaccented spelling is the common one`,
+    );
+});
+
+test('the neutral form is not caught by accent-stripping', () => {
+  const ENABLED = { gates: { warnNonNeutralSpanish: true } };
+  assert.ok(
+    !isDeny(
+      runGate(writeNotes('tienes razon en todo esto que decimos'), {
+        config: ENABLED,
+      }),
+    ),
+    'stripping accents must not turn a neutral phrase into a false positive',
+  );
+});

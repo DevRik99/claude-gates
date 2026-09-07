@@ -13,7 +13,18 @@
 
 import { join } from 'node:path';
 import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
-import { deny, runGate, toolInGroups } from '../../lib/hook-io.mjs';
+import {
+  deny,
+  runGate,
+  shellCommandOf,
+  shellWrittenPaths,
+  toolInGroups,
+} from '../../lib/hook-io.mjs';
+import {
+  isReadOnlyCommand,
+  isSelfRemedyCommand,
+} from '../../lib/shell-safety.mjs';
+import { blocksCaller } from '../../lib/task-claims.mjs';
 
 const GATE_ID = 'require-task-split';
 const CONFIG_KEY = 'requireTaskSplitBeforeImplementing';
@@ -32,11 +43,20 @@ function hasChildren(tasks, parentId) {
   return tasks.some((task) => task.parentId === parentId);
 }
 
-function unsplitLargeTasks(tasks) {
+// Only the caller's own work counts, because with several agents in one project this gate
+// froze whoever was NOT responsible: one agent's unsplit task denied every execution for
+// everyone, while nobody was touching the same file. It blocked the harmless case (untidy
+// bookkeeping elsewhere) and never guarded the dangerous one (two agents editing one file).
+//
+// La regla completa (por qué una tarea libre sí bloquea, por qué la reserva caduca) vive en
+// lib/task-claims.mjs, compartida con stop-pending: una segunda copia es donde las dos se
+// separan en silencio, que es justo lo que lib/shell-safety.mjs documenta haber pasado ya.
+function unsplitLargeTasks(tasks, owner) {
   return tasks.filter((task) => {
     if (!IMPLEMENTATION_STATUSES.has(task.status)) return false;
     if (task.parentId) return false;
     if (SIZES_EXEMPT_FROM_SPLIT.has(task.size)) return false;
+    if (!blocksCaller(task, owner)) return false;
     return !hasChildren(tasks, task.id);
   });
 }
@@ -65,16 +85,31 @@ runGate(
     enabledByDefault: true,
     defaultParams: {},
   },
-  ({ toolName, cwd }) => {
+  ({ toolName, toolInput, sessionId, cwd }) => {
     const isWrite = toolInGroups(toolName, ['write']);
     const isExecution = toolInGroups(toolName, ['execution']);
     if (!isWrite && !isExecution) return;
+
+    // This gate's whole remedy is a shell command (`task add --parent`), and diagnosing
+    // why it fired needs another (`task list`). Denying those made the message order
+    // something the gate itself refused, closing every sanctioned way out — see
+    // cli/__tests__/gate-invariants.test.mjs, which now fails if this exemption is lost.
+    if (toolInGroups(toolName, ['shell'])) {
+      const command = shellCommandOf(toolInput);
+      if (isSelfRemedyCommand(command)) return;
+      if (
+        isReadOnlyCommand(command, {
+          writesPaths: shellWrittenPaths(command).length > 0,
+        })
+      )
+        return;
+    }
 
     const root = projectRootOf(cwd) ?? cwd;
     const tasks = readActiveTasks(root);
     if (tasks.length === 0) return;
 
-    const unsplit = unsplitLargeTasks(tasks);
+    const unsplit = unsplitLargeTasks(tasks, sessionId);
     if (unsplit.length === 0) return;
 
     const lines = unsplit

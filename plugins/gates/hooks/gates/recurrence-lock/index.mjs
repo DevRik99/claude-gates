@@ -15,6 +15,10 @@ import {
   shellWrittenPaths,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
+import {
+  isReadOnlyCommand,
+  isSelfRemedyCommand,
+} from '../../lib/shell-safety.mjs';
 
 const GATE_ID = 'recurrence-lock';
 const CONFIG_KEY = 'blockRegisteredRecurrences';
@@ -23,51 +27,18 @@ const RECURRENCES_FILE = 'reincidencias.json';
 const RECURRENCES_RELATIVE_PATH = join('.ai', RECURRENCES_FILE);
 const DEFAULT_THRESHOLD = 2;
 
-const READ_ONLY_COMMANDS = [
-  'git status',
-  'git log',
-  'git diff',
-  'git show',
-  'git branch',
-  'cat',
-  'ls',
-  'dir',
-  'pwd',
-  'echo',
-  'grep',
-  'rg',
-  'find',
-  'head',
-  'tail',
-  'wc',
-  'type',
-  'get-content',
-  'get-childitem',
-  'node --test',
-  'npm test',
-  'npm run lint',
-];
-const SEGMENT_SEPARATOR = /&&|\|\||[;|\n]/;
-
-function segmentIsReadOnly(segment) {
-  const words = segment.trim().toLowerCase().split(/\s+/);
-  return READ_ONLY_COMMANDS.some((command) => {
-    const expected = command.split(' ');
-    return expected.every((word, index) => words[index] === word);
-  });
-}
-
-function isReadOnlyCommand(command) {
-  if (!command.trim()) return false;
-  if (shellWrittenPaths(command).length > 0) return false;
-  return command.split(SEGMENT_SEPARATOR).every(segmentIsReadOnly);
-}
-
 function isExemptCall(toolName, toolInput) {
   if (toolInGroups(toolName, ['write']))
     return basename(writtenPathOf(toolInput)) === RECURRENCES_FILE;
-  if (toolInGroups(toolName, ['shell']))
-    return isReadOnlyCommand(shellCommandOf(toolInput));
+  if (toolInGroups(toolName, ['shell'])) {
+    const command = shellCommandOf(toolInput);
+    // because this gate exempted read-only commands but not the toolkit's own task and
+    // config commands, it still deadlocked by a second route (gate-invariants caught it).
+    if (isSelfRemedyCommand(command)) return true;
+    return isReadOnlyCommand(command, {
+      writesPaths: shellWrittenPaths(command).length > 0,
+    });
+  }
   if (toolInGroups(toolName, ['delegation']))
     return isExemptQuery(delegationPromptOf(toolInput));
   return false;

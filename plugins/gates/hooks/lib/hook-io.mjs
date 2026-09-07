@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { gateParameters, isGateEnabled } from './config.mjs';
 import { DECISIONS, logDecision } from './gate-log.mjs';
 import { readSessionState, writeSessionState } from './session-state.mjs';
+import { withFlexibleSpaces } from './signals.mjs';
 
 const STDIN_FILE_DESCRIPTOR = 0;
 
@@ -400,7 +401,10 @@ export function compileRegexList(sources, flags = 'i') {
   const patterns = [];
   const invalid = [];
   for (const source of Array.isArray(sources) ? sources : []) {
-    const pattern = compileRegex(source, flags);
+    // Spaces are widened here rather than in each list because these sources are prose
+    // markers spelled as multi-word phrases, and one typed with two spaces was slipping
+    // past every one of them — see cli/__tests__/gate-evasion.test.mjs.
+    const pattern = compileRegex(withFlexibleSpaces(source), flags);
     if (pattern) patterns.push(pattern);
     else invalid.push(String(source));
   }

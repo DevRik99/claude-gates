@@ -1,19 +1,444 @@
 {
   "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project -> global, so this overrides the global config locally without touching it. Reasons a gate is off here: (1) false positives when editing this very repo's own gate source — e.g. blockLintSuppression matches its own DEFAULT_SUPPRESSION_PATTERNS ('eslint-disable', '@ts-ignore') as literal data whenever you edit that gate or any test that mentions them; (2) TEMPORARY during parallel gate migration, a half-edited gate that runs against the main agent throws at load and blocks every tool call. Re-enable/delete these keys when the migration lands. blockDestructiveShellCommands is deliberately NOT here: it stays ON even in dev. no-coauthor is NOT here: it only fires on `git commit`, never on editing gate source.",
   "adopted": "partial",
-  "gateVersion": "3.0.0",
+  "gateVersion": "3.1.0",
   "gates": {
     "blockWritesToProtectedPaths": {
-      "enabled": false
+      "enabled": true,
+      "protectedPaths": [
+        ".env",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        ".claude/plugins/"
+      ],
+      "mutatingCommands": [
+        "touch",
+        "rm",
+        "cp",
+        "mv",
+        "sed\\s+-i",
+        "tee",
+        "install",
+        "chmod",
+        "chown",
+        "truncate"
+      ]
     },
     "blockPathsOutsideRootWhitelist": {
-      "enabled": false
+      "enabled": false,
+      "rootFilesWhitelist": [
+        "AGENTS.md",
+        "CLAUDE.md",
+        "README.md",
+        "LICENSE",
+        "package.json",
+        "package-lock.json",
+        "tsconfig.json",
+        "eslint.config.mjs",
+        "eslint.config.js",
+        "eslint.config.cjs",
+        ".prettierrc",
+        ".prettierrc.json",
+        ".prettierignore",
+        ".eslintignore",
+        "cspell.json",
+        ".cspell.json",
+        ".gitignore",
+        ".env",
+        ".env.example"
+      ],
+      "rootFoldersWhitelist": [
+        "src",
+        "tests",
+        "docs",
+        "scripts",
+        "plugins"
+      ]
     },
     "blockRemotePublish": {
-      "enabled": false
+      "enabled": false,
+      "publishRules": [
+        [
+          "\\bgit\\s+(?:-C\\s+\\S+\\s+)?push\\b",
+          "Publishing to a remote ('git push') needs fresh authorization from the user naming commits, local branch, remote and target. This gate cannot verify that from the command itself — ask the user and let them run it. To let the agent push on its own, set \"blockRemotePublish\": false in .ai/config.json."
+        ],
+        [
+          "\\bgh\\s+(?:pr\\s+merge|release\\s+create)\\b",
+          "Publishing via GitHub CLI (merging a PR or creating a release) needs fresh authorization from the user naming commits, local branch, remote and target. Ask the user and let them run it. To let the agent publish on its own, set \"blockRemotePublish\": false in .ai/config.json."
+        ]
+      ]
     },
     "blockLintSuppression": {
       "enabled": false
-    }
+    },
+    "blockDestructiveShellCommands": {
+      "enabled": true,
+      "denyPatterns": [
+        [
+          "\\bgit\\s+reset\\s+--hard\\b",
+          "'git reset --hard' is destructive and needs explicit authorization."
+        ],
+        [
+          "\\bgit\\s+clean\\s+-[a-z]*f[a-z]*\\b",
+          "'git clean -f' is destructive and is not allowed."
+        ],
+        [
+          "\\b(taskkill\\s+[^|;]*[/]IM|pkill\\s+|killall\\s+)",
+          "Killing processes by NAME reaches everything with that name, not just yours. Keep the PID you started and kill that; if lost, find it by its full command line and confirm it is yours before touching it."
+        ],
+        [
+          "\\bStop-Process\\b[^|;\\n]*\\s-Name\\b",
+          "Stop-Process -Name kills every process of that name on the machine, not just yours. Stop the specific process by its Id (the PID you started); if lost, identify it by its full command line and confirm ownership first."
+        ]
+      ],
+      "rmRfProtectedAreas": [
+        "/",
+        "*",
+        "src",
+        "tests"
+      ],
+      "embeddedInterpreterEnabled": false
+    },
+    "blockWaitingCommands": {
+      "enabled": true,
+      "blockingPatterns": [
+        [
+          "(^|[|;&]\\s*|\\bthen\\s+|\\bdo\\s+)(sleep|timeout)\\s+\\d",
+          "Sleeping in the foreground spends the turn doing nothing. If waiting for something to finish, launch it in the background and move on to something else; if waiting on an external condition, use a monitor."
+        ],
+        [
+          "\\bStart-Sleep\\b",
+          "Start-Sleep freezes the turn. Launch the work in the background and continue with whatever does not depend on it."
+        ],
+        [
+          "(^|[|;&]\\s*)wait\\b|--wait\\b|\\bWait-Process\\b|\\bWait-Job\\b",
+          "Waiting for another process to finish blocks the whole turn. Launch it in the background and consume the result when it arrives, not before."
+        ],
+        [
+          "\\b(tail|journalctl|kubectl\\s+logs|docker\\s+logs)\\b[^|;&]*\\s-{1,2}f\\b",
+          "Following live output never returns and takes the turn with it. Read the file once, or leave the following to a background process."
+        ],
+        [
+          "(^|[|;&]\\s*)watch\\s+",
+          "'watch' repeats forever and blocks. Run the command once; if a change genuinely needs watching, use a monitor that does not take the turn."
+        ],
+        [
+          "\\b(until|while)\\b[^\\n]{0,80}\\bdo\\b[^\\n]{0,80}\\bsleep\\b",
+          "A loop that sleeps waiting for something to change is foreground polling: it blocks and it spins. Use a monitor with the condition, or launch the work in the background and wait for its notification."
+        ],
+        [
+          "\\b(npm|pnpm|yarn|bun)\\s+(run\\s+)?(dev|start|serve|watch)\\b",
+          "A dev server does not end on its own: in the foreground it takes the turn until something kills it. Launch it in the background and keep working while it comes up."
+        ]
+      ],
+      "waitJustifiedMarker": "WAIT-JUSTIFIED:"
+    },
+    "requireBriefBeforeDelegating": {
+      "enabled": true,
+      "minBriefLength": 180,
+      "readOnlySubagents": [
+        "explore",
+        "claude-code-guide",
+        "plan"
+      ]
+    },
+    "requireScopeListBeforeDelegating": {
+      "enabled": true,
+      "highImpactPatterns": [
+        "dinero|pago|cobro|money|payment",
+        "auth|autenticaci[oó]n|authentication|permiso|permission|token|sesi[oó]n|session|seguridad|security|PII",
+        "borrar|delete|drop|migraci[oó]n|migration|schema",
+        "contrato|contract|irreversible|producci[oó]n|production|API p[uú]blica|public api"
+      ],
+      "readOnlySubagents": [
+        "explore",
+        "claude-code-guide",
+        "plan"
+      ]
+    },
+    "requireDeclaredRiskLevel": {
+      "enabled": true,
+      "highImpactPatterns": [
+        "dinero|pago|cobro|money|payment",
+        "auth|autenticaci[oó]n|authentication|permiso|permission|credencial|credential|token|sesi[oó]n|session|seguridad|security|PII",
+        "borrar|delete|drop|migraci[oó]n|migration|schema",
+        "contrato|contract|irreversible|producci[oó]n|production|API p[uú]blica|public api"
+      ],
+      "readOnlySubagents": [
+        "explore",
+        "claude-code-guide",
+        "plan"
+      ]
+    },
+    "requireCircuitBreakerOnDelegation": {
+      "enabled": true,
+      "retryThreshold": 3,
+      "similarityThreshold": 0.6
+    },
+    "warnMemoryDependencyInBrief": {
+      "enabled": true,
+      "memoryDependencyPatterns": [
+        "acordate de|acu[eé]rdate de",
+        "no olvides|no te olvides",
+        "record[aá] que|ten[eé] en cuenta que",
+        "como te dije|como ya te dije|ya te dije|te lo dije antes|ya te ped[ií]",
+        "remember to|don'?t forget|keep in mind"
+      ],
+      "escapeHatch": "memory-not-needed"
+    },
+    "warnSequentialDelegations": {
+      "enabled": true,
+      "sequentialThreshold": 3,
+      "sequentialWindowMs": 120000,
+      "sequentialJustifiedMarker": "SEQUENTIAL-JUSTIFIED"
+    },
+    "requireFeatureCatalog": {
+      "enabled": true,
+      "catalogFileName": "feature_list.json",
+      "maxInProgress": 1
+    },
+    "requireSpecBeforeImplementing": {
+      "enabled": true,
+      "catalogLocations": [
+        ".ai\\feature_list.json",
+        "feature_list.json"
+      ],
+      "exemptSubagents": [
+        "explore",
+        "plan",
+        "scout",
+        "revision",
+        "contraste",
+        "test-planner",
+        "qa",
+        "ui",
+        "ux"
+      ]
+    },
+    "requireImplementationPipeline": {
+      "enabled": true,
+      "builderSubagents": [
+        "frontend",
+        "backend",
+        "worker",
+        "worker-senior",
+        "general-purpose"
+      ],
+      "exemptSubagents": [
+        "scout",
+        "explore",
+        "plan",
+        "revision",
+        "contraste",
+        "test-planner",
+        "qa",
+        "ui",
+        "ux"
+      ]
+    },
+    "requireLiveTaskWhenImplementing": {
+      "enabled": true,
+      "activePointerPath": ".ai\\pipeline\\ACTIVA",
+      "exemptSubagents": [
+        "explore",
+        "plan",
+        "scout",
+        "revision",
+        "contraste",
+        "test-planner",
+        "qa",
+        "ui",
+        "ux"
+      ]
+    },
+    "requireTestMatrixWhenImplementing": {
+      "enabled": true,
+      "exemptSubagents": [
+        "scout",
+        "explore",
+        "plan",
+        "revision",
+        "contraste",
+        "test-planner",
+        "qa",
+        "ui",
+        "ux"
+      ],
+      "e2eSignals": [
+        "money|payment|pago|dinero|cobro|charge|invoice|factura|precio|price|saldo|balance|amount|monto",
+        "auth|autenticaci[oó]n|authentication|credencial|credential|contrase[nñ]a|password|token|sesi[oó]n|session|permiso|permission|role|rol",
+        "login|session|token|permission|role|sesi[oó]n|permiso|rol",
+        "persist|database|migration|transaction|persistencia|base de datos|migraci[oó]n|transacci[oó]n"
+      ],
+      "visualSignals": [
+        "ui|interface|interfaz|component|componente|screen|pantalla|view|vista",
+        "form|formulario|button|bot[oó]n|modal|layout|style|estilo",
+        "responsive|mobile|m[oó]vil|visual|\\.vue|\\.tsx?|\\.jsx?"
+      ]
+    },
+    "requireSkillForNewDependency": {
+      "enabled": true,
+      "depsWithoutOwnApi": [
+        "clsx",
+        "classnames",
+        "lodash.debounce",
+        "lodash.throttle",
+        "lodash.merge",
+        "tslib",
+        "core-js",
+        "regenerator-runtime"
+      ],
+      "projectSkillsDir": ".claude/skills"
+    },
+    "requireRootCauseBeforePatch": {
+      "enabled": true,
+      "patchMarkerPatterns": [
+        "//\\s*todo:?\\s*fix\\s+later\\s+patch"
+      ]
+    },
+    "requireAuditBeforeBuilding": {
+      "enabled": true,
+      "executableExtensions": [
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".ts",
+        ".py",
+        ".sh",
+        ".ps1"
+      ],
+      "toolFolders": [
+        "scripts/",
+        "hooks/",
+        "tools/"
+      ]
+    },
+    "requireVerificationBeforeAssuming": {
+      "enabled": true,
+      "conjecturePatterns": [
+        "i assume",
+        "assuming that",
+        "probably",
+        "i guess",
+        "should be",
+        "i'll default to",
+        "might be",
+        "supongo",
+        "asumo",
+        "asumiendo que",
+        "probablemente",
+        "deber[ií]a ser",
+        "quiz[aá]s",
+        "tal vez",
+        "creo que",
+        "me imagino que"
+      ]
+    },
+    "autodiscoverRulesAndSkills": {
+      "enabled": true,
+      "rulesDir": "rules",
+      "gateFileNames": [
+        "gate.mjs",
+        "rules.mjs",
+        "check.mjs",
+        "verify.mjs"
+      ]
+    },
+    "blockRegisteredRecurrences": {
+      "enabled": true,
+      "thresholdAppearances": 2
+    },
+    "warnTestWrittenAfterImplementation": {
+      "enabled": true,
+      "implementationExtensions": [
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".vue"
+      ],
+      "escapeHatch": "test-after-impl:allow"
+    },
+    "requireNoReconfirmOfApproved": {
+      "enabled": true,
+      "overlapThreshold": 0.34
+    },
+    "warnNonNeutralSpanish": {
+      "enabled": true,
+      "regionalMarkers": [
+        "encendé",
+        "tenés",
+        "podés",
+        "querés",
+        "sabés",
+        "hacés",
+        "decís",
+        "venís",
+        "sos",
+        "fijate",
+        "mirá",
+        "pará",
+        "esperá",
+        "dale",
+        "mandale",
+        "contame",
+        "fíjate vos",
+        "acá",
+        "laburo",
+        "laburar",
+        "quilombo",
+        "posta",
+        "che",
+        "boludo",
+        "pibe",
+        "guita",
+        "al pedo",
+        "un toque",
+        "capaz que"
+      ],
+      "escapeHatch": "neutral-spanish:allow"
+    },
+    "warnTimeoutChangeWithoutDiagnosis": {
+      "enabled": true,
+      "timeoutPatterns": [
+        "\\b[A-Z_]*TIMEOUT[A-Z_]*\\s*[:=]\\s*['\"]?\\d",
+        "\\b[A-Z_]*DEADLINE[A-Z_]*\\s*[:=]\\s*['\"]?\\d",
+        "\\b[A-Z_]*IDLE[A-Z_]*\\s*[:=]\\s*['\"]?\\d",
+        "\\b(max_?retry|retries|backoff)\\b\\s*[:=]\\s*['\"]?\\d",
+        "\\b(query_?timeout|hard_?deadline)\\b"
+      ]
+    },
+    "blockCommitWithFailingLint": {
+      "enabled": true,
+      "lintCommand": null,
+      "lintTimeoutMs": 60000
+    },
+    "requireReuseCheckBeforeBuilding": {
+      "enabled": true,
+      "toolMapFile": ".ai\\tool-map.json"
+    },
+    "maintainToolMap": {
+      "enabled": true,
+      "toolMapFile": ".ai\\tool-map.json"
+    },
+    "requireForgeRunToEdit": {
+      "enabled": true,
+      "forgeDatabasePath": "C:\\Users\\Devrik\\.forge\\forge-mcp.db"
+    },
+    "autonomousMode": true,
+    "blockStopWithPendingTasks": {
+      "enabled": true
+    },
+    "validateEnvironmentOnStart": true,
+    "askAdoptionInNewProject": true,
+    "checkWiringOnStart": true,
+    "remindOpenTasks": {
+      "enabled": true,
+      "remindEveryMessages": 5
+    },
+    "listTasksOnSessionStart": true,
+    "requireTaskSplitBeforeImplementing": true
   }
 }

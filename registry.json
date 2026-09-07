@@ -550,6 +550,42 @@
           ]
         },
         {
+          "id": "adversarial-tests",
+          "configKey": "requireAdversarialTests",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["write", "shell"],
+          "description": "Denies writing a test file with no checkable adversarial evidence: an ATTACK MATRIX row per category, a case backing each COVERED row, and the mutations the suite kills.",
+          "script": "gates/adversarial-tests/index.mjs",
+          "params": [
+            {
+              "name": "requiredCategories",
+              "type": "string[]",
+              "description": "Matrix rows a test file must account for (boundary, invalid-input, missing-empty, invalid-state, dependency-failure, idempotency-order, invariant, security). A category the gate does not know is accepted as declared, since nothing can corroborate it."
+            },
+            {
+              "name": "minMutations",
+              "type": "number",
+              "description": "How many mutations the \"mutations-killed:\" line must name (default 3)."
+            },
+            {
+              "name": "minAdversarialRatio",
+              "type": "number",
+              "description": "Minimum share of literal case titles that must name an attack (default 0.5). Skipped when the suite has no literal titles."
+            },
+            {
+              "name": "testPathPattern",
+              "type": "string",
+              "description": "Regex source deciding which paths are test files; an invalid source falls back to the built-in one."
+            },
+            {
+              "name": "escapeHatch",
+              "type": "string",
+              "description": "Marker that, present in the file, exempts it (default adversarial-tests:allow)."
+            }
+          ]
+        },
+        {
           "id": "no-reconfirm",
           "configKey": "requireNoReconfirmOfApproved",
           "default": true,
@@ -995,14 +1031,19 @@
           "configKey": "requireForgeRunToEdit",
           "default": false,
           "event": "PreToolUse",
-          "tools": ["write", "shell"],
-          "description": "In a forge-adopted project, denies edits/commands unless an active forge run exists for it.",
+          "tools": ["write", "shell", "delegation"],
+          "description": "In a forge-adopted project, denies edits/commands unless an active forge run exists — and, by default, unless they come from a subagent rather than the main agent.",
           "script": "gates/forge-flow/index.mjs",
           "params": [
             {
               "name": "forgeDbPath",
               "type": "string",
               "description": "Path to forge's global SQLite DB (default ~/.forge/forge-mcp.db). forgeDatabasePath is accepted as a legacy alias."
+            },
+            {
+              "name": "subagentOnly",
+              "type": "boolean",
+              "description": "While a run is active, only a subagent may edit or run commands; the main agent directs and is denied (default true). It is told which forge tools to call next, and reading is never blocked. A delegation whose prompt carries a [forge:runId:phase] marker for a phase that is not the current one is denied too."
             }
           ]
         }
@@ -1057,8 +1098,18 @@
           "default": true,
           "event": "PreToolUse",
           "tools": ["write", "execution"],
-          "description": "Denies writes and execution when an active task has size > small/trivial and no sub-tasks registered. Forces splitting into smaller, independently verifiable sub-tasks before implementation begins.",
+          "description": "Denies writes and execution when an active task has size > small/trivial and no sub-tasks registered. Forces splitting into smaller, independently verifiable sub-tasks before implementation begins. Only the caller's own tasks count: another agent's live-claimed task never blocks you.",
           "script": "gates/require-task-split/index.mjs",
+          "params": []
+        },
+        {
+          "id": "file-ownership",
+          "configKey": "blockWritesToClaimedFiles",
+          "default": false,
+          "event": "PreToolUse",
+          "tools": ["write", "shell"],
+          "description": "With several agents in one project, denies a write to a file another agent has actively claimed (a live-claimed task whose `owns` names that path). Files nobody claimed stay free, and a claim expires so a dead agent never holds a file forever. Off by default: restarting Claude Code yields a new session id, so your own recent claims would look like another agent's.",
+          "script": "gates/file-ownership/index.mjs",
           "params": []
         }
       ]

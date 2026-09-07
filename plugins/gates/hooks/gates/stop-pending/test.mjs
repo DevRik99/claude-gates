@@ -142,3 +142,52 @@ test('dump-defaults protocol: prints the descriptor with allowStopWithBlockedTas
   assert.equal(result.enabledByDefault, true);
   assert.deepEqual(result.defaultParams, { allowStopWithBlockedTasks: true });
 });
+
+// ── Aislamiento entre agentes: no retengo el turno por trabajo de otro ────────────────
+const ME = 'agent-yo';
+const STALE_CLAIM_HOURS = 9;
+
+function claimed(id, owner, claimedAt = new Date().toISOString()) {
+  return { id, title: `work ${id}`, status: 'open', owner, claimedAt };
+}
+
+function runAs(tasks, sessionId = ME) {
+  return runGate(setupProject({ tasks }), {
+    session_id: sessionId,
+    stop_hook_active: false,
+  });
+}
+
+test('la tarea viva de OTRO agente no me impide terminar el turno', () => {
+  assert.equal(runAs([claimed('t1', 'agent-otro')]), null);
+});
+
+test('mi propia tarea si me retiene', () => {
+  const result = runAs([claimed('t1', ME)]);
+  assert.ok(isBlock(result));
+  assert.match(messageOf(result), /t1/);
+});
+
+test('una tarea sin reclamar retiene a quien actua', () => {
+  // Porque libre significa "aun no la tomo nadie" y no "no bloquea a nadie": exentarla
+  // apagaria el gate en silencio en cualquier proyecto anterior a las reservas.
+  const result = runAs([{ id: 't1', title: 'suelta', status: 'open' }]);
+  assert.ok(isBlock(result));
+  assert.match(messageOf(result), /unclaimed/);
+});
+
+test('una reserva caducada de otro agente vuelve a retenerme', () => {
+  // Porque un agente que muere sin liberar retendria la cola para siempre.
+  const stale = new Date(
+    Date.now() - STALE_CLAIM_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  const result = runAs([claimed('t1', 'agent-muerto', stale)]);
+  assert.ok(isBlock(result));
+});
+
+test('solo se listan las mias cuando conviven con las de otro', () => {
+  const result = runAs([claimed('mia', ME), claimed('suya', 'agent-otro')]);
+  assert.ok(isBlock(result));
+  assert.match(messageOf(result), /mia/);
+  assert.doesNotMatch(messageOf(result), /suya/);
+});

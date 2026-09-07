@@ -10,7 +10,7 @@ import {
   delegationPromptOf,
   compileRegex,
 } from '../../lib/hook-io.mjs';
-import { CONJECTURE_SOURCES } from '../../lib/signals.mjs';
+import { CONJECTURE_SOURCES, withFlexibleSpaces } from '../../lib/signals.mjs';
 
 const GATE_ID = 'never-assume';
 const CONFIG_KEY = 'requireVerificationBeforeAssuming';
@@ -26,7 +26,7 @@ function extractContent(toolName, toolInput) {
 function boundedPattern(source) {
   if (typeof source !== 'string' || source.length === 0) return null;
   return compileRegex(
-    `(?<![\\p{L}\\p{N}_])(?:${source})(?![\\p{L}\\p{N}_])`,
+    `(?<![\\p{L}\\p{N}_])(?:${withFlexibleSpaces(source)})(?![\\p{L}\\p{N}_])`,
     'iu',
   );
 }

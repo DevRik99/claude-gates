@@ -252,6 +252,16 @@
         ]
       },
       {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/adversarial-tests/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
         "matcher": "AskUserQuestion|mcp__.*",
         "hooks": [
           {
@@ -402,7 +412,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|Agent|Task|invoke_subagent|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -427,6 +437,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/require-task-split/index.mjs\"",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Bash|run_command|PowerShell|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/file-ownership/index.mjs\"",
             "timeout": 30
           }
         ]

@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 import { projectRootOf, readJsonOrNull } from '../../lib/config.mjs';
 import { block, runStopHook } from '../../lib/hook-io.mjs';
+import { blocksCaller, ownerOf } from '../../lib/task-claims.mjs';
 
 const GATE_ID = 'stop-pending';
 const CONFIG_KEY = 'blockStopWithPendingTasks';
@@ -22,8 +23,12 @@ function readActiveTasks(root) {
   return tasks.filter((task) => task && typeof task === 'object');
 }
 
-function blockingTasksFrom(tasks, allowBlocked) {
+// Porque esperar por la tarea viva de OTRO agente dejaba a este sin poder terminar por algo
+// que no empezó y que además no podía cerrar honestamente, solo retiene el turno el trabajo
+// del que responde quien actúa.
+function blockingTasksFrom(tasks, allowBlocked, caller) {
   return tasks.filter((task) => {
+    if (!blocksCaller(task, caller)) return false;
     if (BLOCKING_STATUSES.has(task.status)) return true;
     return !allowBlocked && task.status === BLOCKED_STATUS;
   });
@@ -34,7 +39,8 @@ function describeTask(task) {
     task.status === BLOCKED_STATUS && task.blockedReason
       ? ` (blocked: ${task.blockedReason})`
       : '';
-  return `  - [${task.status}] ${task.id ?? '(no id)'}: ${task.title ?? '(untitled)'}${blockedNote}`;
+  const claim = ownerOf(task) ? ' · yours' : ' · unclaimed';
+  return `  - [${task.status}] ${task.id ?? '(no id)'}: ${task.title ?? '(untitled)'}${blockedNote}${claim}`;
 }
 
 runStopHook(
@@ -44,18 +50,19 @@ runStopHook(
     enabledByDefault: true,
     defaultParams: { allowStopWithBlockedTasks: true },
   },
-  ({ parameters, cwd }) => {
+  ({ parameters, sessionId, cwd }) => {
     const root = projectRootOf(cwd) ?? cwd;
     const blockingTasks = blockingTasksFrom(
       readActiveTasks(root),
       parameters.allowStopWithBlockedTasks !== false,
+      sessionId,
     );
     if (blockingTasks.length === 0) return;
 
     block(
       CONFIG_KEY,
-      `There are ${blockingTasks.length} pending task(s) still active for this ` +
-        `project:\n${blockingTasks.map(describeTask).join('\n')}\n` +
+      `There are ${blockingTasks.length} pending task(s) that are yours to close ` +
+        `(another agent's live-claimed tasks are not listed):\n${blockingTasks.map(describeTask).join('\n')}\n` +
         'Close each before ending the turn, with VERIFIED evidence (free text is not ' +
         'accepted): `task close <id> --check "<command that must exit 0>" [--expect <text>]` ' +
         'or `task close <id> --exists <path> [--contains <text>]` (add `--note "..."` for ' +

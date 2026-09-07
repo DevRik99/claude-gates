@@ -100,15 +100,76 @@ function checkCommand(command) {
   }
 }
 
+// An interpreter fed from a heredoc (`python - <<'PY'`) was the hole: the -c/-e patterns
+// above never see it, so a multi-line program that rewrites files passed as an ordinary
+// shell command. Two independent rules, because size and intent catch different misses —
+// a 200-line computation is a program worth questioning, and an 8-line one that calls
+// writeFileSync is doing Write's job however short it is.
+const HEREDOC_INTERPRETER_PATTERN =
+  /\b(?:python3?|node|deno|bun|perl|ruby|php)\b[^\n<]*<<-?\s*['"]?(\w+)['"]?/i;
+
+// Two small patterns rather than one alternation, which exceeded the linter's complexity
+// budget: an explicit write API, or a file opened in a writing mode.
+const SCRIPT_WRITE_API_PATTERN =
+  /\bwriteFileSync\b|\bappendFileSync\b|\bwrite_text\b|\.write\s*\(|\bshutil\.(?:copy|move)\b/i;
+const SCRIPT_WRITE_MODE_PATTERN = /\bopen\s*\([^)]*['"][wa]\+?['"]/i;
+
+function writesFiles(body) {
+  return (
+    SCRIPT_WRITE_API_PATTERN.test(body) || SCRIPT_WRITE_MODE_PATTERN.test(body)
+  );
+}
+
+function heredocBodyOf(command, terminator) {
+  const lines = String(command).split(/\r?\n/);
+  const start = lines.findIndex((line) => line.includes(`<<`));
+  if (start === -1) return '';
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.trim() === terminator) break;
+    body.push(line);
+  }
+  return body.join('\n');
+}
+
+function checkHeredocScript(command, maxLines) {
+  const match = HEREDOC_INTERPRETER_PATTERN.exec(command);
+  if (!match) return;
+  const body = heredocBodyOf(command, match[1]);
+  if (!body.trim()) return;
+
+  if (writesFiles(body)) {
+    deny(
+      CONFIG_KEY,
+      `${REMEDY} (detected: an inline ${match[0].split(/\s/)[0]} script that writes files — ` +
+        'Write creates a file and Edit does exact replacement, with no quoting or encoding ' +
+        'layer to corrupt the content)',
+    );
+  }
+
+  const lineCount = body.split('\n').length;
+  if (lineCount > maxLines) {
+    deny(
+      CONFIG_KEY,
+      `${REMEDY} (detected: a ${lineCount}-line inline script, over the ${maxLines}-line ` +
+        'limit — a program this size belongs in a file that can be reviewed and tested, ' +
+        'not in a shell command. Raise maxInlineScriptLines if this is genuinely a one-off ' +
+        'computation)',
+    );
+  }
+}
+
 runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
     enabledByDefault: true,
-    defaultParams: {},
+    defaultParams: { maxInlineScriptLines: 100 },
   },
-  ({ toolName, toolInput }) => {
+  ({ toolName, toolInput, parameters }) => {
     if (!toolInGroups(toolName, ['shell'])) return;
-    checkCommand(shellCommandOf(toolInput));
+    const command = shellCommandOf(toolInput);
+    checkCommand(command);
+    checkHeredocScript(command, parameters.maxInlineScriptLines);
   },
 );

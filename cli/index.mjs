@@ -26,6 +26,7 @@ import { runLog } from './log.mjs';
 import { loadRegistry, validateRegistry } from './registry.mjs';
 import { runSmoke, OUTCOMES } from './smoke.mjs';
 import { registerTaskCommand } from './task.mjs';
+import { checkTestFiles, renderTestsCheck } from './tests-check.mjs';
 import {
   defaultScopeFor,
   renderStatus,
@@ -318,6 +319,20 @@ program
   .option('--source <text>', 'what asked for this artifact')
   .option('--force', 'overwrite an existing file')
   .action((kind, slug, options) => newArtifact(kind, slug, options));
+
+program
+  .command('tests [paths...]')
+  .description(
+    'Check test files for adversarial evidence (the ATTACK MATRIX the adversarial-tests ' +
+      'gate requires, and a case backing each COVERED row). Exits non-zero when any file ' +
+      'has none. Defaults to the current directory.',
+  )
+  .action((paths) => {
+    const results = checkTestFiles(paths ?? []);
+    process.stdout.write(renderTestsCheck(results));
+    if (results.some((result) => result.problems.length > 0))
+      process.exit(EXIT_CODE.FAILURE);
+  });
 
 registerTaskCommand(program);
 

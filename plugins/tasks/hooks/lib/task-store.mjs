@@ -16,8 +16,14 @@
 // A task is never deleted: done and abandoned tasks MOVE from active to history, so the
 // record of what was decided (and dropped) is never lost.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 const TASKS_DIR = join('.ai', 'tasks');
 const ACTIVE_FILE = 'active.json';
@@ -36,6 +42,57 @@ export const STATUS = Object.freeze({
   DONE: 'done',
   ABANDONED: 'abandoned',
 });
+
+// ── Propiedad de una tarea ──────────────────────────────────────────────────────────
+// Varios agentes comparten este fichero, y hasta ahora una tarea no tenía dueño: los gates
+// no podían distinguir "hay una tarea sin dividir" de "hay una tarea sin dividir MÍA", así
+// que la tarea de un agente congelaba a todos los demás. `owner` es lo que rompe eso.
+//
+// El dueño es el id de sesión de Claude Code (CLAUDE_CODE_SESSION_ID): una sesión es un
+// agente. Sin dueño vivo la tarea está LIBRE y cualquiera puede reclamarla — libre no
+// significa "de nadie y por tanto bloquea a todos", significa "todavía no la tomó nadie".
+//
+// La reserva CADUCA porque un agente que muere sin liberar retendría su trabajo para
+// siempre; pasado el TTL la tarea vuelve a estar libre sin que nadie tenga que intervenir.
+const CLAIM_TTL_HOURS = 8;
+const MINUTES_PER_HOUR = 60;
+const SECONDS_PER_MINUTE = 60;
+const MS_PER_SECOND = 1000;
+const CLAIM_TTL_MS =
+  CLAIM_TTL_HOURS * MINUTES_PER_HOUR * SECONDS_PER_MINUTE * MS_PER_SECOND;
+
+export { CLAIM_TTL_MS };
+
+export function ownerOf(task) {
+  const owner = task?.owner;
+  return typeof owner === 'string' && owner.length > 0 ? owner : null;
+}
+
+export function claimIsLive(
+  task,
+  { now = Date.now(), ttlMs = CLAIM_TTL_MS } = {},
+) {
+  if (!ownerOf(task)) return false;
+  const claimedAt = Date.parse(String(task.claimedAt ?? ''));
+  // Porque una reserva sin fecha viene de una tarea escrita antes de este campo, se respeta
+  // en vez de caducar al instante: tratarla como libre se la quitaría a quien la trabaja.
+  if (Number.isNaN(claimedAt)) return true;
+  return now - claimedAt < ttlMs;
+}
+
+export function isFree(task, options) {
+  return !claimIsLive(task, options);
+}
+
+export function isOwnedBy(task, owner, options) {
+  return (
+    Boolean(owner) && claimIsLive(task, options) && ownerOf(task) === owner
+  );
+}
+
+export function ownedPathsOf(task) {
+  return Array.isArray(task?.owns) ? task.owns.filter(Boolean).map(String) : [];
+}
 
 const TERMINAL_STATUSES = new Set([STATUS.DONE, STATUS.ABANDONED]);
 // A task closed as done must carry evidence it was actually attended and resolved — the
@@ -79,13 +136,25 @@ function readCollection(path) {
   }
 }
 
+// Temp file + rename, because this is the one file several agents working in parallel all
+// write at once, and a plain writeFileSync leaves a window where a concurrent reader sees a
+// half-written file — or worse, two `task add` calls read the same list and the second
+// write silently drops the first agent's task. lib/session-state.mjs already writes this
+// way; the store, which is the piece that actually has multiple writers, did not.
+//
+// This narrows the window, it does not close it: a genuine read-modify-write race between
+// two processes still needs a lock. Rename being atomic means a reader never sees a torn
+// file, which is the failure that corrupts state rather than just losing a row.
 function writeCollection(path, collection) {
-  mkdirSync(dirname(path), { recursive: true });
+  const directory = dirname(path);
+  mkdirSync(directory, { recursive: true });
+  const temporary = join(directory, `.${basename(path)}.${process.pid}.tmp`);
   writeFileSync(
-    path,
+    temporary,
     `${JSON.stringify(collection, null, JSON_INDENT)}\n`,
     'utf8',
   );
+  renameSync(temporary, path);
 }
 
 /**
@@ -140,6 +209,52 @@ function closeTask(
 }
 
 /**
+ * Toma una tarea para `owner`. Se rechaza SOLO si otro agente la tiene con reserva viva: una
+ * tarea libre, una caducada, y la que ya es tuya se conceden — reclamar lo tuyo otra vez es
+ * renovar, no un conflicto. El error nombra al dueño actual porque "está ocupada" sin decir
+ * por quién no deja hacer nada al respecto.
+ *
+ * Módulo aparte y no método del handle por lo mismo que `closeTask`: mantener `openTaskStore`
+ * dentro del presupuesto de líneas del proyecto.
+ */
+function updateTask(activePath, id, fields) {
+  const collection = readCollection(activePath);
+  const task = collection.tasks.find((entry) => entry.id === id);
+  if (!task) return null;
+  Object.assign(task, fields);
+  writeCollection(activePath, collection);
+  return task;
+}
+
+// undefined y no null, para que JSON.stringify borre las claves en vez de dejar lápidas.
+const RELEASED = Object.freeze({ owner: undefined, claimedAt: undefined });
+
+function activeMatching(activePath, predicate) {
+  return readCollection(activePath).tasks.filter(predicate);
+}
+
+function claimTask(activePath, id, owner, options) {
+  if (!owner) return { error: 'claim needs an owner id' };
+  const task = readCollection(activePath).tasks.find(
+    (entry) => entry.id === id,
+  );
+  if (!task) return { error: `no active task with id ${id}` };
+  if (claimIsLive(task, options) && ownerOf(task) !== owner) {
+    return {
+      error:
+        `task ${id} is already claimed by ${ownerOf(task)} (since ${task.claimedAt}). ` +
+        'Pick a free task (`task list --free`), or wait for that agent to release it.',
+    };
+  }
+  return {
+    task: updateTask(activePath, id, {
+      owner,
+      claimedAt: new Date().toISOString(),
+    }),
+  };
+}
+
+/**
  * Opens the store rooted at a project. All paths derive from the project root's .ai/tasks/.
  * Returns a handle with read/mutate operations; each mutation persists immediately so a
  * crash between calls never loses a recorded task. Null when there is no project (no .git).
@@ -178,12 +293,7 @@ export function openTaskStore(startDirectory) {
     },
     /** Merges fields into the active task with matching id. Null if not found. */
     update(id, fields) {
-      const collection = readCollection(activePath);
-      const task = collection.tasks.find((entry) => entry.id === id);
-      if (!task) return null;
-      Object.assign(task, fields);
-      writeCollection(activePath, collection);
-      return task;
+      return updateTask(activePath, id, fields);
     },
     close(id, status, options) {
       return closeTask(activePath, historyPath, id, status, options);
@@ -199,6 +309,42 @@ export function openTaskStore(startDirectory) {
         forgeRunId: String(forgeRunId),
       });
     },
+    /**
+     * Parks a task on a stated cause. `blocked` is the escape valve the rest of the system
+     * already honours — require-task-split counts only open/in_forge, and stop-pending lets
+     * a blocked task through — but nothing could REACH it: the status existed, both gates
+     * respected it, and no operation produced it, so a task that could not move forward and
+     * could not be honestly closed had no legal state and deadlocked both gates instead.
+     * The reason is mandatory because a task parked without a cause is indistinguishable
+     * from one that was quietly dropped.
+     */
+    block(id, reason) {
+      return this.update(id, {
+        status: STATUS.BLOCKED,
+        blockedReason: String(reason),
+      });
+    },
+    unblock(id) {
+      // undefined (not null) so JSON.stringify drops the key instead of persisting a tombstone.
+      return this.update(id, {
+        status: STATUS.OPEN,
+        blockedReason: undefined,
+      });
+    },
+    claim(id, owner, options) {
+      return claimTask(activePath, id, owner, options);
+    },
+    release(id) {
+      return updateTask(activePath, id, RELEASED);
+    },
+    ownedBy(owner, options) {
+      return activeMatching(activePath, (task) =>
+        isOwnedBy(task, owner, options),
+      );
+    },
+    free(options) {
+      return activeMatching(activePath, (task) => isFree(task, options));
+    },
     /** The message counter since the last reminder (0 when unset or unreadable). */
     counter() {
       if (!existsSync(counterPath)) return 0;
@@ -212,12 +358,7 @@ export function openTaskStore(startDirectory) {
     },
     /** Sets the message counter. */
     setCounter(count) {
-      mkdirSync(directory, { recursive: true });
-      writeFileSync(
-        counterPath,
-        `${JSON.stringify({ count }, null, JSON_INDENT)}\n`,
-        'utf8',
-      );
+      writeCollection(counterPath, { count });
     },
   };
 }

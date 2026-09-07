@@ -166,7 +166,7 @@ function renderCatalog(catalog, kinds) {
     );
     sections.push(`${kind}:\n${lines.join('\n')}`);
   }
-  return `[capabilities] available (check before improvising something one of these covers):\n${sections.join('\n')}\n`;
+  return `[${CONFIG_KEY}] available capabilities (check before improvising something one of these covers):\n${sections.join('\n')}\n`;
 }
 
 // Three reasons to inject, then the throttle. The catalog changing on disk was the only

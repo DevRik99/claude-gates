@@ -4,12 +4,18 @@ import {
   mkdirSync,
   existsSync,
   readFileSync,
+  readdirSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { openTaskStore, STATUS } from '../task-store.mjs';
+import {
+  CLAIM_TTL_MS,
+  openTaskStore,
+  ownedPathsOf,
+  STATUS,
+} from '../task-store.mjs';
 
 // A temp project with a .git marker, so the store anchors its .ai/tasks/ there.
 function makeProject() {
@@ -189,4 +195,176 @@ test('a UTF-8 BOM on active.json/counter.json does not make the store treat them
     3,
     'a BOM-prefixed counter.json must still be read as its real value, not 0',
   );
+});
+
+// ── blocked: the escape valve the gates already honoured but nothing could reach ─────
+test('block parks a task on a stated cause, and unblock returns it to open', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'stuck', status: 'open', size: 'large' });
+
+  const blocked = store.block('t1', 'waiting on the user to publish');
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.blockedReason, 'waiting on the user to publish');
+  assert.equal(openTaskStore(project).active()[0].status, 'blocked');
+
+  const reopened = openTaskStore(project).unblock('t1');
+  assert.equal(reopened.status, 'open');
+  assert.ok(
+    !('blockedReason' in openTaskStore(project).active()[0]),
+    'the recorded cause must not survive as a tombstone once reopened',
+  );
+});
+
+test('block and unblock report a miss instead of inventing a task', () => {
+  const store = openTaskStore(makeProject());
+  assert.equal(store.block('nope', 'x'), null);
+  assert.equal(store.unblock('nope'), null);
+});
+
+test('a write leaves no temp file behind and never a torn read', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  for (let index = 0; index < 5; index += 1)
+    store.add({ id: `t${index}`, title: `task ${index}`, status: 'open' });
+
+  const directory = join(project, '.ai', 'tasks');
+  const strays = readdirSync(directory).filter((name) => name.endsWith('.tmp'));
+  assert.deepEqual(
+    strays,
+    [],
+    'the temp file must be renamed, not left behind',
+  );
+
+  const raw = readFileSync(join(directory, 'active.json'), 'utf8');
+  assert.equal(JSON.parse(raw).tasks.length, 5, 'the file must parse in full');
+});
+
+test('the counter is written through the same atomic path', () => {
+  const project = makeProject();
+  openTaskStore(project).setCounter(7);
+  assert.equal(openTaskStore(project).counter(), 7);
+  const strays = readdirSync(join(project, '.ai', 'tasks')).filter((name) =>
+    name.endsWith('.tmp'),
+  );
+  assert.deepEqual(strays, []);
+});
+
+// ── claim/lease: quien hace que, sin que nadie bloquee a nadie ───────────────────────
+test('una tarea nueva sin owner esta LIBRE, no es de nadie', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+
+  assert.equal(store.free().length, 1);
+  assert.equal(store.ownedBy('agent-a').length, 0);
+});
+
+test('claim toma una tarea libre y la saca del pool', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+
+  const { task, error } = store.claim('t1', 'agent-a');
+  assert.equal(error, undefined);
+  assert.equal(task.owner, 'agent-a');
+  assert.equal(openTaskStore(project).free().length, 0);
+  assert.equal(openTaskStore(project).ownedBy('agent-a').length, 1);
+});
+
+test('claim de otro agente se rechaza NOMBRANDO al dueno actual', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+  store.claim('t1', 'agent-a');
+
+  const { task, error } = openTaskStore(project).claim('t1', 'agent-b');
+  assert.equal(task, undefined);
+  assert.match(error, /agent-a/);
+  assert.match(error, /--free/);
+});
+
+test('re-claim de tu propia tarea no falla: renueva la reserva', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+  store.claim('t1', 'agent-a');
+
+  const { error } = openTaskStore(project).claim('t1', 'agent-a');
+  assert.equal(error, undefined);
+});
+
+// Un agente que muere sin liberar retendria su trabajo para siempre.
+test('una reserva caducada vuelve a estar libre y otro agente puede tomarla', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+  store.claim('t1', 'agent-a');
+
+  const muchLater = { now: Date.now() + CLAIM_TTL_MS + 1000 };
+  assert.equal(openTaskStore(project).free(muchLater).length, 1);
+  const { error } = openTaskStore(project).claim('t1', 'agent-b', muchLater);
+  assert.equal(error, undefined);
+  assert.equal(openTaskStore(project).ownedBy('agent-b')[0].id, 't1');
+});
+
+// Una reserva escrita antes de que existiera claimedAt no debe evaporarse.
+test('una reserva sin claimedAt se respeta en vez de caducar al instante', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'legacy', status: 'open', owner: 'agent-a' });
+
+  assert.equal(store.free().length, 0);
+  assert.equal(store.ownedBy('agent-a').length, 1);
+});
+
+test('release devuelve la tarea al pool sin dejar claves muertas', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+  store.claim('t1', 'agent-a');
+
+  openTaskStore(project).release('t1');
+  const [task] = openTaskStore(project).active();
+  assert.ok(!('owner' in task));
+  assert.ok(!('claimedAt' in task));
+  assert.equal(openTaskStore(project).free().length, 1);
+});
+
+test('las tareas de un agente no aparecen como del otro', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'mia', status: 'open' });
+  store.add({ id: 't2', title: 'suya', status: 'open' });
+  store.claim('t1', 'agent-a');
+  store.claim('t2', 'agent-b');
+
+  const fresh = openTaskStore(project);
+  assert.deepEqual(
+    fresh.ownedBy('agent-a').map((task) => task.id),
+    ['t1'],
+  );
+  assert.deepEqual(
+    fresh.ownedBy('agent-b').map((task) => task.id),
+    ['t2'],
+  );
+  assert.equal(fresh.free().length, 0);
+});
+
+test('claim sin owner se rechaza en vez de escribir un dueno vacio', () => {
+  const project = makeProject();
+  const store = openTaskStore(project);
+  store.add({ id: 't1', title: 'suelta', status: 'open' });
+
+  assert.match(store.claim('t1', '').error, /needs an owner/);
+  assert.equal(store.free().length, 1);
+});
+
+test('ownedPathsOf lee owns y tolera una tarea que no lo declara', () => {
+  assert.deepEqual(ownedPathsOf({ owns: ['src/a.ts', 'src/b.ts'] }), [
+    'src/a.ts',
+    'src/b.ts',
+  ]);
+  assert.deepEqual(ownedPathsOf({}), []);
+  assert.deepEqual(ownedPathsOf({ owns: 'no-es-lista' }), []);
 });

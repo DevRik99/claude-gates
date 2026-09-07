@@ -329,6 +329,20 @@
       "note": "needs a git repo with an uncommitted paired implementation file."
     },
     {
+      "id": "adversarial-tests",
+      "configKey": "requireAdversarialTests",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/thing.test.mjs",
+          "content": "test('devuelve el valor', () => {});\ntest('lee el fichero', () => {});"
+        }
+      },
+      "needsState": false
+    },
+    {
       "id": "no-reconfirm",
       "configKey": "requireNoReconfirmOfApproved",
       "enabledByDefault": true,
@@ -565,6 +579,22 @@
       },
       "needsState": true,
       "note": "needs an .ai/tasks/active.json with a medium+ task that has no children."
+    },
+    {
+      "id": "file-ownership",
+      "configKey": "blockWritesToClaimedFiles",
+      "enabledByDefault": false,
+      "type": "deny",
+      "payload": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "src/auth.ts",
+          "content": "x"
+        },
+        "session_id": "agent-two"
+      },
+      "needsState": true,
+      "note": "needs an .ai/tasks/active.json whose active task is live-claimed by ANOTHER owner and declares owns:[src/auth.ts]; a single stdin payload cannot express that."
     },
     {
       "id": "require-monitor",
