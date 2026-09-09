@@ -125,6 +125,28 @@ export const CONJECTURE_SOURCES = [
 
 export const CONJECTURE = withUnicodeWordBoundary(CONJECTURE_SOURCES.join('|'));
 
+// Because the reminder exists to get an unmarked guess marked, text that already labels its
+// own uncertainty has nothing left to be reminded of: telling someone who wrote
+// "hypothesis, unverified: probably X" to stop assuming is pure noise.
+export const UNCERTAINTY_LABEL_SOURCES = [
+  'hypothesis',
+  'hip[oó]tesis',
+  'conjecture',
+  'conjetura',
+  'unverified',
+  'sin verificar',
+  'not verified',
+  'no verificad[oa]',
+  'to be confirmed',
+  'a confirmar',
+  'por confirmar',
+  'needs checking',
+  'hay que verificar',
+  'guess:',
+  'assumption:',
+  'supuesto:',
+];
+
 // ── UNVERIFIED_CLAIM: asserting DONE or CORRECT, which conjecture phrasing misses ────
 // "probably" announces itself as a guess. "already works" does the opposite: it states a
 // fact nobody checked, and reads as settled to whoever comes next. That is the assumption

@@ -2,6 +2,9 @@
 //
 // CONJECTURE ("probably", "should be", "supongo") announces itself as a guess, so it only
 // earns a reminder. Advisory by design: a stated guess is a prompt to check, not an offense.
+// Because a text that ALREADY labels its own uncertainty ("hypothesis", "sin verificar") has
+// nothing left to be reminded of, the reminder is dropped there instead of landing on the
+// one author who did the right thing.
 //
 // An UNVERIFIED CLAIM ("already works", "ya funciona", "looks good") does the opposite — it
 // states as settled fact something nobody checked, and the next reader inherits it as true.
@@ -25,6 +28,7 @@ import {
 import {
   CONJECTURE_SOURCES,
   EVIDENCE_SOURCES,
+  UNCERTAINTY_LABEL_SOURCES,
   UNVERIFIED_CLAIM_SOURCES,
   withFlexibleSpaces,
 } from '../../lib/signals.mjs';
@@ -71,6 +75,7 @@ runGate(
       conjecturePatterns: CONJECTURE_SOURCES,
       unverifiedClaimPatterns: UNVERIFIED_CLAIM_SOURCES,
       evidencePatterns: EVIDENCE_SOURCES,
+      uncertaintyLabelPatterns: UNCERTAINTY_LABEL_SOURCES,
     },
   },
   ({ toolName, toolInput, parameters }) => {
@@ -95,6 +100,7 @@ runGate(
 
     const hits = matchesIn(parameters.conjecturePatterns, content);
     if (hits.length === 0) return;
+    if (hasAny(parameters.uncertaintyLabelPatterns, content)) return;
 
     warn(
       CONFIG_KEY,

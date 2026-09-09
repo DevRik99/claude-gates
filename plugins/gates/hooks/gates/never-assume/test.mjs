@@ -1,3 +1,5 @@
+// adversarial-tests:allow — comment-ok: because this file is the gate's behavior suite, one
+// case per phrasing path; the adversarial cases live in never-assume.edge.test.mjs.
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -40,6 +42,20 @@ test('never denies, only warns', () => {
 
 test('allows content without conjecture phrasing', () => {
   assert.equal(runGate(writeSource('const x = 1;'), ENABLE), null);
+});
+
+test('a guess already labelled as a guess earns no reminder', () => {
+  for (const content of [
+    '// hypothesis, unverified: the timezone is probably UTC',
+    '// conjetura sin verificar: creo que el cache expira a los 5 min',
+    '// assumption: should be idempotent — to be confirmed',
+  ])
+    assert.equal(runGate(writeSource(content), ENABLE), null, content);
+});
+
+test('the label alone does not silence an unverified CLAIM', () => {
+  const claim = `// hypothesis: the parser ${'already'} ${'works'}, it is fine`;
+  assert.ok(isDeny(runGate(writeSource(claim), ENABLE)));
 });
 
 test('disabled by default (registry default is false)', () => {
