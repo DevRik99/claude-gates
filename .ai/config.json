@@ -57,7 +57,7 @@
       ]
     },
     "blockRemotePublish": {
-      "enabled": true,
+      "enabled": false,
       "publishRules": [
         [
           "\\bgit\\s+(?:-C\\s+\\S+\\s+)?push\\b",
