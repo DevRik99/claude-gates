@@ -24,6 +24,16 @@ function keysOf(value) {
 }
 
 /**
+ * Mirrors the normalization the tool namespace applies, because a server configured as
+ * `Engram AI` reaches transcripts as `engram_ai`: matching the raw configured name misses it.
+ */
+function normalizeServerName(name) {
+  return String(name)
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9_-]/g, '_');
+}
+
+/**
  * Every MCP server and plugin name declared where Claude Code reads them from, plus
  * whether any of those sources existed at all. Plugin names count: a plugin can ship its
  * own server, exposed as plugin_<plugin>_<server>.
@@ -40,11 +50,14 @@ export function declaredMcpNames(root, { home = homedir() } = {}) {
     names.push(...keysOf(projectServers.mcpServers));
   }
 
+  // Every project's servers, not just this root's, because the key is the path as the
+  // session opened it and a near-miss there would read as "not installed".
   const userConfig = readJsonOrNull(join(home, '.claude.json'));
   if (userConfig) {
     known = true;
     names.push(...keysOf(userConfig.mcpServers));
-    names.push(...keysOf(userConfig.projects?.[root]?.mcpServers));
+    for (const project of Object.values(userConfig.projects ?? {}))
+      names.push(...keysOf(project?.mcpServers));
   }
 
   const installedPlugins = readJsonOrNull(
@@ -55,13 +68,17 @@ export function declaredMcpNames(root, { home = homedir() } = {}) {
     names.push(...keysOf(installedPlugins.plugins));
   }
 
-  return { known, names: names.map((name) => String(name).toLowerCase()) };
+  return { known, names: names.map(normalizeServerName) };
 }
 
 /**
  * Whether any of `candidates` — a gate's server aliases, e.g.
- * ['engram', 'plugin_engram_engram'] — is declared on this machine. True when nothing
- * declares MCP config anywhere, because that is ignorance rather than evidence of absence.
+ * ['engram', 'plugin_engram_engram'] — is declared on this machine.
+ *
+ * Undeclared counts as absent even when no config source was found at all, because the two
+ * error directions are not symmetric: guessing "installed" puts the agent back in the
+ * no-exit loop these gates exist to avoid, while guessing "absent" only relaxes a policy,
+ * and the callers say so out loud instead of going quiet.
  */
 export function mcpServerAvailable(
   candidates,
@@ -70,9 +87,8 @@ export function mcpServerAvailable(
 ) {
   const key = `${root} ${home}`;
   if (cache?.key !== key) cache = { key, ...declaredMcpNames(root, { home }) };
-  if (!cache.known) return true;
   return (candidates ?? []).some((candidate) => {
-    const wanted = String(candidate).toLowerCase();
+    const wanted = normalizeServerName(candidate);
     return (
       wanted.length > 0 &&
       cache.names.some((name) => name === wanted || name.includes(wanted))

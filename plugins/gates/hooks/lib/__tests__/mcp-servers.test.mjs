@@ -11,10 +11,10 @@
 //   instead of throwing
 // idempotency-order: COVERED — the same query twice across two different homes, so a stale
 //   cache cannot answer for the wrong machine
-// invariant: COVERED — an unknown machine NEVER reports a server as missing, because a
-//   gate denying on ignorance leaves no remedy the agent can follow
+// invariant: COVERED — an undeclared server is NEVER reported as installed, because a gate
+//   that demands it would leave no remedy the agent can follow
 // security: COVERED — a shorter declared name must not bypass the containment rule
-// mutations-killed: `!cache.known` returning true -> false, `name.includes(wanted)` -> `wanted.includes(name)`, cache key dropping root -> home alone, keysOf guard removed -> Object.keys over a string, `some` -> `every` across the aliases
+// mutations-killed: undeclared returning false -> true (the no-exit loop returns), `name.includes(wanted)` -> `wanted.includes(name)`, cache key dropping root -> home alone, keysOf guard removed -> Object.keys over a string, normalizeServerName removed -> "Engram AI" stops matching
 
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -51,10 +51,15 @@ function machine({ userConfig, projectConfig, plugins } = {}) {
 const ask = (candidates, { home, root }) =>
   mcpServerAvailable(candidates, root, { home });
 
-test('INVARIANT: a machine with no config source never reports a server as missing', () => {
+test('INVARIANT: an undeclared server is never reported as installed', () => {
   const { home, root } = machine();
-  assert.equal(mcpServerAvailable(ENGRAM_SERVERS, root, { home }), true);
+  assert.equal(mcpServerAvailable(ENGRAM_SERVERS, root, { home }), false);
   assert.equal(declaredMcpNames(root, { home }).known, false);
+});
+
+test('a name whose punctuation the tool namespace rewrites still matches', () => {
+  const spaced = machine({ userConfig: { mcpServers: { 'Engram AI': {} } } });
+  assert.equal(ask(['engram_ai'], spaced), true);
 });
 
 test('boundary: the exact edge between a server omitted and a server declared', () => {
@@ -116,13 +121,13 @@ test('security: a shorter declared name must not bypass the containment rule', (
   assert.equal(ask(ENGRAM_SERVERS, shorter), false);
 });
 
-test('dependency-failure: an unreadable config does not throw, it stays unknown', () => {
+test('dependency-failure: an unreadable config does not throw, it reads as absent', () => {
   const corrupt = machine({ userConfig: '{ not json' });
   assert.equal(
     declaredMcpNames(corrupt.root, { home: corrupt.home }).known,
     false,
   );
-  assert.equal(ask(ENGRAM_SERVERS, corrupt), true);
+  assert.equal(ask(ENGRAM_SERVERS, corrupt), false);
 });
 
 test('invalid-input and missing values answer false instead of crashing', () => {

@@ -3,7 +3,7 @@ import {
   CONFIG_KEY,
   DEFAULT_PARAMS,
   GATE_ID,
-  engramIsInstalled,
+  engramConfigured,
   readState,
 } from './shared.mjs';
 
@@ -16,10 +16,16 @@ runStopHook(
   },
   ({ sessionId, parameters, cwd }) => {
     if (!parameters.requireSaveBeforeStop) return;
-    if (!engramIsInstalled(parameters, cwd)) return;
     const state = readState(sessionId, cwd);
     if (state.researchCalls === 0) return;
     if (state.lastMemSaveAt >= state.lastResearchAt) return;
+    /*
+     * With no engram declared there is no `mem_save` to call, so blocking the
+     * stop would strand the turn: research already got through (the PreToolUse
+     * side degrades to a warning), and demanding a save nothing can perform just
+     * moves the same dead end to the end of the turn.
+     */
+    if (!engramConfigured(parameters, cwd)) return;
     block(
       CONFIG_KEY,
       `This session made ${state.researchCalls} research call(s) (web/context7) and nothing was saved to ` +

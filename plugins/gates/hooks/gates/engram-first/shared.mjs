@@ -60,7 +60,19 @@ export function isResearchTool(toolName, parameters) {
   return toolInGroups(toolName, ['research']);
 }
 
-export function engramIsInstalled(parameters, cwd) {
+/**
+ * A gate whose precondition cannot be satisfied must not block: with no engram server
+ * declared anywhere, `mem_search` does not exist as a tool, so denying research closes a
+ * loop with no exit. Same stance as forge-flow, which warns and allows when its DB cannot
+ * be read.
+ *
+ * Declaration and not reachability, because a network probe is the wrong instrument: it
+ * costs a timeout on every research call, and under process sandboxing a child cannot reach
+ * even a server that is running, so a live engram would read as absent. Whether it is
+ * DECLARED separates the case where nothing can be called (allow) from the case where it is
+ * merely stopped, which the deny message already tells the user how to fix.
+ */
+export function engramConfigured(parameters, cwd) {
   return mcpServerAvailable(
     parameters.engramServers,
     projectRootOf(cwd) ?? cwd,

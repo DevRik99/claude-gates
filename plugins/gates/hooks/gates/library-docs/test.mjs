@@ -26,6 +26,13 @@ function freshSession() {
 const ZOD_FILE =
   "import { z } from 'zod';\nexport const schema = z.object({});\n";
 
+// Because the gate stands down where neither server is declared, every project here
+// declares both: what is under test is the evidence rule, not the absence handling.
+const MCP_JSON = JSON.stringify({
+  mcpServers: { engram: { command: 'engram' }, context7: { command: 'c7' } },
+});
+const withServers = (files = {}) => ({ '.mcp.json': MCP_JSON, ...files });
+
 function memSearch(query, response) {
   return {
     tool_name: 'mcp__engram__mem_search',
@@ -49,7 +56,7 @@ function memSave(title) {
 }
 
 test('denies a write importing a package the project never used without any lookup', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const result = runGateProcess(
     GATE,
     withSession(
@@ -63,9 +70,22 @@ test('denies a write importing a package the project never used without any look
   assert.match(messageOf(result), /mem_search/);
 });
 
+test('no engram and no context7: the gate cannot be satisfied, so it does not run', () => {
+  const project = makeProject();
+  const result = runGateProcess(
+    GATE,
+    withSession(
+      write(join(project, 'src', 'schema.ts'), ZOD_FILE),
+      freshSession(),
+    ),
+    { project },
+  );
+  assert.equal(result, null);
+});
+
 test('allows the import when the package is already imported elsewhere in the project', () => {
   const project = makeProject({
-    files: { 'src/other.ts': "import { z } from 'zod';\n" },
+    files: withServers({ 'src/other.ts': "import { z } from 'zod';\n" }),
   });
   const result = runGateProcess(
     GATE,
@@ -79,7 +99,7 @@ test('allows the import when the package is already imported elsewhere in the pr
 });
 
 test('allows the import after an engram hit about the package', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const session = freshSession();
   runGateProcess(
     TRACK,
@@ -98,7 +118,7 @@ test('allows the import after an engram hit about the package', () => {
 });
 
 test('an engram miss is not knowledge: context7 docs plus a mem_save are required', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const session = freshSession();
   runGateProcess(
     TRACK,
@@ -139,7 +159,7 @@ test('an engram miss is not knowledge: context7 docs plus a mem_save are require
 });
 
 test('relative imports, node builtins and node: specifiers are never libraries', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const content =
     "import fs from 'node:fs';\nimport path from 'path';\nimport x from './x.js';\n";
   const result = runGateProcess(
@@ -154,7 +174,7 @@ const importOf = (specifier) =>
   ['import x', 'from', `'${specifier}';\n`].join(' ');
 
 test('the @/ and ~/ path aliases are the project itself, never a library', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const nuxtAlias = ['~', 'composables', 'x'].join('/');
   const content = ['@/components', '@/types/theme.types', nuxtAlias]
     .map(importOf)
@@ -168,7 +188,7 @@ test('the @/ and ~/ path aliases are the project itself, never a library', () =>
 });
 
 test('a real scoped package is still judged: the alias rule needs an empty scope', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const result = runGateProcess(
     GATE,
     withSession(
@@ -181,7 +201,9 @@ test('a real scoped package is still judged: the alias rule needs an empty scope
 });
 
 test('an import already present in the file being edited is not new', () => {
-  const project = makeProject({ files: { 'src/schema.ts': ZOD_FILE } });
+  const project = makeProject({
+    files: withServers({ 'src/schema.ts': ZOD_FILE }),
+  });
   const result = runGateProcess(
     GATE,
     withSession(
@@ -197,7 +219,7 @@ test('an import already present in the file being edited is not new', () => {
 });
 
 test('python imports are judged the same way', () => {
-  const project = makeProject();
+  const project = makeProject({ files: withServers() });
   const result = runGateProcess(
     GATE,
     withSession(
@@ -213,6 +235,7 @@ test('python imports are judged the same way', () => {
 
 test('ignoredPackages skips a package by name', () => {
   const project = makeProject({
+    files: withServers(),
     config: {
       gates: {
         requireDocsBeforeUsingNewLibrary: {
