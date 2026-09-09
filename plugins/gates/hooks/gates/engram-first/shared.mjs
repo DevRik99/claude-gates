@@ -1,8 +1,14 @@
+import { projectRootOf } from '../../lib/config.mjs';
 import {
   mcpActionSegment,
   mcpServerSegment,
   toolInGroups,
 } from '../../lib/hook-io.mjs';
+import {
+  CONTEXT7_SERVERS,
+  ENGRAM_SERVERS,
+  mcpServerAvailable,
+} from '../../lib/mcp-servers.mjs';
 import {
   readSessionState,
   writeSessionState,
@@ -12,8 +18,8 @@ export const GATE_ID = 'engram-first';
 export const CONFIG_KEY = 'requireEngramBeforeResearch';
 
 export const DEFAULT_PARAMS = Object.freeze({
-  engramServers: ['engram', 'plugin_engram_engram'],
-  context7Servers: ['context7', 'plugin_context7_context7'],
+  engramServers: [...ENGRAM_SERVERS],
+  context7Servers: [...CONTEXT7_SERVERS],
   researchTools: ['WebSearch', 'WebFetch'],
   engramUrl: 'http://127.0.0.1:7437',
   requireSaveBeforeStop: true,
@@ -52,6 +58,13 @@ export function isResearchTool(toolName, parameters) {
     return true;
   if (isContext7Tool(toolName, parameters)) return true;
   return toolInGroups(toolName, ['research']);
+}
+
+export function engramIsInstalled(parameters, cwd) {
+  return mcpServerAvailable(
+    parameters.engramServers,
+    projectRootOf(cwd) ?? cwd,
+  );
 }
 
 export function engramActionOf(toolName) {

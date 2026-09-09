@@ -1,5 +1,11 @@
 import { block, runStopHook } from '../../lib/hook-io.mjs';
-import { CONFIG_KEY, DEFAULT_PARAMS, GATE_ID, readState } from './shared.mjs';
+import {
+  CONFIG_KEY,
+  DEFAULT_PARAMS,
+  GATE_ID,
+  engramIsInstalled,
+  readState,
+} from './shared.mjs';
 
 runStopHook(
   {
@@ -10,6 +16,7 @@ runStopHook(
   },
   ({ sessionId, parameters, cwd }) => {
     if (!parameters.requireSaveBeforeStop) return;
+    if (!engramIsInstalled(parameters, cwd)) return;
     const state = readState(sessionId, cwd);
     if (state.researchCalls === 0) return;
     if (state.lastMemSaveAt >= state.lastResearchAt) return;

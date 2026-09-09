@@ -2,6 +2,7 @@ import { deny, runGate } from '../../lib/hook-io.mjs';
 import {
   DEFAULT_PARAMS,
   GATE_ID,
+  engramIsInstalled,
   isResearchTool,
   queryOf,
   readState,
@@ -34,6 +35,7 @@ runGate(
   },
   ({ toolName, toolInput, sessionId, parameters, cwd }) => {
     if (!isResearchTool(toolName, parameters)) return;
+    if (!engramIsInstalled(parameters, cwd)) return;
     const state = readState(sessionId, cwd);
     if (state.memSearchCount > 0) return;
     denyResearchWithoutMemory(toolName, toolInput);
