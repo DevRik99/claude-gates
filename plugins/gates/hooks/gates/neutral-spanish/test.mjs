@@ -1,3 +1,5 @@
+// adversarial-tests:allow — comment-ok: because this file is the gate's behavior suite
+// (one case per config path), the adversarial cases live in neutral-spanish.edge.test.mjs.
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -124,32 +126,40 @@ test('a configured escapeHatch replaces the default marker', () => {
   );
 });
 
-test('a regional marker typed without accents is still caught', () => {
+// neutral-spanish:allow — fixtures below quote regional markers on purpose.
+test('an unaccented voseo form that is not a neutral word is its own marker', () => {
   const ENABLED = { gates: { warnNonNeutralSpanish: true } };
-  for (const phrase of [
-    'tenes razon',
-    'TENES RAZON',
-    'mira esto',
-    'fijate bien',
-  ])
+  for (const phrase of ['tenes razon', 'TENES RAZON', 'fijate bien'])
     assert.ok(
       isDeny(
         runGate(writeNotes(`${phrase} y algo mas de texto`), {
           config: ENABLED,
         }),
       ),
-      `"${phrase}" must be caught: the unaccented spelling is the common one`,
+      `"${phrase}" must be caught: it is listed as its own marker`,
     );
 });
 
-test('the neutral form is not caught by accent-stripping', () => {
+test('an accented marker does not match the neutral word underneath it', () => {
+  const ENABLED = { gates: { warnNonNeutralSpanish: true } };
+  for (const phrase of [
+    'espera un momento para que esto se complete',
+    'mira esto y dime si el resultado es correcto',
+    'tienes razon en todo esto que decimos',
+  ])
+    assert.ok(
+      !isDeny(runGate(writeNotes(phrase), { config: ENABLED })),
+      `"${phrase}" is neutral Spanish and must pass`,
+    );
+});
+
+test('the accented marker still denies when written with its accent', () => {
   const ENABLED = { gates: { warnNonNeutralSpanish: true } };
   assert.ok(
-    !isDeny(
-      runGate(writeNotes('tienes razon en todo esto que decimos'), {
+    isDeny(
+      runGate(writeNotes('pará un momento y mirá esto que hicimos'), {
         config: ENABLED,
       }),
     ),
-    'stripping accents must not turn a neutral phrase into a false positive',
   );
 });

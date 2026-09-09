@@ -47,6 +47,11 @@ const DEFAULT_REGIONAL_MARKERS = [
   'hacés',
   'decís',
   'venís',
+  'tenes',
+  'podes',
+  'queres',
+  'decis',
+  'venis',
   'sos',
   'fijate',
   'mirá',
@@ -90,25 +95,22 @@ function hasTextExtension(path, textExtensions) {
   );
 }
 
-// Diacritics are stripped from BOTH sides before matching because the regional forms are
-// typed without accents more often than with them ("tenes", "mira", "fijate"), and a marker
-// list that only catches the correctly accented spelling misses the common case. Case and
-// spacing were already handled; this was the axis that leaked.
-function withoutDiacritics(text) {
-  return String(text)
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '');
-}
-
+// An accented marker matches ONLY its accented spelling. Stripping diacritics from both
+// sides made "pará" match "para" — one of the most common words in Spanish — so the gate
+// denied nearly any Spanish text it saw. Normalization is NFC on both sides and nothing
+// else, so a precomposed "á" and a decomposed "a" + U+0301 stay the same character. The
+// unaccented voseo forms that are not neutral words on their own ("tenes", "podes") are
+// listed as markers of their own; the ones that are ("para", "mira", "sabes") cannot be
+// caught without denying neutral prose, and are deliberately let through.
 function markerHits(text, markers) {
-  const plainText = withoutDiacritics(text);
+  const normalizedText = String(text).normalize('NFC');
   const hits = [];
   for (const marker of markers) {
     if (typeof marker !== 'string' || marker.length === 0) continue;
     const pattern = withUnicodeWordBoundary(
-      escapeRegExp(withoutDiacritics(marker)),
+      escapeRegExp(marker.normalize('NFC')),
     );
-    if (pattern.test(plainText)) hits.push(marker);
+    if (pattern.test(normalizedText)) hits.push(marker);
   }
   return hits;
 }
