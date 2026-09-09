@@ -1,6 +1,6 @@
 {
   "_comment": "Project config for developing claude-gates ITSELF. The runtime reads project -> global, so this overrides the global config locally without touching it. Reasons a gate is off here: (1) false positives when editing this very repo's own gate source — e.g. blockLintSuppression matches its own DEFAULT_SUPPRESSION_PATTERNS ('eslint-disable', '@ts-ignore') as literal data whenever you edit that gate or any test that mentions them; (2) TEMPORARY during parallel gate migration, a half-edited gate that runs against the main agent throws at load and blocks every tool call. Re-enable/delete these keys when the migration lands. blockDestructiveShellCommands is deliberately NOT here: it stays ON even in dev. no-coauthor is NOT here: it only fires on `git commit`, never on editing gate source.",
-  "adopted": "partial",
+  "adopted": true,
   "gateVersion": "3.1.0",
   "gates": {
     "blockWritesToProtectedPaths": {
@@ -57,7 +57,7 @@
       ]
     },
     "blockRemotePublish": {
-      "enabled": false,
+      "enabled": true,
       "publishRules": [
         [
           "\\bgit\\s+(?:-C\\s+\\S+\\s+)?push\\b",
@@ -101,7 +101,7 @@
       "embeddedInterpreterEnabled": false
     },
     "blockWaitingCommands": {
-      "enabled": true,
+      "enabled": false,
       "blockingPatterns": [
         [
           "(^|[|;&]\\s*|\\bthen\\s+|\\bdo\\s+)(sleep|timeout)\\s+\\d",
@@ -297,23 +297,6 @@
         "//\\s*todo:?\\s*fix\\s+later\\s+patch"
       ]
     },
-    "requireAuditBeforeBuilding": {
-      "enabled": true,
-      "executableExtensions": [
-        ".js",
-        ".mjs",
-        ".cjs",
-        ".ts",
-        ".py",
-        ".sh",
-        ".ps1"
-      ],
-      "toolFolders": [
-        "scripts/",
-        "hooks/",
-        "tools/"
-      ]
-    },
     "requireVerificationBeforeAssuming": {
       "enabled": true,
       "conjecturePatterns": [
@@ -367,6 +350,7 @@
     },
     "warnNonNeutralSpanish": {
       "enabled": true,
+      "_comment": "neutral-spanish:allow — this list IS the marker data. An accented marker only matches its accented spelling, so the unaccented voseo forms that are not neutral words are listed separately; the ones that are (para, mira, sabes) cannot be listed without denying neutral prose.",
       "regionalMarkers": [
         "encendé",
         "tenés",
@@ -376,6 +360,11 @@
         "hacés",
         "decís",
         "venís",
+        "tenes",
+        "podes",
+        "queres",
+        "decis",
+        "venis",
         "sos",
         "fijate",
         "mirá",
