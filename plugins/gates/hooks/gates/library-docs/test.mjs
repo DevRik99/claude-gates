@@ -1,3 +1,5 @@
+// adversarial-tests:allow — comment-ok: because this file is the gate's behavior suite,
+// one case per evidence path (engram hit, engram miss, context7 + save, ignored package).
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -146,6 +148,36 @@ test('relative imports, node builtins and node: specifiers are never libraries',
     { project },
   );
   assert.equal(result, null);
+});
+
+const importOf = (specifier) =>
+  ['import x', 'from', `'${specifier}';\n`].join(' ');
+
+test('the @/ and ~/ path aliases are the project itself, never a library', () => {
+  const project = makeProject();
+  const nuxtAlias = ['~', 'composables', 'x'].join('/');
+  const content = ['@/components', '@/types/theme.types', nuxtAlias]
+    .map(importOf)
+    .join('');
+  const result = runGateProcess(
+    GATE,
+    withSession(write(join(project, 'src', 'a.ts'), content), freshSession()),
+    { project },
+  );
+  assert.equal(result, null);
+});
+
+test('a real scoped package is still judged: the alias rule needs an empty scope', () => {
+  const project = makeProject();
+  const result = runGateProcess(
+    GATE,
+    withSession(
+      write(join(project, 'src', 'a.ts'), importOf('@scope/thing')),
+      freshSession(),
+    ),
+    { project },
+  );
+  assert.ok(isDeny(result));
 });
 
 test('an import already present in the file being edited is not new', () => {

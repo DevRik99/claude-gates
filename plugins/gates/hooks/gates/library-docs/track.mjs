@@ -8,11 +8,15 @@ import {
   toolNameOf,
   toolResponseOf,
 } from '../../lib/hook-io.mjs';
+import {
+  CONTEXT7_SERVERS as CONTEXT7_NAMES,
+  ENGRAM_SERVERS as ENGRAM_NAMES,
+} from '../../lib/mcp-servers.mjs';
 import { updateSessionState } from '../../lib/session-state.mjs';
 
 const GATE_ID = 'library-docs';
-const ENGRAM_SERVERS = new Set(['engram', 'plugin_engram_engram']);
-const CONTEXT7_SERVERS = new Set(['context7', 'plugin_context7_context7']);
+const ENGRAM_SERVERS = new Set(ENGRAM_NAMES);
+const CONTEXT7_SERVERS = new Set(CONTEXT7_NAMES);
 const SAVE_ACTIONS = new Set(['mem_save', 'mem_session_summary', 'mem_update']);
 const NO_RESULT_PATTERN = /no memories found|no results|0 results/i;
 const MAX_ENTRIES = 40;

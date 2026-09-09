@@ -11,6 +11,11 @@ import {
   writtenContentOf,
   writtenPathOf,
 } from '../../lib/hook-io.mjs';
+import {
+  CONTEXT7_SERVERS,
+  ENGRAM_SERVERS,
+  mcpServerAvailable,
+} from '../../lib/mcp-servers.mjs';
 import { readSessionState } from '../../lib/session-state.mjs';
 
 export const GATE_ID = 'library-docs';
@@ -28,6 +33,7 @@ const DEFAULT_CODE_EXTENSIONS = [
   '.py',
 ];
 const DEFAULT_IGNORED_PACKAGES = [];
+const ALL_INSTALLED = Object.freeze({ engram: true, context7: true });
 const DEFAULT_MAX_SCAN_FILES = 500;
 const SKIPPED_DIRECTORIES = new Set([
   'node_modules',
@@ -91,9 +97,15 @@ function packageOf(specifier, isPython) {
   return specifier.split('/')[0];
 }
 
+// `@/x` and `~/x` are the path aliases every Vite/Nuxt/Vue project ships with, not npm
+// packages: an npm scope is `@scope/name` and can never be empty, and `~` is not a scope at
+// all. Reading them as dependencies made the gate demand docs for the project's own files.
+const PATH_ALIAS_PATTERN = /^(?:@\/|~($|[/\\]))/;
+
 function isExternal(specifier, isPython) {
   if (!specifier || specifier.startsWith('.') || specifier.startsWith('/'))
     return false;
+  if (!isPython && PATH_ALIAS_PATTERN.test(specifier)) return false;
   if (specifier.startsWith('node:') || specifier.startsWith('#')) return false;
   if (isPython) return !PYTHON_STDLIB.has(packageOf(specifier, true));
   if (NODE_BUILTINS.has(packageOf(specifier, false))) return false;
@@ -180,16 +192,17 @@ function mentions(list, name) {
   );
 }
 
-export function knowledgeStatus(state, name) {
+// Because a demand nothing can meet is worse than no demand at all, what counts as "known"
+// narrows to the servers that exist: no engram means no mem_save to ask for, and no
+// context7 means engram alone has to answer.
+export function knowledgeStatus(state, name, installed = ALL_INSTALLED) {
   const searched = mentions(state.memSearchHits ?? [], name);
   const documentation = mentions(state.context7Lookups ?? [], name);
   const saved = mentions(state.memSaves ?? [], name);
-  return {
-    searched,
-    documentation,
-    saved,
-    known: searched || (documentation && saved),
-  };
+  const known = installed.engram
+    ? searched || (installed.context7 && documentation && saved)
+    : documentation;
+  return { searched, documentation, saved, known };
 }
 
 const HEREDOC_START_PATTERN = /<<-?\s*['"]?(\w+)['"]?(?:\s*>{1,2}\s*\S+)?$/;
@@ -219,15 +232,15 @@ function extractHeredocBodies(command) {
   return bodies;
 }
 
-function remedyFor(name, status) {
+function remedyFor(name, status, installed) {
   const steps = [];
-  if (!status.searched && !status.documentation)
+  if (installed.engram && !status.searched && !status.documentation)
     steps.push(`1) mem_search "${name} usage" (engram is the first source)`);
-  if (!status.documentation)
+  if (installed.context7 && !status.documentation)
     steps.push(
-      `2) if engram has nothing: context7 resolve-library-id "${name}" then get-library-docs for the API you need`,
+      `2) ${installed.engram ? 'if engram has nothing: ' : ''}context7 resolve-library-id "${name}" then get-library-docs for the API you need`,
     );
-  if (status.documentation && !status.saved)
+  if (installed.engram && status.documentation && !status.saved)
     steps.push(
       `3) mem_save what you learned about ${name} (title mentioning "${name}") so the next session reads it from engram`,
     );
@@ -251,6 +264,12 @@ runGate(
     if (!isWrite && !isShell) return;
 
     const root = projectRootOf(cwd) ?? cwd;
+    const installed = {
+      engram: mcpServerAvailable(ENGRAM_SERVERS, root),
+      context7: mcpServerAvailable(CONTEXT7_SERVERS, root),
+    };
+    if (!installed.engram && !installed.context7) return;
+
     const ignored = new Set(
       parameters.ignoredPackages.map((name) => String(name).toLowerCase()),
     );
@@ -319,14 +338,18 @@ runGate(
       if (unknown.length === 0) continue;
 
       const blocked = unknown
-        .map((name) => ({ name, status: knowledgeStatus(state, name) }))
+        .map((name) => ({
+          name,
+          status: knowledgeStatus(state, name, installed),
+        }))
         .filter((entry) => !entry.status.known);
       allBlocked.push(...blocked);
     }
 
     if (allBlocked.length === 0) return;
     const lines = allBlocked.map(
-      (entry) => `${entry.name}: ${remedyFor(entry.name, entry.status)}`,
+      (entry) =>
+        `${entry.name}: ${remedyFor(entry.name, entry.status, installed)}`,
     );
     deny(
       CONFIG_KEY,
