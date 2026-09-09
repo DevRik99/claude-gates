@@ -106,7 +106,6 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 |---|---|---|
 | `dependency-skills` | on | Bloquea una dependencia directa nueva sin skill que la cubra (declarala en `depsWithoutOwnApi` si no necesita). |
 | `root-cause-first` | off | Exige un diagnóstico origen→síntoma antes de un parche. |
-| `audit-before-build` | off | Antes de un script/gate nuevo, exige declarar que nada existente lo cubre. |
 | `never-assume` | off | Marca suposiciones sin verificar en briefs y código. |
 | `rule-skill-autodiscovery` | off | Carga los gates que el proyecto declara en sus `rules/` y `skills/`. |
 | `recurrence-lock` | on | La segunda aparición de un defecto exige su bloqueo determinista. |
@@ -126,7 +125,7 @@ ejecución), así que funciona aunque instales uno suelto por fuera.
 ### 🔎 Tool discovery — no reinventar la rueda
 | Gate | | Qué hace |
 |---|---|---|
-| `reuse-before-build` | off | Antes de construir una herramienta, consulta el mapa de herramientas del proyecto; bloquea si no auditaste (local → Context7 → web). |
+| `reuse-before-build` | on | Antes de construir una herramienta, consulta el mapa de herramientas del proyecto; bloquea si no se auditó (local → Context7 → web). |
 | `tool-map` | off | Registra las herramientas descubiertas en `.ai/tool-map.json` para no volver a explorar. |
 | `skill-first` | off | Bloquea una escritura/comando/delegación que una **skill** disponible cubre de forma plausible hasta que la pregunta se haya hecho: cargar la skill, o decir por qué no aplica (`no skill covers this` / `using the <name> skill`). Lee el mismo catálogo que inyecta `capability-map`. |
 
@@ -405,7 +404,7 @@ Cada gate se testea aislado: `node --test plugins/gates/hooks/gates/<id>/test.mj
 (nombra los archivos de test: un glob que también matchee `index.mjs` se cuelga, porque un gate espera stdin).
 
 > Este repositorio trae su propio `.ai/config.json` que apaga localmente los gates que
-> darían falso positivo al **editar los gates mismos** (por ejemplo, `audit-before-build`
+> darían falso positivo al **editar los gates mismos** (por ejemplo, `reuse-before-build`
 > cree que estás "construyendo una herramienta" cuando en realidad editas un gate
 > existente). Por eso está versionado: el repo se comporta igual en cualquier máquina.
 

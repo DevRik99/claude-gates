@@ -455,27 +455,6 @@
           ]
         },
         {
-          "id": "audit-before-build",
-          "configKey": "requireAuditBeforeBuilding",
-          "default": false,
-          "event": "PreToolUse",
-          "tools": ["write", "delegation"],
-          "description": "Before a new script/gate, state that no existing tool covers it.",
-          "script": "gates/audit-before-build/index.mjs",
-          "params": [
-            {
-              "name": "executableExtensions",
-              "type": "string[]",
-              "description": "File extensions treated as executable tools."
-            },
-            {
-              "name": "toolFolders",
-              "type": "string[]",
-              "description": "Folders where a new tool triggers the audit requirement."
-            }
-          ]
-        },
-        {
           "id": "never-assume",
           "configKey": "requireVerificationBeforeAssuming",
           "default": false,
@@ -816,7 +795,7 @@
         {
           "id": "reuse-before-build",
           "configKey": "requireReuseCheckBeforeBuilding",
-          "default": false,
+          "default": true,
           "event": "PreToolUse",
           "tools": ["write", "delegation"],
           "description": "Before building a tool/helper (by folder, name pattern, or extension), requires evidence the wheel was checked: an audit phrase, the tool's name already in the map (structural match), or a matching installed dependency. Covers helpers beyond scripts/hooks/tools/gates and Spanish build-intent.",

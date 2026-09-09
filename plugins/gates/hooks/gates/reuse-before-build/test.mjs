@@ -1,3 +1,5 @@
+// adversarial-tests:allow — comment-ok: because this file is the gate's behavior suite, one
+// case per evidence path; the adversarial cases live in edge.edge.test.mjs.
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -178,6 +180,44 @@ test('the tool map is read from a project root marked by .ai/ alone (no .git)', 
   assert.equal(
     runGateProcess(GATE, writeTool('export {}'), { project, cwd: sub }),
     null,
+  );
+});
+
+test('"run the build script" is a noun phrase, not intent to build a script', () => {
+  assert.equal(
+    runGate(
+      delegate('Run the build script and report the failures it prints.'),
+    ),
+    null,
+  );
+});
+
+test('"add tests for the gate module" builds a test, not a gate', () => {
+  assert.equal(
+    runGate(delegate('Add tests for the gate module, covering the deny path.')),
+    null,
+  );
+});
+
+test('a vendored path is never the project building its own tool', () => {
+  for (const path of [
+    'node_modules/some-dep/lib/index.js',
+    '.git/hooks/pre-commit.sh',
+  ])
+    assert.equal(runGate(write(path, 'export const x = 1;')), null, path);
+});
+
+test('a configured toolFolders entry written as a path ("scripts/") still matches', () => {
+  const config = {
+    gates: {
+      requireReuseCheckBeforeBuilding: {
+        enabled: true,
+        toolFolders: ['scripts/'],
+      },
+    },
+  };
+  assert.ok(
+    isDeny(runGate(writeTool('export function parse() {}'), { config })),
   );
 });
 

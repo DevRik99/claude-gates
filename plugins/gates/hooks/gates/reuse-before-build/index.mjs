@@ -16,13 +16,13 @@ import {
   writtenPathOf,
   delegationPromptOf,
 } from '../../lib/hook-io.mjs';
-import { isBuildIntent } from '../../lib/signals.mjs';
 import {
   AUDIT_DONE_PATTERN,
   DEFAULT_TOOL_EXTENSIONS,
   DEFAULT_TOOL_FOLDERS,
   DEFAULT_TOOL_NAME_PATTERNS,
   hasAuditEvidence,
+  isNewToolIntent,
   isToolPath,
 } from '../../lib/tools.mjs';
 
@@ -112,7 +112,7 @@ function buildIsCleared(text, root, parameters, toolBaseName) {
 
 function checkDelegation(toolInput, root, parameters) {
   const prompt = delegationPromptOf(toolInput);
-  if (!isBuildIntent(prompt)) return;
+  if (!isNewToolIntent(prompt)) return;
   if (buildIsCleared(prompt, root, parameters, null)) return;
   deny(CONFIG_KEY, delegationDenyMessage());
 }
@@ -136,7 +136,7 @@ runGate(
   {
     id: GATE_ID,
     configKey: CONFIG_KEY,
-    enabledByDefault: false,
+    enabledByDefault: true,
     defaultParams: {
       toolMapFile: DEFAULT_TOOL_MAP_FILE,
       toolFolders: DEFAULT_TOOL_FOLDERS,

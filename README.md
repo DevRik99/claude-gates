@@ -108,7 +108,6 @@ works even if you install one on its own.
 | --------------------------- | --- | -------------------------------------------------------------------------------------------------------------- |
 | `dependency-skills`         | on  | Blocks a new direct dependency with no matching skill (declare it in `depsWithoutOwnApi` if it needs none).    |
 | `root-cause-first`          | off | Requires an origin→symptom diagnosis before a patch.                                                           |
-| `audit-before-build`        | off | Before a new script/gate, requires stating that nothing existing covers it.                                    |
 | `never-assume`              | off | Flags unverified assumptions in briefs and code.                                                               |
 | `rule-skill-autodiscovery`  | off | Loads gates the project declares in its `rules/` and `skills/`.                                                |
 | `recurrence-lock`           | on  | A second occurrence of a defect class requires its deterministic block.                                        |
@@ -129,7 +128,7 @@ works even if you install one on its own.
 
 | Gate                 |     | What it does                                                                                                 |
 | -------------------- | --- | ------------------------------------------------------------------------------------------------------------ |
-| `reuse-before-build` | off | Before building a tool, consults the project tool map; blocks if you did not audit (local → Context7 → web). |
+| `reuse-before-build` | on  | Before building a tool, consults the project tool map; blocks if you did not audit (local → Context7 → web). |
 | `tool-map`           | off | Records discovered tools in `.ai/tool-map.json` so exploration is not repeated.                              |
 | `skill-first`        | off | Blocks a write/command/delegation an available **skill** plausibly covers until the question was asked: load the skill, or say why it does not fit (`no skill covers this` / `using the <name> skill`). Reads the same catalog `capability-map` injects. |
 
@@ -417,7 +416,7 @@ Each gate is tested in isolation: `node --test plugins/gates/hooks/gates/<id>/te
 (name the test files: a glob that also matches `index.mjs` hangs, because a gate waits on stdin).
 
 > This repo ships its own `.ai/config.json` that locally disables the gates that would
-> false-positive when **editing the gates themselves** (e.g. `audit-before-build` thinks
+> false-positive when **editing the gates themselves** (e.g. `reuse-before-build` thinks
 > you are "building a tool" when you are really editing an existing gate). It is versioned
 > so the repo behaves the same on any machine.
 

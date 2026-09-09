@@ -206,16 +206,6 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/audit-before-build/index.mjs\"",
-            "timeout": 30
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit|write_to_file|replace_file_content|Agent|Task|invoke_subagent|mcp__.*",
-        "hooks": [
-          {
-            "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gates/never-assume/index.mjs\"",
             "timeout": 30
           }

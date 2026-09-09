@@ -43,6 +43,14 @@ traducidos línea por línea.
    justificación. Patrones reescritos en inglés (already exists, no existing tool, no
    plugin, audited and, justification:) manteniendo equivalentes en español.
 
+   **ELIMINADO.** Hacía la misma pregunta que `reuse-before-build` sobre un conjunto de
+   carpetas y extensiones más pequeño, y aceptaba una sola respuesta (la frase) en vez de
+   tres (frase, mapa de herramientas, dependencia instalada). Dos denegaciones con el mismo
+   remedio. Lo que sí tenía de más vive ahora en `lib/tools.mjs` y lo hereda todo el mundo:
+   el enmascarado de los falsos positivos del intent (`isNewToolIntent`), la exclusión de
+   rutas ajenas (`isForeignPath`) y el aguante a un `toolFolders` escrito como ruta
+   (`"scripts/"`). Un `requireAuditBeforeBuilding` que quede en un config viejo es inerte.
+
 4. **never-assume.mjs** (`requireVerificationBeforeAssuming`, WARN, default off). Busca
    frases de conjetura ("i assume", "probably", "should be"...) en Write/Edit/delegación.
    Nunca deniega — igual que el guard fuente, que es explícito: aviso, no bloqueo.

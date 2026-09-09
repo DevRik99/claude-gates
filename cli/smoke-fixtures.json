@@ -259,19 +259,6 @@
       "needsState": false
     },
     {
-      "id": "audit-before-build",
-      "configKey": "requireAuditBeforeBuilding",
-      "enabledByDefault": false,
-      "type": "deny",
-      "payload": {
-        "tool_name": "Agent",
-        "tool_input": {
-          "prompt": "create a new script that checks X"
-        }
-      },
-      "needsState": false
-    },
-    {
       "id": "never-assume",
       "configKey": "requireVerificationBeforeAssuming",
       "enabledByDefault": false,
@@ -407,7 +394,7 @@
     {
       "id": "reuse-before-build",
       "configKey": "requireReuseCheckBeforeBuilding",
-      "enabledByDefault": false,
+      "enabledByDefault": true,
       "type": "deny",
       "payload": {
         "tool_name": "Write",

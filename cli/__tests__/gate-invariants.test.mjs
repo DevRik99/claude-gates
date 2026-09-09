@@ -187,9 +187,10 @@ test("no gate denies this toolkit's own remedy", () => {
   );
 });
 
-// What makes a denial usable: it points at a next step instead of only refusing. The
-// vocabulary is the one the good messages here already use — protected-paths says "ask the
-// user, or edit protectedPaths"; audit-before-build gives the exact phrase to add.
+// Because a denial that only refuses leaves the operator with nowhere to go, every message
+// must point at a next step. The vocabulary is the one the good messages here already use —
+// protected-paths says "ask the user, or edit protectedPaths"; reuse-before-build gives the
+// exact phrase to add.
 const ACTIONABLE =
   /\b(add|set|use|run|edit|write|declare|ask|remove|replace|pick|state|split|close|fix|retry|instead)\b/i;
 
