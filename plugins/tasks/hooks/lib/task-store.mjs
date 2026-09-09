@@ -358,9 +358,29 @@ export function openTaskStore(startDirectory) {
         return 0;
       }
     },
-    /** Sets the message counter. */
     setCounter(count) {
-      writeCollection(counterPath, { count });
+      writeCollection(counterPath, { count, briefedSession: this.briefed() });
+    },
+
+    // Both fields share one file because they are the same thing: what this project already
+    // told the assistant, and therefore need not repeat on the next message.
+    briefed() {
+      if (!existsSync(counterPath)) return null;
+      try {
+        return (
+          JSON.parse(stripBom(readFileSync(counterPath, 'utf8')))
+            .briefedSession ?? null
+        );
+      } catch {
+        return null;
+      }
+    },
+
+    setBriefed(sessionId) {
+      writeCollection(counterPath, {
+        count: this.counter(),
+        briefedSession: sessionId,
+      });
     },
   };
 }

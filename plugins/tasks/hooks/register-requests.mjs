@@ -88,7 +88,9 @@ const CLASSIFY_PROMPT =
   "[remindOpenTasks] MANDATORY — before writing your reply, you MUST register the user's message as a " +
   'task unless it is UNAMBIGUOUSLY one of these: (a) pure small talk with no request ("hello", ' +
   '"thanks"), (b) a yes/no answer to a question YOU asked, (c) a message that says only "continue" ' +
-  'or "go ahead". Everything else is a task — including questions that require research, review ' +
+  'or "go ahead", (d) a request answered entirely inside this reply, changing nothing on disk and ' +
+  'leaving nothing to verify later (a summary, an explanation, "what did you do", "show me X"). ' +
+  'Everything else is a task — including questions that require research, review ' +
   'requests, error reports, follow-ups that add scope, corrections, and messages with multiple ' +
   'requests (register one task per distinct request). DEFAULT TO REGISTERING: when in doubt, ' +
   'register.\n\n' +
@@ -120,6 +122,16 @@ const CLASSIFY_PROMPT =
   "from the project root (or the CLI's absolute path if `claude-gates` is not on PATH). Do not defer " +
   'this, do not decide to register it "later", do not silently skip it because the answer seems ' +
   "obvious. The user's flow takes priority over your judgment of what deserves tracking.";
+
+// The rules above cost ~650 tokens and do not change within a session, so they are said
+// once and then referred back to. Repeating them on every message cost more than the whole
+// task system saves, and re-reading them changes no decision the assistant had not already
+// made on message one.
+const CLASSIFY_REMINDER =
+  "[remindOpenTasks] Register the user's message as a task unless it is small talk, a yes/no " +
+  'answer to your own question, or just "continue" — `claude-gates task add "<title>" ' +
+  '--verify-command|--verify-path ...`, splitting anything medium or larger. Full rules were ' +
+  'given at the start of this session.';
 
 /**
  * Splits the tasks into what YOU can act on and what you cannot. The list used to be flat and
@@ -200,7 +212,10 @@ function main() {
   const store = openTaskStore(cwd);
   if (!store) return; // no project: nowhere to track
 
-  const lines = [CLASSIFY_PROMPT];
+  const session = payload.session_id ?? '';
+  const alreadyBriefed = session !== '' && store.briefed() === session;
+  if (!alreadyBriefed) store.setBriefed(session);
+  const lines = [alreadyBriefed ? CLASSIFY_REMINDER : CLASSIFY_PROMPT];
 
   const tasks = store.active();
   if (tasks.length > 0) {

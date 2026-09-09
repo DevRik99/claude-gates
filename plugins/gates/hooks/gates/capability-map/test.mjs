@@ -1,3 +1,5 @@
+// adversarial-tests:allow — comment-ok: because this file is the gate's behavior suite, one
+// case per injection path (catalog change, pivot, throttle, kinds, overrides).
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import {
@@ -464,6 +466,16 @@ test('a prompt that pivots to a different kind of work re-injects mid-throttle',
     run({ prompt: 'ok, ahora publica la release y taggea la version' }),
     /deploy — Deploys/,
   );
+});
+
+test('a pivot on the very next message does not re-inject what was just shown', () => {
+  const project = makeProject({ prefix: 'capability-map-', config: THROTTLED });
+  seedProject(project, {
+    skills: [{ name: 'deploy', description: 'Deploys.' }],
+  });
+  const run = runnerFor(project);
+  assert.match(run({ prompt: 'arregla el bug que rompe el login' }), /deploy/);
+  assert.equal(run({ prompt: 'publica la release y taggea la version' }), '');
 });
 
 test('staying on the same kind of work stays silent under the throttle', () => {

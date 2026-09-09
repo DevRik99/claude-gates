@@ -176,11 +176,19 @@ function renderCatalog(catalog, kinds) {
 // and the skills that matter for the new nature were never re-surfaced. The nature is a
 // coarse lexical read of the prompt (lib/signals.mjs), and being wrong costs one extra
 // injection of a never-blocking catalog — cheap enough to prefer over staying silent.
+// Because a varied session changes nature nearly every turn, the pivot rule alone amounted
+// to "inject always" and made the 10-message throttle decorative. A pivot now waits for the
+// catalog to have gone quiet: ~300 tokens on every prompt is a real cost, and repeating the
+// same list two messages apart buys nothing.
+const PIVOT_QUIET_MESSAGES = 2;
+
 function injectionDecision(session, fingerprint, nature, settings) {
   const changed = session.fingerprint !== fingerprint;
-  const pivoted =
-    settings.reinjectOnWorkNatureChange && session.workNature !== nature;
   const nextCount = (Number(session.messageCount) || 0) + 1;
+  const pivoted =
+    settings.reinjectOnWorkNatureChange &&
+    session.workNature !== nature &&
+    nextCount >= PIVOT_QUIET_MESSAGES;
   const shouldInject =
     changed || pivoted || nextCount >= settings.injectEveryMessages;
   return { shouldInject, messageCount: shouldInject ? 0 : nextCount };

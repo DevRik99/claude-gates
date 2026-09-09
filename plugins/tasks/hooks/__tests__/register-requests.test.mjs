@@ -1,5 +1,7 @@
 // register-requests — UserPromptSubmit hook. Spawned as a real child process, matching how
 // Claude Code invokes it, against a temp project.
+// adversarial-tests:allow — comment-ok: because this file is the hook's behavior suite, one
+// case per output path (classify, recite, throttle, disabled, defaults-dump).
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -22,9 +24,9 @@ function makeProject() {
   return project;
 }
 
-function runHook(cwd) {
+function runHook(cwd, sessionId) {
   return execFileSync(process.execPath, [HOOK_PATH], {
-    input: JSON.stringify({ cwd }),
+    input: JSON.stringify({ cwd, session_id: sessionId }),
     encoding: 'utf8',
   });
 }
@@ -50,6 +52,22 @@ test('always asks the model to classify+register, even with no active tasks yet'
   const project = makeProject();
   const stdout = runHook(project);
   assert.match(stdout, /claude-gates task add/);
+});
+
+test('the full rules are given once per session, then referred back to', () => {
+  const project = makeProject();
+  const first = runHook(project, 'session-a');
+  const second = runHook(project, 'session-a');
+  const other = runHook(project, 'session-b');
+
+  assert.match(first, /VERIFICATION REQUIRED/);
+  assert.doesNotMatch(second, /VERIFICATION REQUIRED/);
+  assert.match(second, /Full rules were given at the start of this session/);
+  assert.match(other, /VERIFICATION REQUIRED/);
+  assert.ok(
+    second.length < first.length / 4,
+    `the repeat costs ${second.length} chars against ${first.length}: the saving is the point`,
+  );
 });
 
 test('does NOT recite active tasks before remindEveryMessages is reached', () => {
@@ -107,13 +125,6 @@ test('defaults-dump mode reports remindEveryMessages default without touching st
 const ME = 'agent-yo';
 const OTHER = 'agent-otro';
 
-function runHookAs(cwd, sessionId) {
-  return execFileSync(process.execPath, [HOOK_PATH], {
-    input: JSON.stringify({ cwd, session_id: sessionId }),
-    encoding: 'utf8',
-  });
-}
-
 function claimedTask(id, owner) {
   return {
     ...sampleTask(id),
@@ -126,7 +137,7 @@ function forceReminder(project, tasks) {
   const store = openTaskStore(project);
   for (const task of tasks) store.add(task);
   store.setCounter(99);
-  return runHookAs(project, ME);
+  return runHook(project, ME);
 }
 
 test('el recordatorio separa lo tuyo, lo libre y lo de otros', () => {
